@@ -15,8 +15,15 @@ make install
 
 ## Try it out
 ```
+# start the server
 tclsh ../examples/example.tcl
+
+# simple get request
 curl -k https://localhost:4433
+# json post request
 curl -k -X POST -H "Content-Type: application/json" --data '{"message": "hello world"}' https://localhost:4433
+# isBase64Encoded
 curl -k -X POST -H 'content-type: image/jpeg' --data-binary @../examples/Google_2015_logo.png https://localhost:4433
+# multivalue headers
+curl -k -X POST -H "Content-Type: application/json" -H "X-Custom-Header: asdf" -H "X-Custom-Header: qwerty" --data '{"message": "hello world"}' https://localhost:4433
 ```

@@ -474,8 +474,9 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
     curr++;
     char *http_method = strndup(p, curr - p);
     http_method[curr - p - 1] = '\0';
+    int http_method_length = curr - p - 1;
 
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("http_method", -1), Tcl_NewStringObj(http_method, -1));
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("httpMethod", -1), Tcl_NewStringObj(http_method, http_method_length));
 
     // skip spaces
     while (curr < end && CHARTYPE(space, *curr) != 0) {
@@ -495,8 +496,9 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
     curr++;
     char *path = strndup(p, curr - p);
     path[curr - p - 1] = '\0';
+    int path_length = curr - p - 1;
 
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), Tcl_NewStringObj(path, -1));
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), Tcl_NewStringObj(path, path_length));
 
     // skip spaces until end of line denoted by "\r\n" or "\n"
     while (curr < end && CHARTYPE(space, *curr) != 0 && *curr != '\r' && *curr != '\n') {
@@ -538,7 +540,27 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
     return TCL_ERROR;
 }
 
-static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char *end, Tcl_Obj *headersPtr) {
+static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *headersPtr, Tcl_Obj *multiValueHeadersPtr, Tcl_Obj *keyPtr, Tcl_Obj *valuePtr) {
+    Tcl_Obj *existingValuePtr;
+    Tcl_DictObjGet(interp, headersPtr, keyPtr, &existingValuePtr);
+    if (existingValuePtr) {
+        // check if "key" already exists in "multiValueHeaders"
+        Tcl_Obj *multiValuePtr;
+        Tcl_DictObjGet(interp, multiValueHeadersPtr, keyPtr, &multiValuePtr);
+        if (!multiValuePtr) {
+            // it does not exist, create a new list and add the existing value from headers
+            multiValuePtr = Tcl_NewListObj(0, NULL);
+            Tcl_ListObjAppendElement(interp, multiValuePtr, existingValuePtr);
+        }
+        // append the new value to the list
+        Tcl_ListObjAppendElement(interp, multiValuePtr, valuePtr);
+        Tcl_DictObjPut(interp, multiValueHeadersPtr, keyPtr, multiValuePtr);
+    }
+    Tcl_DictObjPut(interp, headersPtr, keyPtr, valuePtr);
+    return TCL_OK;
+}
+
+static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char *end, Tcl_Obj *headersPtr, Tcl_Obj *multiValueHeadersPtr) {
     // parse the headers, each header is a line of the form "key: value"
     // stop when we reach an empty line denoted by "\r\n" or "\n"
     const char *curr = *currPtr;
@@ -591,7 +613,11 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
 
         // check if we reached the end
         if (curr == end) {
-            Tcl_DictObjPut(interp, headersPtr, keyPtr, valuePtr);
+            if (TCL_OK != tws_AddHeader(interp, headersPtr, multiValueHeadersPtr, keyPtr, valuePtr)) {
+                free(key);
+                free(value);
+                goto done;
+            }
             free(value);
             free(key);
             break;
@@ -608,7 +634,11 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
 
         // check if we reached the end
         if (curr == end) {
-            Tcl_DictObjPut(interp, headersPtr, keyPtr, valuePtr);
+            if (TCL_OK != tws_AddHeader(interp, headersPtr, multiValueHeadersPtr, keyPtr, valuePtr)) {
+                free(key);
+                free(value);
+                goto done;
+            }
             free(value);
             free(key);
             break;
@@ -650,7 +680,11 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
 
         }
 
-        Tcl_DictObjPut(interp, headersPtr, keyPtr, valuePtr);
+        if (TCL_OK != tws_AddHeader(interp, headersPtr, multiValueHeadersPtr, keyPtr, valuePtr)) {
+            free(key);
+            free(value);
+            goto done;
+        }
         free(key);
         free(value);
 
@@ -814,9 +848,7 @@ static int tws_ParseRequestCmd(ClientData  clientData, Tcl_Interp *interp, int o
 
     DBG(fprintf(stderr, "request=%s\n", request));
 
-    // Write TCL C API code to parse the request that consists of:
 //    String version;
-//    String resource;
 //    String path;
 //    String httpMethod;
 //    Map<String, String> headers;
@@ -824,8 +856,6 @@ static int tws_ParseRequestCmd(ClientData  clientData, Tcl_Interp *interp, int o
 //    Map<String, String> queryStringParameters;
 //    Map<String, List<String>> multiValueQueryStringParameters;
 //    Map<String, String> pathParameters;
-//    Map<String, String> stageVariables;
-//    ProxyRequestContext requestContext;
 //    String body;
 //    Boolean isBase64Encoded;
     Tcl_Obj *resultPtr = Tcl_NewDictObj();
@@ -839,10 +869,12 @@ static int tws_ParseRequestCmd(ClientData  clientData, Tcl_Interp *interp, int o
     }
 
     Tcl_Obj *headersPtr = Tcl_NewDictObj();
-    if (TCL_OK != tws_ParseHeaders(interp, &curr, end, headersPtr)) {
+    Tcl_Obj *multiValueHeadersPtr = Tcl_NewDictObj();
+    if (TCL_OK != tws_ParseHeaders(interp, &curr, end, headersPtr, multiValueHeadersPtr)) {
         goto done;
     }
     Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("headers", -1), headersPtr);
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("multiValueHeaders", -1), multiValueHeadersPtr);
 
     // get "Content-Length" header
     Tcl_Obj *contentLengthPtr;
