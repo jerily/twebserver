@@ -454,6 +454,90 @@ static int tws_CloseConnCmd(ClientData  clientData, Tcl_Interp *interp, int objc
     return tws_CloseConn(interp, conn_handle);
 }
 
+static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const char *end, Tcl_Obj *resultPtr) {
+    const char *curr = *currPtr;
+    // skip spaces
+    while (curr < end && CHARTYPE(space, *curr) != 0) {
+        curr++;
+    }
+    const char *p = curr;
+
+    // collect non-space chars as first token
+    while (curr < end && CHARTYPE(space, *curr) == 0) {
+        curr++;
+    }
+    if (curr == end) {
+        goto done;
+    }
+
+    // mark the end of the token and remember as "http_method"
+    curr++;
+    char *http_method = strndup(p, curr - p);
+    http_method[curr - p - 1] = '\0';
+
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("http_method", -1), Tcl_NewStringObj(http_method, -1));
+
+    // skip spaces
+    while (curr < end && CHARTYPE(space, *curr) != 0) {
+        curr++;
+    }
+    p = curr;
+
+    // collect non-space chars as second token
+    while (curr < end && CHARTYPE(space, *curr) == 0) {
+        curr++;
+    }
+    if (curr == end) {
+        goto done;
+    }
+
+    // mark the end of the token and remember as "path"
+    curr++;
+    char *path = strndup(p, curr - p);
+    path[curr - p - 1] = '\0';
+
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), Tcl_NewStringObj(path, -1));
+
+    // skip spaces until end of line denoted by "\r\n" or "\n"
+    while (curr < end && CHARTYPE(space, *curr) != 0 && *curr != '\r' && *curr != '\n') {
+        curr++;
+    }
+    p = curr;
+
+    if (curr == end) {
+        goto done;
+    }
+
+    // parse "version" if we have NOT reached the end of line
+    if (*curr != '\r' && *curr != '\n') {
+
+        // collect non-space chars as third token
+        while (curr < end && CHARTYPE(space, *curr) == 0) {
+            curr++;
+        }
+        if (curr == end) {
+            goto done;
+        }
+
+        // mark the end of the token and remember as "version"
+        curr++;
+        char *version = strndup(p, curr - p);
+        version[curr - p - 1] = '\0';
+        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("version", -1), Tcl_NewStringObj(version, -1));
+    }
+
+    // skip newline chars
+    while (curr < end && (*curr == '\r' || *curr == '\n')) {
+        curr++;
+    }
+    *currPtr = curr;
+    return TCL_OK;
+
+    done:
+    Tcl_SetObjResult(interp, Tcl_NewStringObj("request line parse error", -1));
+    return TCL_ERROR;
+}
+
 static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char *end, Tcl_Obj *headersPtr) {
     // parse the headers, each header is a line of the form "key: value"
     // stop when we reach an empty line denoted by "\r\n" or "\n"
@@ -644,79 +728,9 @@ static int tws_ParseRequestCmd(ClientData  clientData, Tcl_Interp *interp, int o
     const char *curr = request;
     const char *end = request + length;
 
-    // skip spaces
-    while (curr < end && CHARTYPE(space, *curr) != 0) {
-        curr++;
-    }
-    const char *p = curr;
-
-    // collect non-space chars as first token
-    while (curr < end && CHARTYPE(space, *curr) == 0) {
-        curr++;
-    }
-    if (curr == end) {
+    // parse the first line of the request
+    if (TCL_OK != tws_ParseRequestLine(interp, &curr, end, resultPtr)) {
         goto done;
-    }
-
-    // mark the end of the token and remember as "http_method"
-    curr++;
-    char *http_method = strndup(p, curr - p);
-    http_method[curr - p - 1] = '\0';
-
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("http_method", -1), Tcl_NewStringObj(http_method, -1));
-
-    // skip spaces
-    while (curr < end && CHARTYPE(space, *curr) != 0) {
-        curr++;
-    }
-    p = curr;
-
-    // collect non-space chars as second token
-    while (curr < end && CHARTYPE(space, *curr) == 0) {
-        curr++;
-    }
-    if (curr == end) {
-        goto done;
-    }
-
-    // mark the end of the token and remember as "path"
-    curr++;
-    char *path = strndup(p, curr - p);
-    path[curr - p - 1] = '\0';
-
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), Tcl_NewStringObj(path, -1));
-
-    // skip spaces until end of line denoted by "\r\n" or "\n"
-    while (curr < end && CHARTYPE(space, *curr) != 0 && *curr != '\r' && *curr != '\n') {
-        curr++;
-    }
-    p = curr;
-
-    if (curr == end) {
-        goto done;
-    }
-
-    // parse "version" if we have NOT reached the end of line
-    if (*curr != '\r' && *curr != '\n') {
-
-        // collect non-space chars as third token
-        while (curr < end && CHARTYPE(space, *curr) == 0) {
-            curr++;
-        }
-        if (curr == end) {
-            goto done;
-        }
-
-        // mark the end of the token and remember as "version"
-        curr++;
-        char *version = strndup(p, curr - p);
-        version[curr - p - 1] = '\0';
-        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("version", -1), Tcl_NewStringObj(version, -1));
-    }
-
-    // skip newline chars
-    while (curr < end && (*curr == '\r' || *curr == '\n')) {
-        curr++;
     }
 
     Tcl_Obj *headersPtr = Tcl_NewDictObj();
