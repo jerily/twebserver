@@ -6,9 +6,7 @@ set thread_script {
     lappend auto_path [file join [file dirname [info script]] ..]
     package require tws
 
-    proc thread_process_request {requestVar} {
-        upvar $requestVar request
-        set request_dict [::tws::parse_request $request]
+    proc thread_process_request {request_dict} {
         return "HTTP/1.1 200 OK\n\ntest message request_dict=$request_dict\n"
     }
 
@@ -16,7 +14,7 @@ set thread_script {
         puts "thread_process_conn $conn $addr $port"
         if { [catch {
             set request [::tws::read_conn $conn]
-            set reply [thread_process_request request]
+            set reply [thread_process_request [::tws::parse_request $request]]
             ::tws::write_conn $conn $reply
         } errmsg] } {
             puts "error: $errmsg"
