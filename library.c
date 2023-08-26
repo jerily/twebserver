@@ -454,6 +454,91 @@ static int tws_CloseConnCmd(ClientData  clientData, Tcl_Interp *interp, int objc
     return tws_CloseConn(interp, conn_handle);
 }
 
+static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Obj *queryStringParametersPtr, Tcl_Obj *multivalueQueryStringParametersPtr, const char *key, const char *value, int value_length) {
+    // check if "key" already exists in "queryStringParameters"
+    Tcl_Obj *keyPtr = Tcl_NewStringObj(key, value - key - 1);
+    Tcl_Obj *valuePtr = Tcl_NewStringObj(value, value_length);
+    Tcl_Obj *existingValuePtr;
+    Tcl_DictObjGet(interp, queryStringParametersPtr, keyPtr, &existingValuePtr);
+    if (existingValuePtr) {
+        // check if "key" already exists in "multivalueQueryStringParameters"
+        Tcl_Obj *multiValuePtr;
+        Tcl_DictObjGet(interp, multivalueQueryStringParametersPtr, keyPtr, &multiValuePtr);
+        if (!multiValuePtr) {
+            // it does not exist, create a new list and add the existing value from queryStringParameters
+            multiValuePtr = Tcl_NewListObj(0, NULL);
+            Tcl_ListObjAppendElement(interp, multiValuePtr, existingValuePtr);
+        }
+        // append the new value to the list
+        Tcl_ListObjAppendElement(interp, multiValuePtr, valuePtr);
+        Tcl_DictObjPut(interp, multivalueQueryStringParametersPtr, keyPtr, multiValuePtr);
+    }
+    Tcl_DictObjPut(interp, queryStringParametersPtr, keyPtr, valuePtr);
+    return TCL_OK;
+}
+
+static int tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Obj *queryStringPtr, Tcl_Obj *resultPtr) {
+    // parse "query_string" into "queryStringParameters" given that it is of the form "key1=value1&key2=value2&..."
+    Tcl_Obj *queryStringParametersPtr = Tcl_NewDictObj();
+    Tcl_Obj *multiValueQueryStringParametersPtr = Tcl_NewDictObj();
+    int query_string_length;
+    const char *query_string = Tcl_GetStringFromObj(queryStringPtr, &query_string_length);
+    const char *p = query_string;
+    const char *end = query_string + query_string_length;
+    while (p < end) {
+        const char *key = p;
+        const char *value = NULL;
+        while (p < end && *p != '=') {
+            p++;
+        }
+        if (p == end) {
+            Tcl_SetObjResult(interp, Tcl_NewStringObj("query string parse error", -1));
+            return TCL_ERROR;
+        }
+        value = p + 1;
+        while (p < end && *p != '&') {
+            p++;
+        }
+        if (p == end) {
+            if (TCL_OK != tws_AddQueryStringParameter(interp, queryStringParametersPtr, multiValueQueryStringParametersPtr, key, value, p - value)) {
+                Tcl_SetObjResult(interp, Tcl_NewStringObj("query string parse error", -1));
+                return TCL_ERROR;
+            }
+            break;
+        }
+        if (TCL_OK != tws_AddQueryStringParameter(interp, queryStringParametersPtr, multiValueQueryStringParametersPtr, key, value, p - value)) {
+            Tcl_SetObjResult(interp, Tcl_NewStringObj("query string parse error", -1));
+            return TCL_ERROR;
+        }
+        p++;
+    }
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryStringParameters", -1), queryStringParametersPtr);
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("multiValueQueryStringParameters", -1), multiValueQueryStringParametersPtr);
+    return TCL_OK;
+}
+
+static int tws_ParsePathAndQueryString(Tcl_Interp *interp, const char *url, int url_length, Tcl_Obj *resultPtr) {
+    // parse "path" and "queryStringParameters" from "url"
+    const char *p2 = url;
+    while (p2 < url + url_length && *p2 != '\0') {
+        if (*p2 == '?') {
+            int path_length = p2 - url;
+            Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), Tcl_NewStringObj(url, path_length));
+            int query_string_length = url + url_length - p2 - 1;
+            Tcl_Obj *queryStringPtr = Tcl_NewStringObj(p2 + 1, query_string_length);
+            Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), queryStringPtr);
+            tws_ParseQueryStringParameters(interp, queryStringPtr, resultPtr);
+            break;
+        }
+        p2++;
+    }
+    if (p2 == url) {
+        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), Tcl_NewStringObj(url, url_length));
+        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), Tcl_NewStringObj("", 0));
+    }
+    return TCL_OK;
+}
+
 static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const char *end, Tcl_Obj *resultPtr) {
     const char *curr = *currPtr;
     // skip spaces
@@ -494,11 +579,15 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
 
     // mark the end of the token and remember as "path"
     curr++;
-    char *path = strndup(p, curr - p);
-    path[curr - p - 1] = '\0';
-    int path_length = curr - p - 1;
+    char *url = strndup(p, curr - p);
+    url[curr - p - 1] = '\0';
+    int url_length = curr - p - 1;
 
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), Tcl_NewStringObj(path, path_length));
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("url", -1), Tcl_NewStringObj(url, url_length));
+
+    if (TCL_OK != tws_ParsePathAndQueryString(interp, url, url_length, resultPtr)) {
+        goto done;
+    }
 
     // skip spaces until end of line denoted by "\r\n" or "\n"
     while (curr < end && CHARTYPE(space, *curr) != 0 && *curr != '\r' && *curr != '\n') {
