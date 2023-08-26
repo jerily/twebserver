@@ -1,6 +1,6 @@
 # tws
 
-TCL Web Server Extension
+TCL Web Server (HTTPS) Extension
 
 ## Build
 ```
