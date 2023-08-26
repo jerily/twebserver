@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
+#include <ctype.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -25,6 +26,7 @@
 
 #define CMD_SERVER_NAME(s,internal) sprintf((s), "_TWS_SERVER_%p", (internal))
 #define CMD_CONN_NAME(s,internal) sprintf((s), "_TWS_CONN_%p", (internal))
+#define CHARTYPE(what,c) (is ## what ((int)((unsigned char)(c))))
 
 static int           tws_ModuleInitialized;
 
@@ -452,6 +454,291 @@ static int tws_CloseConnCmd(ClientData  clientData, Tcl_Interp *interp, int objc
     return tws_CloseConn(interp, conn_handle);
 }
 
+static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char *end, Tcl_Obj *headersPtr) {
+    // parse the headers, each header is a line of the form "key: value"
+    // stop when we reach an empty line denoted by "\r\n" or "\n"
+    const char *curr = *currPtr;
+    while (curr < end) {
+        const char *p = curr;
+
+        // collect non-space chars as header key
+        while (curr < end && CHARTYPE(space, *curr) == 0 && *curr != ':') {
+            curr++;
+        }
+        if (curr == end) {
+            goto done;
+        }
+
+        // mark the end of the token and remember as "key"
+        curr++;
+        int keylen = curr - p - 1;
+        char *key = strndup(p, curr - p);
+        key[curr - p - 1] = '\0';
+        Tcl_Obj *keyPtr = Tcl_NewStringObj(key, keylen);
+
+        // skip spaces
+        while (curr < end && CHARTYPE(space, *curr) != 0) {
+            curr++;
+        }
+        p = curr;
+
+        // collect all chars to the end of line as header value
+        while (curr < end && *curr != '\r' && *curr != '\n') {
+            curr++;
+        }
+
+        // mark the end of the token and remember as "value"
+        curr++;
+        int valuelen = curr - p - 1;
+        char *value = strndup(p, curr - p);
+        value[curr - p - 1] = '\0';
+        Tcl_Obj *valuePtr = Tcl_NewStringObj(value, valuelen);
+
+        DBG(fprintf(stderr, "key=%s value=%s\n", key, value));
+
+        // skip spaces until end of line denoted by "\r\n" or "\n"
+        while (curr < end && CHARTYPE(space, *curr) != 0 && *curr != '\r' && *curr != '\n') {
+            curr++;
+        }
+
+        // check if we reached the end
+        if (curr == end) {
+            Tcl_DictObjPut(interp, headersPtr, keyPtr, valuePtr);
+            free(value);
+            free(key);
+            break;
+        }
+
+        // skip "\r\n" or "\n" at most once
+        if (curr + 1 < end && *curr == '\r' && *(curr + 1) == '\n') {
+            curr += 2;
+        } else if (curr < end && *curr == '\r') {
+            curr++;
+        } else if (curr < end && *curr == '\n') {
+            curr++;
+        }
+
+        // check if we reached the end
+        if (curr == end) {
+            Tcl_DictObjPut(interp, headersPtr, keyPtr, valuePtr);
+            free(value);
+            free(key);
+            break;
+        }
+
+        // check if the line starts with a space, if so, it is a continuation of the previous header
+        while (curr < end && *curr == ' ') {
+            fprintf(stderr, "continuation curr=%p end=%p intchar=%d\n", curr, end, (int) curr[0]);
+            // skip spaces
+            while (curr < end && CHARTYPE(space, *curr) != 0) {
+                curr++;
+            }
+            p = curr;
+
+            // read the new line to the end by advancing "curr"
+            while (curr < end && *curr != '\r' && *curr != '\n') {
+                curr++;
+            }
+
+            // mark the end of the string and remember as "continuation_value"
+            curr++;
+            int continuation_valuelen = curr - p;
+            char *continuation_value = strndup(p, curr - p);
+            continuation_value[curr - p - 1] = '\0';
+            Tcl_Obj *continuation_valuePtr = Tcl_NewStringObj(continuation_value, continuation_valuelen);
+
+            // append the continuation value to the previous value
+            Tcl_AppendObjToObj(valuePtr, continuation_valuePtr);
+            free(continuation_value);
+
+            // skip "\r\n" or "\n" at most once
+            if (curr + 1 < end && *curr == '\r' && *(curr + 1) == '\n') {
+                curr += 2;
+            } else if (curr < end && *curr == '\r') {
+                curr++;
+            } else if (curr < end && *curr == '\n') {
+                curr++;
+            }
+
+        }
+
+        Tcl_DictObjPut(interp, headersPtr, keyPtr, valuePtr);
+        free(key);
+        free(value);
+
+        // check if we reached a blank line
+        if (curr + 1 < end && *curr == '\r' && *(curr + 1) == '\n') {
+            curr += 2;
+            break;
+        } else if (curr < end && *curr == '\r') {
+            curr++;
+            break;
+        } else if (curr < end && *curr == '\n') {
+            curr++;
+            break;
+        }
+    }
+    *currPtr = curr;
+    return TCL_OK;
+
+    done:
+    Tcl_SetObjResult(interp, Tcl_NewStringObj("headers parse error", -1));
+    return TCL_ERROR;
+}
+
+static int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *resultPtr, Tcl_Obj *contentLengthPtr) {
+    int contentLength;
+    if (contentLengthPtr) {
+        if (Tcl_GetIntFromObj(interp, contentLengthPtr, &contentLength) != TCL_OK) {
+            Tcl_SetObjResult(interp, Tcl_NewStringObj("Content-Length must be an integer", -1));
+            return TCL_ERROR;
+        }
+
+        // check if we have enough bytes in the body
+        if (end - curr < contentLength) {
+            contentLength = end - curr;
+        }
+    } else {
+        if (curr == end) {
+            return TCL_OK;
+        }
+
+        contentLength = end - curr;
+    }
+
+    DBG(fprintf(stderr, "contentLength=%d\n", contentLength));
+
+    // mark the end of the token and remember as "body"
+    char *body = strndup(curr, contentLength + 1);
+    body[contentLength] = '\0';
+    Tcl_Obj *bodyPtr = Tcl_NewStringObj(body, contentLength);
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), bodyPtr);
+    free(body);
+}
+
+static int tws_ParseRequestCmd(ClientData  clientData, Tcl_Interp *interp, int objc, Tcl_Obj * const objv[]) {
+    DBG(fprintf(stderr, "ParseRequestCmd\n"));
+    CheckArgs(2, 2, 1, "request");
+
+    int length;
+    const char *request = Tcl_GetStringFromObj(objv[1], &length);
+
+    DBG(fprintf(stderr, "request=%s\n", request));
+
+    // Write TCL C API code to parse the request that consists of:
+//    String version;
+//    String resource;
+//    String path;
+//    String httpMethod;
+//    Map<String, String> headers;
+//    Map<String, List<String>> multiValueHeaders;
+//    Map<String, String> queryStringParameters;
+//    Map<String, List<String>> multiValueQueryStringParameters;
+//    Map<String, String> pathParameters;
+//    Map<String, String> stageVariables;
+//    ProxyRequestContext requestContext;
+//    String body;
+//    Boolean isBase64Encoded;
+    Tcl_Obj *resultPtr = Tcl_NewDictObj();
+
+    const char *curr = request;
+    const char *end = request + length;
+
+    // skip spaces
+    while (curr < end && CHARTYPE(space, *curr) != 0) {
+        curr++;
+    }
+    const char *p = curr;
+
+    // collect non-space chars as first token
+    while (curr < end && CHARTYPE(space, *curr) == 0) {
+        curr++;
+    }
+    if (curr == end) {
+        goto done;
+    }
+
+    // mark the end of the token and remember as "http_method"
+    curr++;
+    char *http_method = strndup(p, curr - p);
+    http_method[curr - p - 1] = '\0';
+
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("http_method", -1), Tcl_NewStringObj(http_method, -1));
+
+    // skip spaces
+    while (curr < end && CHARTYPE(space, *curr) != 0) {
+        curr++;
+    }
+    p = curr;
+
+    // collect non-space chars as second token
+    while (curr < end && CHARTYPE(space, *curr) == 0) {
+        curr++;
+    }
+    if (curr == end) {
+        goto done;
+    }
+
+    // mark the end of the token and remember as "path"
+    curr++;
+    char *path = strndup(p, curr - p);
+    path[curr - p - 1] = '\0';
+
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), Tcl_NewStringObj(path, -1));
+
+    // skip spaces until end of line denoted by "\r\n" or "\n"
+    while (curr < end && CHARTYPE(space, *curr) != 0 && *curr != '\r' && *curr != '\n') {
+        curr++;
+    }
+    p = curr;
+
+    if (curr == end) {
+        goto done;
+    }
+
+    // parse "version" if we have NOT reached the end of line
+    if (*curr != '\r' && *curr != '\n') {
+
+        // collect non-space chars as third token
+        while (curr < end && CHARTYPE(space, *curr) == 0) {
+            curr++;
+        }
+        if (curr == end) {
+            goto done;
+        }
+
+        // mark the end of the token and remember as "version"
+        curr++;
+        char *version = strndup(p, curr - p);
+        version[curr - p - 1] = '\0';
+        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("version", -1), Tcl_NewStringObj(version, -1));
+    }
+
+    // skip newline chars
+    while (curr < end && (*curr == '\r' || *curr == '\n')) {
+        curr++;
+    }
+
+    Tcl_Obj *headersPtr = Tcl_NewDictObj();
+    if (TCL_OK != tws_ParseHeaders(interp, &curr, end, headersPtr)) {
+        goto done;
+    }
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("headers", -1), headersPtr);
+
+    // get "Content-Length" header
+    Tcl_Obj *contentLengthPtr;
+    Tcl_DictObjGet(interp, headersPtr, Tcl_NewStringObj("Content-Length", -1), &contentLengthPtr);
+    tws_ParseBody(interp, curr, end, resultPtr, contentLengthPtr);
+
+    Tcl_SetObjResult(interp, resultPtr);
+    return TCL_OK;
+
+    done:
+
+    Tcl_SetObjResult(interp, Tcl_NewStringObj("request parse error", -1));
+    return TCL_ERROR;
+}
+
 
 static void tws_ExitHandler(ClientData unused) {
 }
@@ -480,6 +767,7 @@ int Tws_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::tws::read_conn", tws_ReadConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::tws::write_conn", tws_WriteConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::tws::close_conn", tws_CloseConnCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::tws::parse_request", tws_ParseRequestCmd, NULL, NULL);
 
     return Tcl_PkgProvide(interp, "tws", "0.1");
 }

@@ -8,7 +8,7 @@ set thread_script {
 
     proc thread_process_request {requestVar} {
         upvar $requestVar request
-        set request_dict [::tws::parse_request request]
+        set request_dict [::tws::parse_request $request]
         return "HTTP/1.1 200 OK\n\ntest message request_dict=$request_dict\n"
     }
 
