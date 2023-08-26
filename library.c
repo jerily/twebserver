@@ -557,6 +557,10 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         curr++;
         int keylen = curr - p - 1;
         char *key = strndup(p, curr - p);
+        // lowercase "key"
+        for (int i = 0; i < keylen; i++) {
+            key[i] = tolower(key[i]);
+        }
         key[curr - p - 1] = '\0';
         Tcl_Obj *keyPtr = Tcl_NewStringObj(key, keylen);
 
@@ -670,7 +674,82 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
     return TCL_ERROR;
 }
 
-static int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *resultPtr, Tcl_Obj *contentLengthPtr) {
+// https://en.wikibooks.org/wiki/Algorithm_Implementation/Miscellaneous/Base64#C
+static const char base64chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+int base64_encode(const void* data_buf, size_t dataLength, char* result, size_t resultSize) {
+    const uint8_t *data = (const uint8_t *)data_buf;
+    size_t resultIndex = 0;
+    size_t x;
+    uint32_t n = 0;
+    int padCount = dataLength % 3;
+    uint8_t n0, n1, n2, n3;
+
+    /* increment over the length of the string, three characters at a time */
+    for (x = 0; x < dataLength; x += 3)
+    {
+        /* these three 8-bit (ASCII) characters become one 24-bit number */
+        n = ((uint32_t)data[x]) << 16; //parenthesis needed, compiler depending on flags can do the shifting before conversion to uint32_t, resulting to 0
+
+        if((x+1) < dataLength)
+            n += ((uint32_t)data[x+1]) << 8;//parenthesis needed, compiler depending on flags can do the shifting before conversion to uint32_t, resulting to 0
+
+        if((x+2) < dataLength)
+            n += data[x+2];
+
+        /* this 24-bit number gets separated into four 6-bit numbers */
+        n0 = (uint8_t)(n >> 18) & 63;
+        n1 = (uint8_t)(n >> 12) & 63;
+        n2 = (uint8_t)(n >> 6) & 63;
+        n3 = (uint8_t)n & 63;
+
+        /*
+         * if we have one byte available, then its encoding is spread
+         * out over two characters
+         */
+        if(resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
+        result[resultIndex++] = base64chars[n0];
+        if(resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
+        result[resultIndex++] = base64chars[n1];
+
+        /*
+         * if we have only two bytes available, then their encoding is
+         * spread out over three chars
+         */
+        if((x+1) < dataLength)
+        {
+            if(resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
+            result[resultIndex++] = base64chars[n2];
+        }
+
+        /*
+         * if we have all three bytes available, then their encoding is spread
+         * out over four characters
+         */
+        if((x+2) < dataLength)
+        {
+            if(resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
+            result[resultIndex++] = base64chars[n3];
+        }
+    }
+
+    /*
+     * create and add padding that is required if we did not have a multiple of 3
+     * number of characters available
+     */
+    if (padCount > 0)
+    {
+        for (; padCount < 3; padCount++)
+        {
+            if(resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
+            result[resultIndex++] = '=';
+        }
+    }
+    if(resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
+    result[resultIndex] = 0;
+    return resultIndex;   /* indicate success */
+}
+
+static int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *resultPtr, Tcl_Obj *contentLengthPtr, Tcl_Obj *contentTypePtr) {
     int contentLength;
     if (contentLengthPtr) {
         if (Tcl_GetIntFromObj(interp, contentLengthPtr, &contentLength) != TCL_OK) {
@@ -692,12 +771,38 @@ static int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, 
 
     DBG(fprintf(stderr, "contentLength=%d\n", contentLength));
 
-    // mark the end of the token and remember as "body"
-    char *body = strndup(curr, contentLength + 1);
-    body[contentLength] = '\0';
-    Tcl_Obj *bodyPtr = Tcl_NewStringObj(body, contentLength);
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), bodyPtr);
-    free(body);
+    int base64_encoded = 0;
+    if (contentTypePtr) {
+        int contentTypeLength;
+        const char *content_type = Tcl_GetStringFromObj(contentTypePtr, &contentTypeLength);
+        // check if binary mime type: image/* and application/octet
+        if (contentTypeLength >= 16 && strncmp(content_type, "application/octet", 16) == 0) {
+            base64_encoded = 1;
+        } else if (contentTypeLength >= 6 && strncmp(content_type, "image/", 6) == 0) {
+            base64_encoded = 1;
+        }
+    }
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(base64_encoded));
+
+    if (base64_encoded) {
+        // base64 encode the body and remember as "body"
+        char *body = Tcl_Alloc(contentLength * 2);
+        int bodyLength = base64_encode(curr, contentLength, body, contentLength * 2);
+        if (bodyLength == -1) {
+            Tcl_SetObjResult(interp, Tcl_NewStringObj("base64_encode failed", -1));
+            return TCL_ERROR;
+        }
+        Tcl_Obj *bodyPtr = Tcl_NewStringObj(body, bodyLength);
+        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), bodyPtr);
+        Tcl_Free(body);
+    } else {
+        // mark the end of the token and remember as "body"
+        char *body = strndup(curr, contentLength + 1);
+        body[contentLength] = '\0';
+        Tcl_Obj *bodyPtr = Tcl_NewStringObj(body, contentLength);
+        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), bodyPtr);
+        free(body);
+    }
 }
 
 static int tws_ParseRequestCmd(ClientData  clientData, Tcl_Interp *interp, int objc, Tcl_Obj * const objv[]) {
@@ -741,8 +846,10 @@ static int tws_ParseRequestCmd(ClientData  clientData, Tcl_Interp *interp, int o
 
     // get "Content-Length" header
     Tcl_Obj *contentLengthPtr;
-    Tcl_DictObjGet(interp, headersPtr, Tcl_NewStringObj("Content-Length", -1), &contentLengthPtr);
-    tws_ParseBody(interp, curr, end, resultPtr, contentLengthPtr);
+    Tcl_DictObjGet(interp, headersPtr, Tcl_NewStringObj("content-length", -1), &contentLengthPtr);
+    Tcl_Obj *contentTypePtr;
+    Tcl_DictObjGet(interp, headersPtr, Tcl_NewStringObj("content-type", -1), &contentTypePtr);
+    tws_ParseBody(interp, curr, end, resultPtr, contentLengthPtr, contentTypePtr);
 
     Tcl_SetObjResult(interp, resultPtr);
     return TCL_OK;
