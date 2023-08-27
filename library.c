@@ -11,32 +11,31 @@
 #include <openssl/err.h>
 
 
-
 #ifdef DEBUG
 # define DBG(x) x
 #else
 # define DBG(x)
 #endif
 
-#define CheckArgs(min,max,n,msg) \
+#define CheckArgs(min, max, n, msg) \
                  if ((objc < min) || (objc >max)) { \
                      Tcl_WrongNumArgs(interp, n, objv, msg); \
                      return TCL_ERROR; \
                  }
 
-#define CMD_SERVER_NAME(s,internal) sprintf((s), "_TWS_SERVER_%p", (internal))
-#define CMD_CONN_NAME(s,internal) sprintf((s), "_TWS_CONN_%p", (internal))
-#define CHARTYPE(what,c) (is ## what ((int)((unsigned char)(c))))
+#define CMD_SERVER_NAME(s, internal) sprintf((s), "_TWS_SERVER_%p", (internal))
+#define CMD_CONN_NAME(s, internal) sprintf((s), "_TWS_CONN_%p", (internal))
+#define CHARTYPE(what, c) (is ## what ((int)((unsigned char)(c))))
 
-static int           tws_ModuleInitialized;
+static int tws_ModuleInitialized;
 
 static Tcl_HashTable tws_ServerNameToInternal_HT;
-static Tcl_Mutex     tws_ServerNameToInternal_HT_Mutex;
+static Tcl_Mutex tws_ServerNameToInternal_HT_Mutex;
 
 static Tcl_HashTable tws_ConnNameToInternal_HT;
-static Tcl_Mutex     tws_ConnNameToInternal_HT_Mutex;
+static Tcl_Mutex tws_ConnNameToInternal_HT_Mutex;
 
-static int           tws_ModuleInitialized;
+static int tws_ModuleInitialized;
 
 typedef struct {
     SSL_CTX *sslCtx;
@@ -61,13 +60,14 @@ tws_RegisterServerName(const char *name, tws_server_t *internal) {
     Tcl_HashEntry *entryPtr;
     int newEntry;
     Tcl_MutexLock(&tws_ServerNameToInternal_HT_Mutex);
-    entryPtr = Tcl_CreateHashEntry(&tws_ServerNameToInternal_HT, (char*)name, &newEntry);
+    entryPtr = Tcl_CreateHashEntry(&tws_ServerNameToInternal_HT, (char *) name, &newEntry);
     if (newEntry) {
-        Tcl_SetHashValue(entryPtr, (ClientData)internal);
+        Tcl_SetHashValue(entryPtr, (ClientData) internal);
     }
     Tcl_MutexUnlock(&tws_ServerNameToInternal_HT_Mutex);
 
-    DBG(fprintf(stderr, "--> RegisterServerName: name=%s internal=%p %s\n", name, internal, newEntry ? "entered into" : "already in"));
+    DBG(fprintf(stderr, "--> RegisterServerName: name=%s internal=%p %s\n", name, internal,
+                newEntry ? "entered into" : "already in"));
 
     return newEntry;
 }
@@ -78,7 +78,7 @@ tws_UnregisterServerName(const char *name) {
     Tcl_HashEntry *entryPtr;
 
     Tcl_MutexLock(&tws_ServerNameToInternal_HT_Mutex);
-    entryPtr = Tcl_FindHashEntry(&tws_ServerNameToInternal_HT, (char*)name);
+    entryPtr = Tcl_FindHashEntry(&tws_ServerNameToInternal_HT, (char *) name);
     if (entryPtr != NULL) {
         Tcl_DeleteHashEntry(entryPtr);
     }
@@ -95,9 +95,9 @@ tws_GetInternalFromServerName(const char *name) {
     Tcl_HashEntry *entryPtr;
 
     Tcl_MutexLock(&tws_ServerNameToInternal_HT_Mutex);
-    entryPtr = Tcl_FindHashEntry(&tws_ServerNameToInternal_HT, (char*)name);
+    entryPtr = Tcl_FindHashEntry(&tws_ServerNameToInternal_HT, (char *) name);
     if (entryPtr != NULL) {
-        internal = (tws_server_t *)Tcl_GetHashValue(entryPtr);
+        internal = (tws_server_t *) Tcl_GetHashValue(entryPtr);
     }
     Tcl_MutexUnlock(&tws_ServerNameToInternal_HT_Mutex);
 
@@ -110,13 +110,14 @@ tws_RegisterConnName(const char *name, tws_conn_t *internal) {
     Tcl_HashEntry *entryPtr;
     int newEntry;
     Tcl_MutexLock(&tws_ConnNameToInternal_HT_Mutex);
-    entryPtr = Tcl_CreateHashEntry(&tws_ConnNameToInternal_HT, (char*)name, &newEntry);
+    entryPtr = Tcl_CreateHashEntry(&tws_ConnNameToInternal_HT, (char *) name, &newEntry);
     if (newEntry) {
-        Tcl_SetHashValue(entryPtr, (ClientData)internal);
+        Tcl_SetHashValue(entryPtr, (ClientData) internal);
     }
     Tcl_MutexUnlock(&tws_ConnNameToInternal_HT_Mutex);
 
-    DBG(fprintf(stderr, "--> RegisterConnName: name=%s internal=%p %s\n", name, internal, newEntry ? "entered into" : "already in"));
+    DBG(fprintf(stderr, "--> RegisterConnName: name=%s internal=%p %s\n", name, internal,
+                newEntry ? "entered into" : "already in"));
 
     return newEntry;
 }
@@ -127,7 +128,7 @@ tws_UnregisterConnName(const char *name) {
     Tcl_HashEntry *entryPtr;
 
     Tcl_MutexLock(&tws_ConnNameToInternal_HT_Mutex);
-    entryPtr = Tcl_FindHashEntry(&tws_ConnNameToInternal_HT, (char*)name);
+    entryPtr = Tcl_FindHashEntry(&tws_ConnNameToInternal_HT, (char *) name);
     if (entryPtr != NULL) {
         Tcl_DeleteHashEntry(entryPtr);
     }
@@ -144,9 +145,9 @@ tws_GetInternalFromConnName(const char *name) {
     Tcl_HashEntry *entryPtr;
 
     Tcl_MutexLock(&tws_ConnNameToInternal_HT_Mutex);
-    entryPtr = Tcl_FindHashEntry(&tws_ConnNameToInternal_HT, (char*)name);
+    entryPtr = Tcl_FindHashEntry(&tws_ConnNameToInternal_HT, (char *) name);
     if (entryPtr != NULL) {
-        internal = (tws_conn_t *)Tcl_GetHashValue(entryPtr);
+        internal = (tws_conn_t *) Tcl_GetHashValue(entryPtr);
     }
     Tcl_MutexUnlock(&tws_ConnNameToInternal_HT_Mutex);
 
@@ -199,7 +200,7 @@ int create_socket(int port) {
 tws_conn_t *tws_NewConn(SSL_CTX *sslCtx, int client) {
     SSL *ssl = SSL_new(sslCtx);
     SSL_set_fd(ssl, client);
-    tws_conn_t *conn = (tws_conn_t *)Tcl_Alloc(sizeof(tws_conn_t));
+    tws_conn_t *conn = (tws_conn_t *) Tcl_Alloc(sizeof(tws_conn_t));
     conn->ssl = ssl;
     conn->client = client;
     return conn;
@@ -217,7 +218,7 @@ int tws_CloseConn(Tcl_Interp *interp, const char *conn_handle) {
     SSL_free(conn->ssl);
     shutdown(conn->client, SHUT_RDWR);
     close(conn->client);
-    Tcl_Free((char *)conn);
+    Tcl_Free((char *) conn);
     return TCL_OK;
 }
 
@@ -346,7 +347,7 @@ void configure_context(SSL_CTX *ctx, const char *key_file, const char *cert_file
     }
 }
 
-static int tws_CreateCmd(ClientData  clientData, Tcl_Interp *interp, int objc, Tcl_Obj * const objv[]) {
+static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "CreateCmd\n"));
     CheckArgs(3, 3, 1, "config_dict cmd_name");
 
@@ -363,7 +364,7 @@ static int tws_CreateCmd(ClientData  clientData, Tcl_Interp *interp, int objc, T
     SSL_CTX *ctx = create_context();
     configure_context(ctx, Tcl_GetString(keyFilePtr), Tcl_GetString(certFilePtr));
 
-    tws_server_t *server_ctx = (tws_server_t *)Tcl_Alloc(sizeof(tws_server_t));
+    tws_server_t *server_ctx = (tws_server_t *) Tcl_Alloc(sizeof(tws_server_t));
     server_ctx->sslCtx = ctx;
     server_ctx->cmdPtr = objv[2];
     Tcl_IncrRefCount(server_ctx->cmdPtr);
@@ -382,7 +383,7 @@ static int tws_CreateCmd(ClientData  clientData, Tcl_Interp *interp, int objc, T
 
 }
 
-static int tws_DestroyCmd(ClientData  clientData, Tcl_Interp *interp, int objc, Tcl_Obj * const objv[]) {
+static int tws_DestroyCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "DestroyCmd\n"));
     CheckArgs(2, 2, 1, "handle");
 
@@ -390,7 +391,7 @@ static int tws_DestroyCmd(ClientData  clientData, Tcl_Interp *interp, int objc, 
 
 }
 
-static int tws_ListenCmd(ClientData  clientData, Tcl_Interp *interp, int objc, Tcl_Obj * const objv[]) {
+static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "ListenCmd\n"));
     CheckArgs(3, 3, 1, "handle port");
 
@@ -398,7 +399,7 @@ static int tws_ListenCmd(ClientData  clientData, Tcl_Interp *interp, int objc, T
 
 }
 
-static int tws_ReadConnCmd(ClientData  clientData, Tcl_Interp *interp, int objc, Tcl_Obj * const objv[]) {
+static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "ReadConnCmd\n"));
     CheckArgs(2, 3, 1, "handle ?max_buffer_size?");
 
@@ -408,18 +409,18 @@ static int tws_ReadConnCmd(ClientData  clientData, Tcl_Interp *interp, int objc,
         return TCL_ERROR;
     }
 
-    long max_request_read_bytes = 1024*1024*10;
-    int max_buffer_size = 1024*1024;
+    long max_request_read_bytes = 1024 * 1024 * 10;
+    int max_buffer_size = 1024 * 1024;
     if (objc == 3) {
         Tcl_GetIntFromObj(interp, objv[2], &max_buffer_size);
     }
 
-    char *buf = (char *)Tcl_Alloc(max_buffer_size);
+    char *buf = (char *) Tcl_Alloc(max_buffer_size);
     long total_read = 0;
     int bytes_read = SSL_read(conn->ssl, buf, max_buffer_size);
     Tcl_Obj *resultPtr = Tcl_NewStringObj(buf, bytes_read);
     total_read += bytes_read;
-    while(SSL_pending(conn->ssl) > 0) {
+    while (SSL_pending(conn->ssl) > 0) {
         bytes_read = SSL_read(conn->ssl, buf, max_buffer_size);
         Tcl_AppendToObj(resultPtr, buf, bytes_read);
         total_read += bytes_read;
@@ -434,7 +435,7 @@ static int tws_ReadConnCmd(ClientData  clientData, Tcl_Interp *interp, int objc,
     return TCL_OK;
 }
 
-static int tws_WriteConnCmd(ClientData  clientData, Tcl_Interp *interp, int objc, Tcl_Obj * const objv[]) {
+static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "WriteConnCmd\n"));
     CheckArgs(3, 3, 1, "handle text");
 
@@ -452,7 +453,7 @@ static int tws_WriteConnCmd(ClientData  clientData, Tcl_Interp *interp, int objc
 
 }
 
-static int tws_CloseConnCmd(ClientData  clientData, Tcl_Interp *interp, int objc, Tcl_Obj * const objv[]) {
+static int tws_CloseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "CloseConnCmd\n"));
     CheckArgs(2, 2, 1, "handle");
 
@@ -475,7 +476,7 @@ const char *tws_strpbrk(const char *s, const char *end, const char *accept) {
     return NULL;
 }
 
-static int tws_UrlDecode(Tcl_Interp *interp, const char *value, int value_length, Tcl_Obj **valuePtrPtr) {
+static int tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, int value_length, Tcl_Obj **valuePtrPtr) {
     // check if url decoding is needed, value is not '\0' terminated
     const char *p = value;
     const char *end = value + value_length;
@@ -491,7 +492,7 @@ static int tws_UrlDecode(Tcl_Interp *interp, const char *value, int value_length
     // decode "value" into "valuePtr"
 
     // allocate memory for "valuePtr"
-    char *valuePtr = (char *)Tcl_Alloc(value_length + 1);
+    char *valuePtr = (char *) Tcl_Alloc(value_length + 1);
     char *q = valuePtr;
     while (p != NULL) {
         // copy the part of "value" before the first "%"
@@ -517,7 +518,7 @@ static int tws_UrlDecode(Tcl_Interp *interp, const char *value, int value_length
                 Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid %xx sequence", -1));
                 return TCL_ERROR;
             }
-            *q = (char)c;
+            *q = (char) c;
             q++;
             value += 2;
         } else if (*value == '+') {
@@ -532,16 +533,42 @@ static int tws_UrlDecode(Tcl_Interp *interp, const char *value, int value_length
     memcpy(q, value, end - value);
     q += end - value;
 
-    Tcl_SetStringObj(*valuePtrPtr, valuePtr, q - valuePtr);
+    int dstLen = 2 * (q - valuePtr) + 1;
+    char *dst = (char *) Tcl_Alloc(dstLen);
+    int srcRead;
+    int dstWrote;
+    int dstChars;
+    if (TCL_OK != Tcl_ExternalToUtf(
+            interp,
+            encoding,
+            valuePtr,
+            q - valuePtr,
+            TCL_ENCODING_STOPONERROR,
+            NULL,
+            dst,
+            dstLen,
+            &srcRead,
+            &dstWrote,
+            &dstChars)
+            ) {
+        Tcl_Free(dst);
+        Tcl_Free(valuePtr);
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid utf-8 sequence", -1));
+        return TCL_ERROR;
+    }
+    Tcl_SetStringObj(*valuePtrPtr, dst, dstWrote);
+    Tcl_Free(dst);
     Tcl_Free(valuePtr);
     return TCL_OK;
 }
 
-static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Obj *queryStringParametersPtr, Tcl_Obj *multivalueQueryStringParametersPtr, const char *key, const char *value, int value_length) {
+static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Obj *queryStringParametersPtr,
+                                       Tcl_Obj *multivalueQueryStringParametersPtr, const char *key, const char *value,
+                                       int value_length) {
     // check if "key" already exists in "queryStringParameters"
     Tcl_Obj *keyPtr = Tcl_NewStringObj(key, value - key - 1);
     Tcl_Obj *valuePtr = Tcl_NewObj();
-    if (TCL_OK != tws_UrlDecode(interp, value, value_length, &valuePtr)) {
+    if (TCL_OK != tws_UrlDecode(interp, encoding, value, value_length, &valuePtr)) {
         Tcl_SetObjResult(interp, Tcl_NewStringObj("query string urldecode error", -1));
         return TCL_ERROR;
     }
@@ -564,7 +591,7 @@ static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Obj *queryStringP
     return TCL_OK;
 }
 
-static int tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Obj *queryStringPtr, Tcl_Obj *resultPtr) {
+static int tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Obj *queryStringPtr, Tcl_Obj *resultPtr) {
     // parse "query_string" into "queryStringParameters" given that it is of the form "key1=value1&key2=value2&..."
     Tcl_Obj *queryStringParametersPtr = Tcl_NewDictObj();
     Tcl_Obj *multiValueQueryStringParametersPtr = Tcl_NewDictObj();
@@ -587,31 +614,36 @@ static int tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Obj *queryStri
             p++;
         }
         if (p == end) {
-            if (TCL_OK != tws_AddQueryStringParameter(interp, queryStringParametersPtr, multiValueQueryStringParametersPtr, key, value, p - value)) {
+            if (TCL_OK !=
+                tws_AddQueryStringParameter(interp, encoding, queryStringParametersPtr, multiValueQueryStringParametersPtr, key,
+                                            value, p - value)) {
                 Tcl_SetObjResult(interp, Tcl_NewStringObj("query string parse error", -1));
                 return TCL_ERROR;
             }
             break;
         }
-        if (TCL_OK != tws_AddQueryStringParameter(interp, queryStringParametersPtr, multiValueQueryStringParametersPtr, key, value, p - value)) {
+        if (TCL_OK !=
+            tws_AddQueryStringParameter(interp, encoding, queryStringParametersPtr, multiValueQueryStringParametersPtr, key,
+                                        value, p - value)) {
             Tcl_SetObjResult(interp, Tcl_NewStringObj("query string parse error", -1));
             return TCL_ERROR;
         }
         p++;
     }
     Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryStringParameters", -1), queryStringParametersPtr);
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("multiValueQueryStringParameters", -1), multiValueQueryStringParametersPtr);
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("multiValueQueryStringParameters", -1),
+                   multiValueQueryStringParametersPtr);
     return TCL_OK;
 }
 
-static int tws_ParsePathAndQueryString(Tcl_Interp *interp, const char *url, int url_length, Tcl_Obj *resultPtr) {
+static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding, const char *url, int url_length, Tcl_Obj *resultPtr) {
     // parse "path" and "queryStringParameters" from "url"
     const char *p2 = url;
     while (p2 < url + url_length && *p2 != '\0') {
         if (*p2 == '?') {
             int path_length = p2 - url;
             Tcl_Obj *pathPtr = Tcl_NewObj();
-            if (TCL_OK != tws_UrlDecode(interp, url, path_length, &pathPtr)) {
+            if (TCL_OK != tws_UrlDecode(interp, encoding, url, path_length, &pathPtr)) {
                 Tcl_SetObjResult(interp, Tcl_NewStringObj("path urldecode error", -1));
                 return TCL_ERROR;
             }
@@ -619,7 +651,7 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, const char *url, int 
             int query_string_length = url + url_length - p2 - 1;
             Tcl_Obj *queryStringPtr = Tcl_NewStringObj(p2 + 1, query_string_length);
             Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), queryStringPtr);
-            tws_ParseQueryStringParameters(interp, queryStringPtr, resultPtr);
+            tws_ParseQueryStringParameters(interp, encoding, queryStringPtr, resultPtr);
             break;
         }
         p2++;
@@ -631,7 +663,7 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, const char *url, int 
     return TCL_OK;
 }
 
-static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const char *end, Tcl_Obj *resultPtr) {
+static int tws_ParseRequestLine(Tcl_Interp *interp, Tcl_Encoding encoding, const char **currPtr, const char *end, Tcl_Obj *resultPtr) {
     const char *curr = *currPtr;
     // skip spaces
     while (curr < end && CHARTYPE(space, *curr) != 0) {
@@ -679,7 +711,7 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
 
     Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("url", -1), Tcl_NewStringObj(p, url_length));
 
-    if (TCL_OK != tws_ParsePathAndQueryString(interp, p, url_length, resultPtr)) {
+    if (TCL_OK != tws_ParsePathAndQueryString(interp, encoding, p, url_length, resultPtr)) {
         return TCL_ERROR;
     }
 
@@ -720,7 +752,8 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
 
 }
 
-static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *headersPtr, Tcl_Obj *multiValueHeadersPtr, Tcl_Obj *keyPtr, Tcl_Obj *valuePtr) {
+static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *headersPtr, Tcl_Obj *multiValueHeadersPtr, Tcl_Obj *keyPtr,
+                         Tcl_Obj *valuePtr) {
     Tcl_Obj *existingValuePtr;
     Tcl_DictObjGet(interp, headersPtr, keyPtr, &existingValuePtr);
     if (existingValuePtr) {
@@ -740,7 +773,8 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *headersPtr, Tcl_Obj *multi
     return TCL_OK;
 }
 
-static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char *end, Tcl_Obj *headersPtr, Tcl_Obj *multiValueHeadersPtr) {
+static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char *end, Tcl_Obj *headersPtr,
+                            Tcl_Obj *multiValueHeadersPtr) {
     // parse the headers, each header is a line of the form "key: value"
     // stop when we reach an empty line denoted by "\r\n" or "\n"
     const char *curr = *currPtr;
@@ -890,8 +924,9 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
 
 // https://en.wikibooks.org/wiki/Algorithm_Implementation/Miscellaneous/Base64#C
 static const char base64chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-int base64_encode(const void* data_buf, size_t dataLength, char* result, size_t resultSize) {
-    const uint8_t *data = (const uint8_t *)data_buf;
+
+int base64_encode(const void *data_buf, size_t dataLength, char *result, size_t resultSize) {
+    const uint8_t *data = (const uint8_t *) data_buf;
     size_t resultIndex = 0;
     size_t x;
     uint32_t n = 0;
@@ -899,39 +934,39 @@ int base64_encode(const void* data_buf, size_t dataLength, char* result, size_t 
     uint8_t n0, n1, n2, n3;
 
     /* increment over the length of the string, three characters at a time */
-    for (x = 0; x < dataLength; x += 3)
-    {
+    for (x = 0; x < dataLength; x += 3) {
         /* these three 8-bit (ASCII) characters become one 24-bit number */
-        n = ((uint32_t)data[x]) << 16; //parenthesis needed, compiler depending on flags can do the shifting before conversion to uint32_t, resulting to 0
+        n = ((uint32_t) data[x])
+                << 16; //parenthesis needed, compiler depending on flags can do the shifting before conversion to uint32_t, resulting to 0
 
-        if((x+1) < dataLength)
-            n += ((uint32_t)data[x+1]) << 8;//parenthesis needed, compiler depending on flags can do the shifting before conversion to uint32_t, resulting to 0
+        if ((x + 1) < dataLength)
+            n += ((uint32_t) data[x + 1])
+                    << 8;//parenthesis needed, compiler depending on flags can do the shifting before conversion to uint32_t, resulting to 0
 
-        if((x+2) < dataLength)
-            n += data[x+2];
+        if ((x + 2) < dataLength)
+            n += data[x + 2];
 
         /* this 24-bit number gets separated into four 6-bit numbers */
-        n0 = (uint8_t)(n >> 18) & 63;
-        n1 = (uint8_t)(n >> 12) & 63;
-        n2 = (uint8_t)(n >> 6) & 63;
-        n3 = (uint8_t)n & 63;
+        n0 = (uint8_t) (n >> 18) & 63;
+        n1 = (uint8_t) (n >> 12) & 63;
+        n2 = (uint8_t) (n >> 6) & 63;
+        n3 = (uint8_t) n & 63;
 
         /*
          * if we have one byte available, then its encoding is spread
          * out over two characters
          */
-        if(resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
+        if (resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
         result[resultIndex++] = base64chars[n0];
-        if(resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
+        if (resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
         result[resultIndex++] = base64chars[n1];
 
         /*
          * if we have only two bytes available, then their encoding is
          * spread out over three chars
          */
-        if((x+1) < dataLength)
-        {
-            if(resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
+        if ((x + 1) < dataLength) {
+            if (resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
             result[resultIndex++] = base64chars[n2];
         }
 
@@ -939,9 +974,8 @@ int base64_encode(const void* data_buf, size_t dataLength, char* result, size_t 
          * if we have all three bytes available, then their encoding is spread
          * out over four characters
          */
-        if((x+2) < dataLength)
-        {
-            if(resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
+        if ((x + 2) < dataLength) {
+            if (resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
             result[resultIndex++] = base64chars[n3];
         }
     }
@@ -950,20 +984,20 @@ int base64_encode(const void* data_buf, size_t dataLength, char* result, size_t 
      * create and add padding that is required if we did not have a multiple of 3
      * number of characters available
      */
-    if (padCount > 0)
-    {
-        for (; padCount < 3; padCount++)
-        {
-            if(resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
+    if (padCount > 0) {
+        for (; padCount < 3; padCount++) {
+            if (resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
             result[resultIndex++] = '=';
         }
     }
-    if(resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
+    if (resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
     result[resultIndex] = 0;
     return resultIndex;   /* indicate success */
 }
 
-static int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *resultPtr, Tcl_Obj *contentLengthPtr, Tcl_Obj *contentTypePtr) {
+static int
+tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *resultPtr, Tcl_Obj *contentLengthPtr,
+              Tcl_Obj *contentTypePtr) {
     int contentLength;
     if (contentLengthPtr) {
         if (Tcl_GetIntFromObj(interp, contentLengthPtr, &contentLength) != TCL_OK) {
@@ -1019,12 +1053,19 @@ static int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, 
     }
 }
 
-static int tws_ParseRequestCmd(ClientData  clientData, Tcl_Interp *interp, int objc, Tcl_Obj * const objv[]) {
+static int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "ParseRequestCmd\n"));
-    CheckArgs(2, 2, 1, "request");
+    CheckArgs(2, 3, 1, "request ?encoding_name?");
 
     int length;
     const char *request = Tcl_GetStringFromObj(objv[1], &length);
+
+    Tcl_Encoding encoding;
+    if (objc == 3) {
+        encoding = Tcl_GetEncoding(interp, Tcl_GetString(objv[2]));
+    } else {
+        encoding = Tcl_GetEncoding(interp, "utf-8");
+    }
 
     DBG(fprintf(stderr, "request=%s\n", request));
 
@@ -1044,7 +1085,7 @@ static int tws_ParseRequestCmd(ClientData  clientData, Tcl_Interp *interp, int o
     const char *end = request + length;
 
     // parse the first line of the request
-    if (TCL_OK != tws_ParseRequestLine(interp, &curr, end, resultPtr)) {
+    if (TCL_OK != tws_ParseRequestLine(interp, encoding, &curr, end, resultPtr)) {
         return TCL_ERROR;
     }
 
@@ -1068,6 +1109,28 @@ static int tws_ParseRequestCmd(ClientData  clientData, Tcl_Interp *interp, int o
 
 }
 
+static int tws_UrlDecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "UrlDecodeCmd\n"));
+    CheckArgs(2, 3, 1, "encoded_text ?encoding_name?");
+
+    int length;
+    const char *encoded_text = Tcl_GetStringFromObj(objv[1], &length);
+
+    Tcl_Encoding encoding;
+    if (objc == 3) {
+        encoding = Tcl_GetEncoding(interp, Tcl_GetString(objv[2]));
+    } else {
+        encoding = Tcl_GetEncoding(interp, "utf-8");
+    }
+
+    Tcl_Obj *valuePtr = Tcl_NewObj();
+    if (TCL_OK != tws_UrlDecode(interp, encoding, encoded_text, length, &valuePtr)) {
+//        Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error", -1));
+        return TCL_ERROR;
+    }
+    Tcl_SetObjResult(interp, valuePtr);
+    return TCL_OK;
+}
 
 static void tws_ExitHandler(ClientData unused) {
 }
@@ -1097,6 +1160,7 @@ int Tws_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::tws::write_conn", tws_WriteConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::tws::close_conn", tws_CloseConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::tws::parse_request", tws_ParseRequestCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::tws::url_decode", tws_UrlDecodeCmd, NULL, NULL);
 
     return Tcl_PkgProvide(interp, "tws", "0.1");
 }

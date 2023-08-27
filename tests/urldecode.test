@@ -1,0 +1,23 @@
+lappend auto_path ..
+package require tcltest
+package require tws
+
+namespace import -force ::tcltest::test
+
+::tcltest::configure {*}$argv
+
+test urldecode-1 {basic syntax} -body {
+    ::tws::url_decode
+} -returnCodes error -result {wrong # args: should be "::tws::url_decode encoded_text ?encoding_name?"}
+
+test urldecode-2 {decode character sequence} -body {
+    ::tws::url_decode "a%20b%20c%20d%20e%20f%20g%20h%20i%20j%20k%20l%20m%20n%20o%20p%20q%20r%20s%20t%20u%20v%20w%20x%20y%20z"
+} -result {a b c d e f g h i j k l m n o p q r s t u v w x y z}
+
+test urldecode-3 {decode character sequence} -body {
+    ::tws::url_decode "%CE%B1%CF%85%CF%84%CE%AE%20%CE%B5%CE%AF%CE%BD%CE%B1%CE%B9%20%CE%BC%CE%B9%CE%B1%20%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE"
+} -result {αυτή είναι μια δοκιμή}
+
+test urldecode-4 {invalid utf-8 sequence} -body {
+    ::tws::url_decode "%0a%0d%bf%f0%9f"
+} -returnCodes error -result {urldecode error: invalid utf-8 sequence}
