@@ -558,7 +558,8 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
         curr++;
     }
     if (curr == end) {
-        goto done;
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("request line parse error: no http method", -1));
+        return TCL_ERROR;
     }
 
     // mark the end of the token and remember as "http_method"
@@ -580,7 +581,8 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
         curr++;
     }
     if (curr == end) {
-        goto done;
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("request line parse error: no url", -1));
+        return TCL_ERROR;
     }
 
     // mark the end of the token and remember as "path"
@@ -592,7 +594,7 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
     Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("url", -1), Tcl_NewStringObj(url, url_length));
 
     if (TCL_OK != tws_ParsePathAndQueryString(interp, url, url_length, resultPtr)) {
-        goto done;
+        return TCL_ERROR;
     }
 
     // skip spaces until end of line denoted by "\r\n" or "\n"
@@ -602,7 +604,8 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
     p = curr;
 
     if (curr == end) {
-        goto done;
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("request line parse error: no version", -1));
+        return TCL_ERROR;
     }
 
     // parse "version" if we have NOT reached the end of line
@@ -613,7 +616,8 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
             curr++;
         }
         if (curr == end) {
-            goto done;
+            Tcl_SetObjResult(interp, Tcl_NewStringObj("request line parse error: while extracting version", -1));
+            return TCL_ERROR;
         }
 
         // mark the end of the token and remember as "version"
@@ -630,9 +634,6 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
     *currPtr = curr;
     return TCL_OK;
 
-    done:
-    Tcl_SetObjResult(interp, Tcl_NewStringObj("request line parse error", -1));
-    return TCL_ERROR;
 }
 
 static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *headersPtr, Tcl_Obj *multiValueHeadersPtr, Tcl_Obj *keyPtr, Tcl_Obj *valuePtr) {
@@ -960,13 +961,13 @@ static int tws_ParseRequestCmd(ClientData  clientData, Tcl_Interp *interp, int o
 
     // parse the first line of the request
     if (TCL_OK != tws_ParseRequestLine(interp, &curr, end, resultPtr)) {
-        goto done;
+        return TCL_ERROR;
     }
 
     Tcl_Obj *headersPtr = Tcl_NewDictObj();
     Tcl_Obj *multiValueHeadersPtr = Tcl_NewDictObj();
     if (TCL_OK != tws_ParseHeaders(interp, &curr, end, headersPtr, multiValueHeadersPtr)) {
-        goto done;
+        return TCL_ERROR;
     }
     Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("headers", -1), headersPtr);
     Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("multiValueHeaders", -1), multiValueHeadersPtr);
@@ -981,10 +982,6 @@ static int tws_ParseRequestCmd(ClientData  clientData, Tcl_Interp *interp, int o
     Tcl_SetObjResult(interp, resultPtr);
     return TCL_OK;
 
-    done:
-
-    Tcl_SetObjResult(interp, Tcl_NewStringObj("request parse error", -1));
-    return TCL_ERROR;
 }
 
 
