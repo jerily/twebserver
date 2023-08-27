@@ -460,10 +460,91 @@ static int tws_CloseConnCmd(ClientData  clientData, Tcl_Interp *interp, int objc
     return tws_CloseConn(interp, conn_handle);
 }
 
+// search a string for any of a set of bytes
+const char *tws_strpbrk(const char *s, const char *end, const char *accept) {
+    while (s < end && *s != '\0') {
+        const char *p = accept;
+        while (*p != '\0') {
+            if (*s == *p) {
+                return s;
+            }
+            p++;
+        }
+        s++;
+    }
+    return NULL;
+}
+
+static int tws_UrlDecode(Tcl_Interp *interp, const char *value, int value_length, Tcl_Obj **valuePtrPtr) {
+    // check if url decoding is needed, value is not '\0' terminated
+    const char *p = value;
+    const char *end = value + value_length;
+    p = tws_strpbrk(value, end, "%+");
+
+    // no url decoding is needed
+    if (p == NULL) {
+        *valuePtrPtr = Tcl_NewStringObj(value, value_length);
+        return TCL_OK;
+    }
+
+    // url decoding is needed
+    // decode "value" into "valuePtr"
+
+    // allocate memory for "valuePtr"
+    char *valuePtr = (char *)Tcl_Alloc(value_length + 1);
+    char *q = valuePtr;
+    while (p != NULL) {
+        // copy the part of "value" before the first "%"
+        memcpy(q, value, p - value);
+        q += p - value;
+        value = p;
+        if (*value == '%') {
+            // decode "%xx" into a single char
+            value++;
+            if (value + 2 > end) {
+                Tcl_Free(valuePtr);
+                Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid %xx sequence", -1));
+                return TCL_ERROR;
+            }
+            char hex[3];
+            hex[0] = value[0];
+            hex[1] = value[1];
+            hex[2] = '\0';
+            char *hexend;
+            long int c = strtol(hex, &hexend, 16);
+            if (*hexend != '\0') {
+                Tcl_Free(valuePtr);
+                Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid %xx sequence", -1));
+                return TCL_ERROR;
+            }
+            *q = (char)c;
+            q++;
+            value += 2;
+        } else if (*value == '+') {
+            // decode "+" into a space
+            *q = ' ';
+            q++;
+            value++;
+        }
+        p = tws_strpbrk(value, end, "%+");
+    }
+    // copy the rest of "value" into "valuePtr"
+    memcpy(q, value, end - value);
+    q += end - value;
+
+    Tcl_SetStringObj(*valuePtrPtr, valuePtr, q - valuePtr);
+    Tcl_Free(valuePtr);
+    return TCL_OK;
+}
+
 static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Obj *queryStringParametersPtr, Tcl_Obj *multivalueQueryStringParametersPtr, const char *key, const char *value, int value_length) {
     // check if "key" already exists in "queryStringParameters"
     Tcl_Obj *keyPtr = Tcl_NewStringObj(key, value - key - 1);
-    Tcl_Obj *valuePtr = Tcl_NewStringObj(value, value_length);
+    Tcl_Obj *valuePtr = Tcl_NewObj();
+    if (TCL_OK != tws_UrlDecode(interp, value, value_length, &valuePtr)) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("query string urldecode error", -1));
+        return TCL_ERROR;
+    }
     Tcl_Obj *existingValuePtr;
     Tcl_DictObjGet(interp, queryStringParametersPtr, keyPtr, &existingValuePtr);
     if (existingValuePtr) {

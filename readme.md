@@ -36,6 +36,8 @@ curl -k -X POST -H "Content-Type: application/json" -H "X-Custom-Header: asdf" -
 # query string parameters
 curl -k -X POST -H "Content-Type: application/json" -H "X-Custom-Header: this is a test" -H "X-Custom-Header: hello world" --data '{"message": "hello world"}' 'https://localhost:4433/example?a=1&b=2&c=this+is+a+test'
 # multivalue query string parameters
+curl -k -X POST -H "Content-Type: application/json" -H "X-Custom-Header: this is a test" -H "X-Custom-Header: hello world" --data '{"message": "hello world"}' 'https://localhost:4433/exampl
+e?a=1&b=2&c=this+is+a+test&c=blah+blah'
 ```
 
 ## Benchmark
