@@ -1,0 +1,22 @@
+lappend auto_path ..
+package require tcltest
+package require tws
+
+namespace import -force ::tcltest::test
+
+::tcltest::configure {*}$argv
+
+# test "::tws::url_encode" command that accepts "part", "text", and an optional "encoding" as arguments
+# where part can be "query", "path", or "cookie"
+#
+# tests are of the form:
+#   test url_encode_<part>_<encoding> {<description>} {<actual>} {<expected>}
+
+test url_encode_query {url_encode query} {::tws::url_encode query "a b c"} {a+b+c}
+test url_encode_path {url_encode path} {::tws::url_encode path "a b c"} {a%20b%20c}
+test url_encode_cookie {url_encode cookie} {::tws::url_encode cookie "a b c"} {a%20b%20c}
+
+# test with wrong "part" argument
+test url_encode_wrong_part {url_encode wrong part} -body {::tws::url_encode wrong "a b c"} -returnCodes error -result {part must be one of "query", "path" or "cookie"}
+
+

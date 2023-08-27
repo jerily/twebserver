@@ -47,13 +47,6 @@ typedef struct {
     int client;
 } tws_conn_t;
 
-//static char client_usage[] =
-//        "Usage twsClient <method> <args>, where method can be:\n"
-//        "  destroy\n"
-//        "  listen port\n"
-//;
-
-
 static int
 tws_RegisterServerName(const char *name, tws_server_t *internal) {
 
@@ -271,46 +264,6 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
 
     return TCL_OK;
 }
-
-
-//int tws_ClientObjCmd(ClientData  clientData, Tcl_Interp *interp, int objc, Tcl_Obj * const objv[]) {
-//    static const char *clientMethods[] = {
-//            "destroy",
-//            "listen",
-//            NULL
-//    };
-//
-//    enum clientMethod {
-//        m_destroy,
-//        m_listen,
-//    };
-//
-//    if (objc < 2) {
-//        Tcl_ResetResult(interp);
-//        Tcl_SetStringObj(Tcl_GetObjResult(interp), (client_usage), -1);
-//        return TCL_ERROR;
-//    }
-//    Tcl_ResetResult(interp);
-//
-//    int methodIndex;
-//    if (TCL_OK == Tcl_GetIndexFromObj(interp, objv[1], clientMethods, "method", 0, &methodIndex)) {
-//        Tcl_ResetResult(interp);
-//        const char *handle = Tcl_GetString(objv[0]);
-//        switch ((enum clientMethod) methodIndex ) {
-//            case m_destroy:
-//                DBG(fprintf(stderr, "DestroyMethod\n"));
-//                CheckArgs(2,2,1,"destroy");
-//                return tws_Destroy(interp, handle);
-//            case m_listen:
-//                DBG(fprintf(stderr, "ListenMethod\n"));
-//                CheckArgs(3,3,1,"listen port");
-//                return tws_Listen(interp, handle, objv[2]);
-//        }
-//    }
-//
-//    Tcl_SetObjResult(interp, Tcl_NewStringObj("Unknown method", -1));
-//    return TCL_ERROR;
-//}
 
 SSL_CTX *create_context() {
     const SSL_METHOD *method;
@@ -559,6 +512,237 @@ static int tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *
     Tcl_SetStringObj(*valuePtrPtr, dst, dstWrote);
     Tcl_Free(dst);
     Tcl_Free(valuePtr);
+    return TCL_OK;
+}
+
+// https://www.rfc-editor.org/rfc/rfc3986.txt
+static const char *query_enc[] = {
+        /* 0x00 */  "00", "01", "02", "03",
+        /* 0x04 */  "04", "05", "06", "07",
+        /* 0x08 */  "08", "09", "0a", "0b",
+        /* 0x0c */  "0c", "0d", "0e", "0f",
+        /* 0x10 */  "10", "11", "12", "13",
+        /* 0x14 */  "14", "15", "16", "17",
+        /* 0x18 */  "18", "19", "1a", "1b",
+        /* 0x1c */  "1c", "1d", "1e", "1f",
+        /* 0x20 */  NULL, NULL, "22", "23",
+        /* 0x24 */  NULL, "25", "26", NULL,
+        /* 0x28 */  NULL, NULL, NULL, "2b",
+        /* 0x2c */  "2c", NULL, NULL, NULL,
+        /* 0x30 */  NULL, NULL, NULL, NULL,
+        /* 0x34 */  NULL, NULL, NULL, NULL,
+        /* 0x38 */  NULL, NULL, NULL, "3b",
+        /* 0x3c */  "3c", "3d", "3e", NULL,
+        /* 0x40 */  NULL, NULL, NULL, NULL,
+        /* 0x44 */  NULL, NULL, NULL, NULL,
+        /* 0x48 */  NULL, NULL, NULL, NULL,
+        /* 0x4c */  NULL, NULL, NULL, NULL,
+        /* 0x50 */  NULL, NULL, NULL, NULL,
+        /* 0x54 */  NULL, NULL, NULL, NULL,
+        /* 0x58 */  NULL, NULL, NULL, "5b",
+        /* 0x5c */  "5c", "5d", "5e", NULL,
+        /* 0x60 */  "60", NULL, NULL, NULL,
+        /* 0x64 */  NULL, NULL, NULL, NULL,
+        /* 0x68 */  NULL, NULL, NULL, NULL,
+        /* 0x6c */  NULL, NULL, NULL, NULL,
+        /* 0x70 */  NULL, NULL, NULL, NULL,
+        /* 0x74 */  NULL, NULL, NULL, NULL,
+        /* 0x78 */  NULL, NULL, NULL, "7b",
+        /* 0x7c */  "7c", "7d", NULL, "7f",
+        /* 0x80 */  "80", "81", "82", "83",
+        /* 0x84 */  "84", "85", "86", "87",
+        /* 0x88 */  "88", "89", "8a", "8b",
+        /* 0x8c */  "8c", "8d", "8e", "8f",
+        /* 0x90 */  "90", "91", "92", "93",
+        /* 0x94 */  "94", "95", "96", "97",
+        /* 0x98 */  "98", "99", "9a", "9b",
+        /* 0x9c */  "9c", "9d", "9e", "9f",
+        /* 0xa0 */  "a0", "a1", "a2", "a3",
+        /* 0xa4 */  "a4", "a5", "a6", "a7",
+        /* 0xa8 */  "a8", "a9", "aa", "ab",
+        /* 0xac */  "ac", "ad", "ae", "af",
+        /* 0xb0 */  "b0", "b1", "b2", "b3",
+        /* 0xb4 */  "b4", "b5", "b6", "b7",
+        /* 0xb8 */  "b8", "b9", "ba", "bb",
+        /* 0xbc */  "bc", "bd", "be", "bf",
+        /* 0xc0 */  "c0", "c1", "c2", "c3",
+        /* 0xc4 */  "c4", "c5", "c6", "c7",
+        /* 0xc8 */  "c8", "c9", "ca", "cb",
+        /* 0xcc */  "cc", "cd", "ce", "cf",
+        /* 0xd0 */  "d0", "d1", "d2", "d3",
+        /* 0xd4 */  "d4", "d5", "d6", "d7",
+        /* 0xd8 */  "d8", "d9", "da", "db",
+        /* 0xdc */  "dc", "dd", "de", "df",
+        /* 0xe0 */  "e0", "e1", "e2", "e3",
+        /* 0xe4 */  "e4", "e5", "e6", "e7",
+        /* 0xe8 */  "e8", "e9", "ea", "eb",
+        /* 0xec */  "ec", "ed", "ee", "ef",
+        /* 0xf0 */  "f0", "f1", "f2", "f3",
+        /* 0xf4 */  "f4", "f5", "f6", "f7",
+        /* 0xf8 */  "f8", "f9", "fa", "fb",
+        /* 0xfc */  "fc", "fd", "fe", "ff"
+};
+
+static const char *path_enc[] = {
+        /* 0x00 */  "00", "01", "02", "03",
+        /* 0x04 */  "04", "05", "06", "07",
+        /* 0x08 */  "08", "09", "0a", "0b",
+        /* 0x0c */  "0c", "0d", "0e", "0f",
+        /* 0x10 */  "10", "11", "12", "13",
+        /* 0x14 */  "14", "15", "16", "17",
+        /* 0x18 */  "18", "19", "1a", "1b",
+        /* 0x1c */  "1c", "1d", "1e", "1f",
+        /* 0x20 */  "20", NULL, "22", "23",
+        /* 0x24 */  NULL, "25", NULL, NULL,
+        /* 0x28 */  NULL, NULL, NULL, NULL,
+        /* 0x2c */  NULL, NULL, NULL, "2f",
+        /* 0x30 */  NULL, NULL, NULL, NULL,
+        /* 0x34 */  NULL, NULL, NULL, NULL,
+        /* 0x38 */  NULL, NULL, NULL, "3b",
+        /* 0x3c */  "3c", "3d", "3e", "3f",
+        /* 0x40 */  NULL, NULL, NULL, NULL,
+        /* 0x44 */  NULL, NULL, NULL, NULL,
+        /* 0x48 */  NULL, NULL, NULL, NULL,
+        /* 0x4c */  NULL, NULL, NULL, NULL,
+        /* 0x50 */  NULL, NULL, NULL, NULL,
+        /* 0x54 */  NULL, NULL, NULL, NULL,
+        /* 0x58 */  NULL, NULL, NULL, "5b",
+        /* 0x5c */  "5c", "5d", "5e", NULL,
+        /* 0x60 */  "60", NULL, NULL, NULL,
+        /* 0x64 */  NULL, NULL, NULL, NULL,
+        /* 0x68 */  NULL, NULL, NULL, NULL,
+        /* 0x6c */  NULL, NULL, NULL, NULL,
+        /* 0x70 */  NULL, NULL, NULL, NULL,
+        /* 0x74 */  NULL, NULL, NULL, NULL,
+        /* 0x78 */  NULL, NULL, NULL, "7b",
+        /* 0x7c */  "7c", "7d", NULL, "7f",
+        /* 0x80 */  "80", "81", "82", "83",
+        /* 0x84 */  "84", "85", "86", "87",
+        /* 0x88 */  "88", "89", "8a", "8b",
+        /* 0x8c */  "8c", "8d", "8e", "8f",
+        /* 0x90 */  "90", "91", "92", "93",
+        /* 0x94 */  "94", "95", "96", "97",
+        /* 0x98 */  "98", "99", "9a", "9b",
+        /* 0x9c */  "9c", "9d", "9e", "9f",
+        /* 0xa0 */  "a0", "a1", "a2", "a3",
+        /* 0xa4 */  "a4", "a5", "a6", "a7",
+        /* 0xa8 */  "a8", "a9", "aa", "ab",
+        /* 0xac */  "ac", "ad", "ae", "af",
+        /* 0xb0 */  "b0", "b1", "b2", "b3",
+        /* 0xb4 */  "b4", "b5", "b6", "b7",
+        /* 0xb8 */  "b8", "b9", "ba", "bb",
+        /* 0xbc */  "bc", "bd", "be", "bf",
+        /* 0xc0 */  "c0", "c1", "c2", "c3",
+        /* 0xc4 */  "c4", "c5", "c6", "c7",
+        /* 0xc8 */  "c8", "c9", "ca", "cb",
+        /* 0xcc */  "cc", "cd", "ce", "cf",
+        /* 0xd0 */  "d0", "d1", "d2", "d3",
+        /* 0xd4 */  "d4", "d5", "d6", "d7",
+        /* 0xd8 */  "d8", "d9", "da", "db",
+        /* 0xdc */  "dc", "dd", "de", "df",
+        /* 0xe0 */  "e0", "e1", "e2", "e3",
+        /* 0xe4 */  "e4", "e5", "e6", "e7",
+        /* 0xe8 */  "e8", "e9", "ea", "eb",
+        /* 0xec */  "ec", "ed", "ee", "ef",
+        /* 0xf0 */  "f0", "f1", "f2", "f3",
+        /* 0xf4 */  "f4", "f5", "f6", "f7",
+        /* 0xf8 */  "f8", "f9", "fa", "fb",
+        /* 0xfc */  "fc", "fd", "fe", "ff"
+};
+
+// https://www.rfc-editor.org/rfc/rfc6265.txt
+static const char *cookie_enc[] = {
+        /* 0x00 */  "00", "01", "02", "03",
+        /* 0x04 */  "04", "05", "06", "07",
+        /* 0x08 */  "08", "09", "0a", "0b",
+        /* 0x0c */  "0c", "0d", "0e", "0f",
+        /* 0x10 */  "10", "11", "12", "13",
+        /* 0x14 */  "14", "15", "16", "17",
+        /* 0x18 */  "18", "19", "1a", "1b",
+        /* 0x1c */  "1c", "1d", "1e", "1f",
+        /* 0x20 */  "20", NULL, "22", NULL,
+        /* 0x24 */  NULL, "25", NULL, NULL,
+        /* 0x28 */  NULL, NULL, NULL, NULL,
+        /* 0x2c */  "2c", NULL, NULL, NULL,
+        /* 0x30 */  NULL, NULL, NULL, NULL,
+        /* 0x34 */  NULL, NULL, NULL, NULL,
+        /* 0x38 */  NULL, NULL, NULL, "3b",
+        /* 0x3c */  NULL, NULL, NULL, NULL,
+        /* 0x40 */  NULL, NULL, NULL, NULL,
+        /* 0x44 */  NULL, NULL, NULL, NULL,
+        /* 0x48 */  NULL, NULL, NULL, NULL,
+        /* 0x4c */  NULL, NULL, NULL, NULL,
+        /* 0x50 */  NULL, NULL, NULL, NULL,
+        /* 0x54 */  NULL, NULL, NULL, NULL,
+        /* 0x58 */  NULL, NULL, NULL, NULL,
+        /* 0x5c */  "5c", NULL, NULL, NULL,
+        /* 0x60 */  NULL, NULL, NULL, NULL,
+        /* 0x64 */  NULL, NULL, NULL, NULL,
+        /* 0x68 */  NULL, NULL, NULL, NULL,
+        /* 0x6c */  NULL, NULL, NULL, NULL,
+        /* 0x70 */  NULL, NULL, NULL, NULL,
+        /* 0x74 */  NULL, NULL, NULL, NULL,
+        /* 0x78 */  NULL, NULL, NULL, NULL,
+        /* 0x7c */  NULL, NULL, NULL, "7f",
+        /* 0x80 */  "80", "81", "82", "83",
+        /* 0x84 */  "84", "85", "86", "87",
+        /* 0x88 */  "88", "89", "8a", "8b",
+        /* 0x8c */  "8c", "8d", "8e", "8f",
+        /* 0x90 */  "90", "91", "92", "93",
+        /* 0x94 */  "94", "95", "96", "97",
+        /* 0x98 */  "98", "99", "9a", "9b",
+        /* 0x9c */  "9c", "9d", "9e", "9f",
+        /* 0xa0 */  "a0", "a1", "a2", "a3",
+        /* 0xa4 */  "a4", "a5", "a6", "a7",
+        /* 0xa8 */  "a8", "a9", "aa", "ab",
+        /* 0xac */  "ac", "ad", "ae", "af",
+        /* 0xb0 */  "b0", "b1", "b2", "b3",
+        /* 0xb4 */  "b4", "b5", "b6", "b7",
+        /* 0xb8 */  "b8", "b9", "ba", "bb",
+        /* 0xbc */  "bc", "bd", "be", "bf",
+        /* 0xc0 */  "c0", "c1", "c2", "c3",
+        /* 0xc4 */  "c4", "c5", "c6", "c7",
+        /* 0xc8 */  "c8", "c9", "ca", "cb",
+        /* 0xcc */  "cc", "cd", "ce", "cf",
+        /* 0xd0 */  "d0", "d1", "d2", "d3",
+        /* 0xd4 */  "d4", "d5", "d6", "d7",
+        /* 0xd8 */  "d8", "d9", "da", "db",
+        /* 0xdc */  "dc", "dd", "de", "df",
+        /* 0xe0 */  "e0", "e1", "e2", "e3",
+        /* 0xe4 */  "e4", "e5", "e6", "e7",
+        /* 0xe8 */  "e8", "e9", "ea", "eb",
+        /* 0xec */  "ec", "ed", "ee", "ef",
+        /* 0xf0 */  "f0", "f1", "f2", "f3",
+        /* 0xf4 */  "f4", "f5", "f6", "f7",
+        /* 0xf8 */  "f8", "f9", "fa", "fb",
+        /* 0xfc */  "fc", "fd", "fe", "ff"
+};
+
+
+static int tws_UrlEncode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *enc[], int convert_space_to_plus, const char *value, int value_length, Tcl_Obj **valuePtrPtr) {
+    // use "enc" to encode "value" into "valuePtr"
+    // allocate memory for "valuePtr"
+    char *valuePtr = (char *) Tcl_Alloc(3 * value_length + 1);
+    char *q = valuePtr;
+    const char *p = value;
+    const char *end = value + value_length;
+    while (p < end) {
+        unsigned int c = *p;
+        if (enc[c] != NULL) {
+            // encode "c" into "%xx"
+            *q++ = '%';
+            *q++ = enc[c][0];
+            *q++ = enc[c][1];
+        } else if (c == ' ' && convert_space_to_plus) {
+            // encode "c" into "+"
+            *q++ = '+';
+        } else {
+            *q = c;
+            q++;
+        }
+        p++;
+    }
+    Tcl_SetStringObj(*valuePtrPtr, valuePtr, q - valuePtr);
     return TCL_OK;
 }
 
@@ -1125,7 +1309,44 @@ static int tws_UrlDecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc,
 
     Tcl_Obj *valuePtr = Tcl_NewObj();
     if (TCL_OK != tws_UrlDecode(interp, encoding, encoded_text, length, &valuePtr)) {
-//        Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error", -1));
+        return TCL_ERROR;
+    }
+    Tcl_SetObjResult(interp, valuePtr);
+    return TCL_OK;
+}
+
+static int tws_UrlEncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "UrlEncodeCmd\n"));
+    CheckArgs(3, 4, 1, "part text ?encoding_name?");
+
+    int partLength;
+    const char *part = Tcl_GetStringFromObj(objv[1], &partLength);
+    const char **enc;
+    int convert_space_to_plus = 0;
+    if (partLength == 4 && strncmp(part, "path", 4) == 0) {
+        enc = path_enc;
+    } else if (partLength == 5 && strncmp(part, "query", 5) == 0) {
+        enc = query_enc;
+        convert_space_to_plus = 1;
+    } else if (partLength == 6 && strncmp(part, "cookie", 6) == 0) {
+        enc = cookie_enc;
+    } else {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("part must be one of \"query\", \"path\" or \"cookie\"", -1));
+        return TCL_ERROR;
+    }
+
+    int length;
+    const char *text = Tcl_GetStringFromObj(objv[2], &length);
+
+    Tcl_Encoding encoding;
+    if (objc == 4) {
+        encoding = Tcl_GetEncoding(interp, Tcl_GetString(objv[3]));
+    } else {
+        encoding = Tcl_GetEncoding(interp, "utf-8");
+    }
+
+    Tcl_Obj *valuePtr = Tcl_NewObj();
+    if (TCL_OK != tws_UrlEncode(interp, encoding, enc, convert_space_to_plus, text, length, &valuePtr)) {
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
@@ -1161,6 +1382,7 @@ int Tws_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::tws::close_conn", tws_CloseConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::tws::parse_request", tws_ParseRequestCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::tws::url_decode", tws_UrlDecodeCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::tws::url_encode", tws_UrlEncodeCmd, NULL, NULL);
 
     return Tcl_PkgProvide(interp, "tws", "0.1");
 }
