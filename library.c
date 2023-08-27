@@ -564,11 +564,11 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
 
     // mark the end of the token and remember as "http_method"
     curr++;
-    char *http_method = strndup(p, curr - p);
-    http_method[curr - p - 1] = '\0';
+//    char *http_method = strndup(p, curr - p);
+//    http_method[curr - p - 1] = '\0';
     int http_method_length = curr - p - 1;
 
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("httpMethod", -1), Tcl_NewStringObj(http_method, http_method_length));
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("httpMethod", -1), Tcl_NewStringObj(p, http_method_length));
 
     // skip spaces
     while (curr < end && CHARTYPE(space, *curr) != 0) {
@@ -587,13 +587,13 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
 
     // mark the end of the token and remember as "path"
     curr++;
-    char *url = strndup(p, curr - p);
-    url[curr - p - 1] = '\0';
+//    char *url = strndup(p, curr - p);
+//    url[curr - p - 1] = '\0';
     int url_length = curr - p - 1;
 
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("url", -1), Tcl_NewStringObj(url, url_length));
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("url", -1), Tcl_NewStringObj(p, url_length));
 
-    if (TCL_OK != tws_ParsePathAndQueryString(interp, url, url_length, resultPtr)) {
+    if (TCL_OK != tws_ParsePathAndQueryString(interp, p, url_length, resultPtr)) {
         return TCL_ERROR;
     }
 
@@ -622,9 +622,7 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, const char **currPtr, const 
 
         // mark the end of the token and remember as "version"
         curr++;
-        char *version = strndup(p, curr - p);
-        version[curr - p - 1] = '\0';
-        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("version", -1), Tcl_NewStringObj(version, -1));
+        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("version", -1), Tcl_NewStringObj(p, curr - p - 1));
     }
 
     // skip newline chars
