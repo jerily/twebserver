@@ -324,6 +324,12 @@ SSL_CTX *create_context() {
         exit(EXIT_FAILURE);
     }
 
+    unsigned long op = SSL_OP_ALL;
+    op |= SSL_OP_NO_SSLv2;
+//    op |= SSL_OP_NO_SSLv3;
+//    op |= SSL_OP_NO_TLSv1;
+    SSL_CTX_set_options(ctx, op);
+
     return ctx;
 }
 

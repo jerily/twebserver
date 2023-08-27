@@ -8,7 +8,7 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)
-set(CMAKE_C_FLAGS  "-DDEBUG ${CMAKE_C_FLAGS}")
+#set(CMAKE_C_FLAGS  "-DDEBUG ${CMAKE_C_FLAGS}")
 
 add_library(tws SHARED MODULE library.c)
 set_target_properties(tws PROPERTIES POSITION_INDEPENDENT_CODE ON)

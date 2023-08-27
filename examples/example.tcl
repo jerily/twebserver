@@ -11,7 +11,7 @@ set thread_script {
     }
 
     proc thread_process_conn {conn addr port} {
-        puts "thread_process_conn $conn $addr $port"
+        #puts "thread_process_conn $conn $addr $port"
         if { [catch {
             set request [::tws::read_conn $conn]
             set reply [thread_process_request [::tws::parse_request $request]]
@@ -20,7 +20,7 @@ set thread_script {
             puts "error: $errmsg"
         }
         ::tws::close_conn $conn
-        puts done
+        #puts done
     }
 
 }
