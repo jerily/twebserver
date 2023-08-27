@@ -35,6 +35,9 @@ static Tcl_Mutex tws_ServerNameToInternal_HT_Mutex;
 static Tcl_HashTable tws_ConnNameToInternal_HT;
 static Tcl_Mutex tws_ConnNameToInternal_HT_Mutex;
 
+static Tcl_HashTable tws_HostNameToInternal_HT;
+static Tcl_Mutex tws_HostNameToInternal_HT_Mutex;
+
 static int tws_ModuleInitialized;
 
 typedef struct {
@@ -147,6 +150,56 @@ tws_GetInternalFromConnName(const char *name) {
     return internal;
 }
 
+static int
+tws_RegisterHostName(const char *name, SSL_CTX *internal) {
+
+    Tcl_HashEntry *entryPtr;
+    int newEntry;
+    Tcl_MutexLock(&tws_HostNameToInternal_HT_Mutex);
+    entryPtr = Tcl_CreateHashEntry(&tws_HostNameToInternal_HT, (char *) name, &newEntry);
+    if (newEntry) {
+        Tcl_SetHashValue(entryPtr, (ClientData) internal);
+    }
+    Tcl_MutexUnlock(&tws_HostNameToInternal_HT_Mutex);
+
+    DBG(fprintf(stderr, "--> RegisterHostName: name=%s internal=%p %s\n", name, internal,
+                newEntry ? "entered into" : "already in"));
+
+    return newEntry;
+}
+
+static int
+tws_UnregisterHostName(const char *name) {
+
+    Tcl_HashEntry *entryPtr;
+
+    Tcl_MutexLock(&tws_HostNameToInternal_HT_Mutex);
+    entryPtr = Tcl_FindHashEntry(&tws_HostNameToInternal_HT, (char *) name);
+    if (entryPtr != NULL) {
+        Tcl_DeleteHashEntry(entryPtr);
+    }
+    Tcl_MutexUnlock(&tws_HostNameToInternal_HT_Mutex);
+
+    DBG(fprintf(stderr, "--> UnregisterHostName: name=%s entryPtr=%p\n", name, entryPtr));
+
+    return entryPtr != NULL;
+}
+
+static SSL_CTX *
+tws_GetInternalFromHostName(const char *name) {
+    SSL_CTX *internal = NULL;
+    Tcl_HashEntry *entryPtr;
+
+    Tcl_MutexLock(&tws_HostNameToInternal_HT_Mutex);
+    entryPtr = Tcl_FindHashEntry(&tws_HostNameToInternal_HT, (char *) name);
+    if (entryPtr != NULL) {
+        internal = (SSL_CTX *) Tcl_GetHashValue(entryPtr);
+    }
+    Tcl_MutexUnlock(&tws_HostNameToInternal_HT_Mutex);
+
+    return internal;
+}
+
 
 int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     tws_server_t *server = tws_GetInternalFromServerName(handle);
@@ -192,7 +245,11 @@ int create_socket(int port) {
 
 tws_conn_t *tws_NewConn(SSL_CTX *sslCtx, int client) {
     SSL *ssl = SSL_new(sslCtx);
+    if (ssl == NULL) {
+        return NULL;
+    }
     SSL_set_fd(ssl, client);
+    SSL_set_accept_state(ssl);
     tws_conn_t *conn = (tws_conn_t *) Tcl_Alloc(sizeof(tws_conn_t));
     conn->ssl = ssl;
     conn->client = client;
@@ -237,11 +294,15 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
 
         int client = accept(sock, (struct sockaddr *) &addr, &len);
         if (client < 0) {
-            perror("Unable to accept");
-            exit(EXIT_FAILURE);
+            Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to accept", -1));
+            return TCL_ERROR;
         }
 
         tws_conn_t *conn = tws_NewConn(server->sslCtx, client);
+        if (conn == NULL) {
+            Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to create SSL connection", -1));
+            return TCL_ERROR;
+        }
 
         char conn_handle[80];
         CMD_CONN_NAME(conn_handle, conn);
@@ -300,27 +361,62 @@ void configure_context(SSL_CTX *ctx, const char *key_file, const char *cert_file
     }
 }
 
+// ClientHello callback
+int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
+
+    const unsigned char *p;
+    size_t remaining;
+    size_t len;
+    if (!SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_server_name, &p, &remaining) || remaining <= 2) {
+        return SSL_CLIENT_HELLO_ERROR;
+    }
+
+    /* Extract the length of the supplied list of names. */
+    len = (*(p++) << 8);
+    len += *(p++);
+    if (len + 2 != remaining)
+        return 0;
+    remaining = len;
+    /*
+     * The list in practice only has a single element, so we only consider
+     * the first one.
+     */
+    if (remaining == 0 || *p++ != TLSEXT_NAMETYPE_host_name)
+        return 0;
+    remaining--;
+    /* Now we can finally pull out the byte array with the actual hostname. */
+    if (remaining <= 2)
+        return 0;
+    len = (*(p++) << 8);
+    len += *(p++);
+    if (len + 2 > remaining)
+        return 0;
+    remaining = len;
+    const char *hostname = (const char *)p;
+
+    DBG(fprintf(stderr, "hostname=%s\n", hostname));
+    if (p == NULL) {
+        return SSL_CLIENT_HELLO_ERROR;
+    }
+
+    SSL_CTX *ctx = tws_GetInternalFromHostName(hostname);
+    if (!ctx) {
+        return SSL_CLIENT_HELLO_ERROR;
+    }
+
+    SSL_set_SSL_CTX(ssl, ctx);
+    return SSL_CLIENT_HELLO_SUCCESS;
+}
+
 static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "CreateCmd\n"));
     CheckArgs(3, 3, 1, "config_dict cmd_name");
 
-    Tcl_Obj *keyFilePtr;
-    Tcl_Obj *certFilePtr;
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[1], Tcl_NewStringObj("key", -1), &keyFilePtr)) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("key not found in config_dict", -1));
-        return TCL_ERROR;
-    }
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[1], Tcl_NewStringObj("cert", -1), &certFilePtr)) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("cert not found in config_dict", -1));
-        return TCL_ERROR;
-    }
     SSL_CTX *ctx = create_context();
-    configure_context(ctx, Tcl_GetString(keyFilePtr), Tcl_GetString(certFilePtr));
-
+    SSL_CTX_set_client_hello_cb(ctx, tws_ClientHelloCallback, NULL);
     tws_server_t *server_ctx = (tws_server_t *) Tcl_Alloc(sizeof(tws_server_t));
     server_ctx->sslCtx = ctx;
-    server_ctx->cmdPtr = objv[2];
-    Tcl_IncrRefCount(server_ctx->cmdPtr);
+    server_ctx->cmdPtr = Tcl_DuplicateObj(objv[2]);
 
     char handle[80];
     CMD_SERVER_NAME(handle, server_ctx);
@@ -350,6 +446,21 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
 
     return tws_Listen(interp, Tcl_GetString(objv[1]), objv[2]);
 
+}
+
+static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "AddContextCmd\n"));
+    CheckArgs(5, 5, 1, "handle hostname key cert");
+
+
+    const char *hostname = Tcl_GetString(objv[2]);
+    Tcl_Obj *keyFilePtr = objv[3];
+    Tcl_Obj *certFilePtr = objv[4];
+    SSL_CTX *ctx = create_context();
+    configure_context(ctx, Tcl_GetString(keyFilePtr), Tcl_GetString(certFilePtr));
+    tws_RegisterHostName(hostname, ctx);
+
+    return TCL_OK;
 }
 
 static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
@@ -400,7 +511,14 @@ static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
 
     int length;
     const char *reply = Tcl_GetStringFromObj(objv[2], &length);
-    SSL_write(conn->ssl, reply, length);
+    int rc = SSL_write(conn->ssl, reply, length);
+    if (rc <= 0) {
+        int err = SSL_get_error(conn->ssl, rc);
+        Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_write error: ", -1);
+        Tcl_AppendObjToObj(resultObjPtr, Tcl_NewIntObj(err));
+        Tcl_SetObjResult(interp, resultObjPtr);
+        return TCL_ERROR;
+    }
 
     return TCL_OK;
 
@@ -1361,6 +1479,7 @@ void tws_InitModule() {
     if (!tws_ModuleInitialized) {
         Tcl_InitHashTable(&tws_ServerNameToInternal_HT, TCL_STRING_KEYS);
         Tcl_InitHashTable(&tws_ConnNameToInternal_HT, TCL_STRING_KEYS);
+        Tcl_InitHashTable(&tws_HostNameToInternal_HT, TCL_STRING_KEYS);
         Tcl_CreateThreadExitHandler(tws_ExitHandler, NULL);
         tws_ModuleInitialized = 1;
     }
@@ -1377,6 +1496,7 @@ int Tws_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::tws::create_server", tws_CreateCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::tws::destroy_server", tws_DestroyCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::tws::listen_server", tws_ListenCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::tws::add_context", tws_AddContextCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::tws::read_conn", tws_ReadConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::tws::write_conn", tws_WriteConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::tws::close_conn", tws_CloseConnCmd, NULL, NULL);

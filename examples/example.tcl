@@ -33,8 +33,10 @@ proc process_conn {conn addr port} {
     ::tpool::post -detached -nowait $pool [list thread_process_conn $conn $addr $port]
 }
 
-set config_dict [dict create key "../certs/key.pem" cert "../certs/cert.pem"]
+set config_dict [dict create]
 set server_handle [::tws::create_server $config_dict process_conn]
+::tws::add_context $server_handle localhost "../certs/host1/key.pem" "../certs/host1/cert.pem"
+::tws::add_context $server_handle www.example.com "../certs/host2/key.pem" "../certs/host2/cert.pem"
 ::tws::listen_server $server_handle 4433
 ::tws::destroy_server $server_handle
 
