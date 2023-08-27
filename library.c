@@ -610,7 +610,12 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, const char *url, int 
     while (p2 < url + url_length && *p2 != '\0') {
         if (*p2 == '?') {
             int path_length = p2 - url;
-            Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), Tcl_NewStringObj(url, path_length));
+            Tcl_Obj *pathPtr = Tcl_NewObj();
+            if (TCL_OK != tws_UrlDecode(interp, url, path_length, &pathPtr)) {
+                Tcl_SetObjResult(interp, Tcl_NewStringObj("path urldecode error", -1));
+                return TCL_ERROR;
+            }
+            Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), pathPtr);
             int query_string_length = url + url_length - p2 - 1;
             Tcl_Obj *queryStringPtr = Tcl_NewStringObj(p2 + 1, query_string_length);
             Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), queryStringPtr);
