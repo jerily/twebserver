@@ -28,7 +28,7 @@ set thread_script {
 set pool [tpool::create -minworkers 5 -maxworkers 20 -idletime 40 -initcmd $thread_script]
 
 proc process_conn {conn addr port} {
-    puts "processing connection... $conn $addr $port"
+    #puts "processing connection... $conn $addr $port"
     global pool
     ::tpool::post -detached -nowait $pool [list thread_process_conn $conn $addr $port]
 }
