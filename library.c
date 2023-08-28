@@ -639,211 +639,140 @@ static int tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *
     return TCL_OK;
 }
 
-// https://www.rfc-editor.org/rfc/rfc3986.txt
-static const char *query_enc[] = {
-        /* 0x00 */  "00", "01", "02", "03",
-        /* 0x04 */  "04", "05", "06", "07",
-        /* 0x08 */  "08", "09", "0a", "0b",
-        /* 0x0c */  "0c", "0d", "0e", "0f",
-        /* 0x10 */  "10", "11", "12", "13",
-        /* 0x14 */  "14", "15", "16", "17",
-        /* 0x18 */  "18", "19", "1a", "1b",
-        /* 0x1c */  "1c", "1d", "1e", "1f",
-        /* 0x20 */  NULL, NULL, "22", "23",
-        /* 0x24 */  NULL, "25", "26", NULL,
-        /* 0x28 */  NULL, NULL, NULL, "2b",
-        /* 0x2c */  "2c", NULL, NULL, NULL,
-        /* 0x30 */  NULL, NULL, NULL, NULL,
-        /* 0x34 */  NULL, NULL, NULL, NULL,
-        /* 0x38 */  NULL, NULL, NULL, "3b",
-        /* 0x3c */  "3c", "3d", "3e", NULL,
-        /* 0x40 */  NULL, NULL, NULL, NULL,
-        /* 0x44 */  NULL, NULL, NULL, NULL,
-        /* 0x48 */  NULL, NULL, NULL, NULL,
-        /* 0x4c */  NULL, NULL, NULL, NULL,
-        /* 0x50 */  NULL, NULL, NULL, NULL,
-        /* 0x54 */  NULL, NULL, NULL, NULL,
-        /* 0x58 */  NULL, NULL, NULL, "5b",
-        /* 0x5c */  "5c", "5d", "5e", NULL,
-        /* 0x60 */  "60", NULL, NULL, NULL,
-        /* 0x64 */  NULL, NULL, NULL, NULL,
-        /* 0x68 */  NULL, NULL, NULL, NULL,
-        /* 0x6c */  NULL, NULL, NULL, NULL,
-        /* 0x70 */  NULL, NULL, NULL, NULL,
-        /* 0x74 */  NULL, NULL, NULL, NULL,
-        /* 0x78 */  NULL, NULL, NULL, "7b",
-        /* 0x7c */  "7c", "7d", NULL, "7f",
-        /* 0x80 */  "80", "81", "82", "83",
-        /* 0x84 */  "84", "85", "86", "87",
-        /* 0x88 */  "88", "89", "8a", "8b",
-        /* 0x8c */  "8c", "8d", "8e", "8f",
-        /* 0x90 */  "90", "91", "92", "93",
-        /* 0x94 */  "94", "95", "96", "97",
-        /* 0x98 */  "98", "99", "9a", "9b",
-        /* 0x9c */  "9c", "9d", "9e", "9f",
-        /* 0xa0 */  "a0", "a1", "a2", "a3",
-        /* 0xa4 */  "a4", "a5", "a6", "a7",
-        /* 0xa8 */  "a8", "a9", "aa", "ab",
-        /* 0xac */  "ac", "ad", "ae", "af",
-        /* 0xb0 */  "b0", "b1", "b2", "b3",
-        /* 0xb4 */  "b4", "b5", "b6", "b7",
-        /* 0xb8 */  "b8", "b9", "ba", "bb",
-        /* 0xbc */  "bc", "bd", "be", "bf",
-        /* 0xc0 */  "c0", "c1", "c2", "c3",
-        /* 0xc4 */  "c4", "c5", "c6", "c7",
-        /* 0xc8 */  "c8", "c9", "ca", "cb",
-        /* 0xcc */  "cc", "cd", "ce", "cf",
-        /* 0xd0 */  "d0", "d1", "d2", "d3",
-        /* 0xd4 */  "d4", "d5", "d6", "d7",
-        /* 0xd8 */  "d8", "d9", "da", "db",
-        /* 0xdc */  "dc", "dd", "de", "df",
-        /* 0xe0 */  "e0", "e1", "e2", "e3",
-        /* 0xe4 */  "e4", "e5", "e6", "e7",
-        /* 0xe8 */  "e8", "e9", "ea", "eb",
-        /* 0xec */  "ec", "ed", "ee", "ef",
-        /* 0xf0 */  "f0", "f1", "f2", "f3",
-        /* 0xf4 */  "f4", "f5", "f6", "f7",
-        /* 0xf8 */  "f8", "f9", "fa", "fb",
-        /* 0xfc */  "fc", "fd", "fe", "ff"
+// Bits that identify different character types. These types identify different
+// bits that are set for each 8-bit character in the "shared_char_type_table".
+enum shared_char_types {
+    // Characters that do not require escaping in queries. Characters that do
+    // not have this flag will be escaped; see url_canon_query.cc
+    CHAR_QUERY = 1,
+    // Valid in the username/password field.
+    CHAR_USERINFO = 2,
+    // Valid in a IPv4 address (digits plus dot and 'x' for hex).
+    CHAR_IPV4 = 4,
+    // Valid in an ASCII-representation of a hex digit (as in %-escaped).
+    CHAR_HEX = 8,
+    // Valid in an ASCII-representation of a decimal digit.
+    CHAR_DEC = 16,
+    // Valid in an ASCII-representation of an octal digit.
+    CHAR_OCT = 32,
+    // Characters that do not require escaping in encodeURIComponent.
+    CHAR_COMPONENT = 64,
 };
 
-static const char *path_enc[] = {
-        /* 0x00 */  "00", "01", "02", "03",
-        /* 0x04 */  "04", "05", "06", "07",
-        /* 0x08 */  "08", "09", "0a", "0b",
-        /* 0x0c */  "0c", "0d", "0e", "0f",
-        /* 0x10 */  "10", "11", "12", "13",
-        /* 0x14 */  "14", "15", "16", "17",
-        /* 0x18 */  "18", "19", "1a", "1b",
-        /* 0x1c */  "1c", "1d", "1e", "1f",
-        /* 0x20 */  "20", NULL, "22", "23",
-        /* 0x24 */  NULL, "25", NULL, NULL,
-        /* 0x28 */  NULL, NULL, NULL, NULL,
-        /* 0x2c */  NULL, NULL, NULL, "2f",
-        /* 0x30 */  NULL, NULL, NULL, NULL,
-        /* 0x34 */  NULL, NULL, NULL, NULL,
-        /* 0x38 */  NULL, NULL, NULL, "3b",
-        /* 0x3c */  "3c", "3d", "3e", "3f",
-        /* 0x40 */  NULL, NULL, NULL, NULL,
-        /* 0x44 */  NULL, NULL, NULL, NULL,
-        /* 0x48 */  NULL, NULL, NULL, NULL,
-        /* 0x4c */  NULL, NULL, NULL, NULL,
-        /* 0x50 */  NULL, NULL, NULL, NULL,
-        /* 0x54 */  NULL, NULL, NULL, NULL,
-        /* 0x58 */  NULL, NULL, NULL, "5b",
-        /* 0x5c */  "5c", "5d", "5e", NULL,
-        /* 0x60 */  "60", NULL, NULL, NULL,
-        /* 0x64 */  NULL, NULL, NULL, NULL,
-        /* 0x68 */  NULL, NULL, NULL, NULL,
-        /* 0x6c */  NULL, NULL, NULL, NULL,
-        /* 0x70 */  NULL, NULL, NULL, NULL,
-        /* 0x74 */  NULL, NULL, NULL, NULL,
-        /* 0x78 */  NULL, NULL, NULL, "7b",
-        /* 0x7c */  "7c", "7d", NULL, "7f",
-        /* 0x80 */  "80", "81", "82", "83",
-        /* 0x84 */  "84", "85", "86", "87",
-        /* 0x88 */  "88", "89", "8a", "8b",
-        /* 0x8c */  "8c", "8d", "8e", "8f",
-        /* 0x90 */  "90", "91", "92", "93",
-        /* 0x94 */  "94", "95", "96", "97",
-        /* 0x98 */  "98", "99", "9a", "9b",
-        /* 0x9c */  "9c", "9d", "9e", "9f",
-        /* 0xa0 */  "a0", "a1", "a2", "a3",
-        /* 0xa4 */  "a4", "a5", "a6", "a7",
-        /* 0xa8 */  "a8", "a9", "aa", "ab",
-        /* 0xac */  "ac", "ad", "ae", "af",
-        /* 0xb0 */  "b0", "b1", "b2", "b3",
-        /* 0xb4 */  "b4", "b5", "b6", "b7",
-        /* 0xb8 */  "b8", "b9", "ba", "bb",
-        /* 0xbc */  "bc", "bd", "be", "bf",
-        /* 0xc0 */  "c0", "c1", "c2", "c3",
-        /* 0xc4 */  "c4", "c5", "c6", "c7",
-        /* 0xc8 */  "c8", "c9", "ca", "cb",
-        /* 0xcc */  "cc", "cd", "ce", "cf",
-        /* 0xd0 */  "d0", "d1", "d2", "d3",
-        /* 0xd4 */  "d4", "d5", "d6", "d7",
-        /* 0xd8 */  "d8", "d9", "da", "db",
-        /* 0xdc */  "dc", "dd", "de", "df",
-        /* 0xe0 */  "e0", "e1", "e2", "e3",
-        /* 0xe4 */  "e4", "e5", "e6", "e7",
-        /* 0xe8 */  "e8", "e9", "ea", "eb",
-        /* 0xec */  "ec", "ed", "ee", "ef",
-        /* 0xf0 */  "f0", "f1", "f2", "f3",
-        /* 0xf4 */  "f4", "f5", "f6", "f7",
-        /* 0xf8 */  "f8", "f9", "fa", "fb",
-        /* 0xfc */  "fc", "fd", "fe", "ff"
+// https://chromium.googlesource.com/chromium/src/+/refs/heads/main/url/url_canon_internal.cc#174
+// This table contains the flags in "shared_char_types" for each 8-bit character.
+static const unsigned char shared_char_type_table[0x100] = {
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x00 - 0x0f
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x10 - 0x1f
+        0,                           // 0x20  ' ' (escape spaces in queries)
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x21  !
+        0,                           // 0x22  "
+        0,                           // 0x23  #  (invalid in query since it marks the ref)
+        CHAR_QUERY | CHAR_USERINFO,  // 0x24  $
+        CHAR_QUERY | CHAR_USERINFO,  // 0x25  %
+        CHAR_QUERY | CHAR_USERINFO,  // 0x26  &
+        0,                           // 0x27  '  (Try to prevent XSS.)
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x28  (
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x29  )
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x2a  *
+        CHAR_QUERY | CHAR_USERINFO,  // 0x2b  +
+        CHAR_QUERY | CHAR_USERINFO,  // 0x2c  ,
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x2d  -
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_COMPONENT,  // 0x2e  .
+        CHAR_QUERY,                  // 0x2f  /
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x30  0
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x31  1
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x32  2
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x33  3
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x34  4
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x35  5
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x36  6
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x37  7
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_COMPONENT,             // 0x38  8
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_COMPONENT,             // 0x39  9
+        CHAR_QUERY,  // 0x3a  :
+        CHAR_QUERY,  // 0x3b  ;
+        0,           // 0x3c  <  (Try to prevent certain types of XSS.)
+        CHAR_QUERY,  // 0x3d  =
+        0,           // 0x3e  >  (Try to prevent certain types of XSS.)
+        CHAR_QUERY,  // 0x3f  ?
+        CHAR_QUERY,  // 0x40  @
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x41  A
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x42  B
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x43  C
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x44  D
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x45  E
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x46  F
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x47  G
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x48  H
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x49  I
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x4a  J
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x4b  K
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x4c  L
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x4d  M
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x4e  N
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x4f  O
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x50  P
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x51  Q
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x52  R
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x53  S
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x54  T
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x55  U
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x56  V
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x57  W
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_COMPONENT, // 0x58  X
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x59  Y
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x5a  Z
+        CHAR_QUERY,  // 0x5b  [
+        CHAR_QUERY,  // 0x5c  '\'
+        CHAR_QUERY,  // 0x5d  ]
+        CHAR_QUERY,  // 0x5e  ^
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x5f  _
+        CHAR_QUERY,  // 0x60  `
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x61  a
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x62  b
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x63  c
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x64  d
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x65  e
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x66  f
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x67  g
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x68  h
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x69  i
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x6a  j
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x6b  k
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x6c  l
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x6d  m
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x6e  n
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x6f  o
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x70  p
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x71  q
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x72  r
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x73  s
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x74  t
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x75  u
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x76  v
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x77  w
+        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_COMPONENT,  // 0x78  x
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x79  y
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x7a  z
+        CHAR_QUERY,  // 0x7b  {
+        CHAR_QUERY,  // 0x7c  |
+        CHAR_QUERY,  // 0x7d  }
+        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x7e  ~
+        0,           // 0x7f
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x80 - 0x8f
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x90 - 0x9f
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xa0 - 0xaf
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xb0 - 0xbf
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xc0 - 0xcf
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xd0 - 0xdf
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xe0 - 0xef
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xf0 - 0xff
 };
 
-// https://www.rfc-editor.org/rfc/rfc6265.txt
-static const char *cookie_enc[] = {
-        /* 0x00 */  "00", "01", "02", "03",
-        /* 0x04 */  "04", "05", "06", "07",
-        /* 0x08 */  "08", "09", "0a", "0b",
-        /* 0x0c */  "0c", "0d", "0e", "0f",
-        /* 0x10 */  "10", "11", "12", "13",
-        /* 0x14 */  "14", "15", "16", "17",
-        /* 0x18 */  "18", "19", "1a", "1b",
-        /* 0x1c */  "1c", "1d", "1e", "1f",
-        /* 0x20 */  "20", NULL, "22", NULL,
-        /* 0x24 */  NULL, "25", NULL, NULL,
-        /* 0x28 */  NULL, NULL, NULL, NULL,
-        /* 0x2c */  "2c", NULL, NULL, NULL,
-        /* 0x30 */  NULL, NULL, NULL, NULL,
-        /* 0x34 */  NULL, NULL, NULL, NULL,
-        /* 0x38 */  NULL, NULL, NULL, "3b",
-        /* 0x3c */  NULL, NULL, NULL, NULL,
-        /* 0x40 */  NULL, NULL, NULL, NULL,
-        /* 0x44 */  NULL, NULL, NULL, NULL,
-        /* 0x48 */  NULL, NULL, NULL, NULL,
-        /* 0x4c */  NULL, NULL, NULL, NULL,
-        /* 0x50 */  NULL, NULL, NULL, NULL,
-        /* 0x54 */  NULL, NULL, NULL, NULL,
-        /* 0x58 */  NULL, NULL, NULL, NULL,
-        /* 0x5c */  "5c", NULL, NULL, NULL,
-        /* 0x60 */  NULL, NULL, NULL, NULL,
-        /* 0x64 */  NULL, NULL, NULL, NULL,
-        /* 0x68 */  NULL, NULL, NULL, NULL,
-        /* 0x6c */  NULL, NULL, NULL, NULL,
-        /* 0x70 */  NULL, NULL, NULL, NULL,
-        /* 0x74 */  NULL, NULL, NULL, NULL,
-        /* 0x78 */  NULL, NULL, NULL, NULL,
-        /* 0x7c */  NULL, NULL, NULL, "7f",
-        /* 0x80 */  "80", "81", "82", "83",
-        /* 0x84 */  "84", "85", "86", "87",
-        /* 0x88 */  "88", "89", "8a", "8b",
-        /* 0x8c */  "8c", "8d", "8e", "8f",
-        /* 0x90 */  "90", "91", "92", "93",
-        /* 0x94 */  "94", "95", "96", "97",
-        /* 0x98 */  "98", "99", "9a", "9b",
-        /* 0x9c */  "9c", "9d", "9e", "9f",
-        /* 0xa0 */  "a0", "a1", "a2", "a3",
-        /* 0xa4 */  "a4", "a5", "a6", "a7",
-        /* 0xa8 */  "a8", "a9", "aa", "ab",
-        /* 0xac */  "ac", "ad", "ae", "af",
-        /* 0xb0 */  "b0", "b1", "b2", "b3",
-        /* 0xb4 */  "b4", "b5", "b6", "b7",
-        /* 0xb8 */  "b8", "b9", "ba", "bb",
-        /* 0xbc */  "bc", "bd", "be", "bf",
-        /* 0xc0 */  "c0", "c1", "c2", "c3",
-        /* 0xc4 */  "c4", "c5", "c6", "c7",
-        /* 0xc8 */  "c8", "c9", "ca", "cb",
-        /* 0xcc */  "cc", "cd", "ce", "cf",
-        /* 0xd0 */  "d0", "d1", "d2", "d3",
-        /* 0xd4 */  "d4", "d5", "d6", "d7",
-        /* 0xd8 */  "d8", "d9", "da", "db",
-        /* 0xdc */  "dc", "dd", "de", "df",
-        /* 0xe0 */  "e0", "e1", "e2", "e3",
-        /* 0xe4 */  "e4", "e5", "e6", "e7",
-        /* 0xe8 */  "e8", "e9", "ea", "eb",
-        /* 0xec */  "ec", "ed", "ee", "ef",
-        /* 0xf0 */  "f0", "f1", "f2", "f3",
-        /* 0xf4 */  "f4", "f5", "f6", "f7",
-        /* 0xf8 */  "f8", "f9", "fa", "fb",
-        /* 0xfc */  "fc", "fd", "fe", "ff"
-};
+static char hex_digits[] = "0123456789ABCDEF"; // A lookup table for hexadecimal digits
 
-
-static int tws_UrlEncode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *enc[], int convert_space_to_plus, const char *value, int value_length, Tcl_Obj **valuePtrPtr) {
+static int tws_UrlEncode(Tcl_Interp *interp, Tcl_Encoding encoding, int enc_flags, const char *value, int value_length, Tcl_Obj **valuePtrPtr) {
     // use "enc" to encode "value" into "valuePtr"
     // allocate memory for "valuePtr"
     char *valuePtr = (char *) Tcl_Alloc(3 * value_length + 1);
@@ -852,17 +781,22 @@ static int tws_UrlEncode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *
     const char *end = value + value_length;
     while (p < end) {
         unsigned int c = *p;
-        if (enc[c] != NULL) {
-            // encode "c" into "%xx"
-            *q++ = '%';
-            *q++ = enc[c][0];
-            *q++ = enc[c][1];
-        } else if (c == ' ' && convert_space_to_plus) {
-            // encode "c" into "+"
-            *q++ = '+';
-        } else {
+        if (shared_char_type_table[c] & enc_flags) {
             *q = c;
             q++;
+        } else {
+            if (c == ' ' && (enc_flags & CHAR_QUERY)) {
+                // encode "c" into "+"
+                *q++ = '+';
+            } else {
+                // encode "c" into "%xx"
+                char hex0 = hex_digits[(c >> 4) & 0xF]; // Extract the high nibble of c and use it as an index in the lookup table
+                char hex1 = hex_digits[c & 0xF]; // Extract the low nibble of c and use it as an index in the lookup table
+
+                *q++ = '%';
+                *q++ = hex0;
+                *q++ = hex1;
+            }
         }
         p++;
     }
@@ -1445,15 +1379,13 @@ static int tws_UrlEncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc,
 
     int partLength;
     const char *part = Tcl_GetStringFromObj(objv[1], &partLength);
-    const char **enc;
-    int convert_space_to_plus = 0;
+    int enc_flags = 0;
     if (partLength == 4 && strncmp(part, "path", 4) == 0) {
-        enc = path_enc;
+        enc_flags |= CHAR_COMPONENT;
     } else if (partLength == 5 && strncmp(part, "query", 5) == 0) {
-        enc = query_enc;
-        convert_space_to_plus = 1;
+        enc_flags |= CHAR_QUERY;
     } else if (partLength == 6 && strncmp(part, "cookie", 6) == 0) {
-        enc = cookie_enc;
+        enc_flags |= CHAR_COMPONENT;
     } else {
         Tcl_SetObjResult(interp, Tcl_NewStringObj("part must be one of \"query\", \"path\" or \"cookie\"", -1));
         return TCL_ERROR;
@@ -1470,7 +1402,7 @@ static int tws_UrlEncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     }
 
     Tcl_Obj *valuePtr = Tcl_NewObj();
-    if (TCL_OK != tws_UrlEncode(interp, encoding, enc, convert_space_to_plus, text, length, &valuePtr)) {
+    if (TCL_OK != tws_UrlEncode(interp, encoding, enc_flags, text, length, &valuePtr)) {
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
