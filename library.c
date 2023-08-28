@@ -553,92 +553,6 @@ const char *tws_strpbrk(const char *s, const char *end, const char *accept) {
     return NULL;
 }
 
-static int tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, int value_length, Tcl_Obj **valuePtrPtr) {
-    // check if url decoding is needed, value is not '\0' terminated
-    const char *p = value;
-    const char *end = value + value_length;
-    p = tws_strpbrk(value, end, "%+");
-
-    // no url decoding is needed
-    if (p == NULL) {
-        *valuePtrPtr = Tcl_NewStringObj(value, value_length);
-        return TCL_OK;
-    }
-
-    // url decoding is needed
-    // decode "value" into "valuePtr"
-
-    // allocate memory for "valuePtr"
-    char *valuePtr = (char *) Tcl_Alloc(value_length + 1);
-    char *q = valuePtr;
-    while (p != NULL) {
-        // copy the part of "value" before the first "%"
-        memcpy(q, value, p - value);
-        q += p - value;
-        value = p;
-        if (*value == '%') {
-            // decode "%xx" into a single char
-            value++;
-            if (value + 2 > end) {
-                Tcl_Free(valuePtr);
-                Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid %xx sequence", -1));
-                return TCL_ERROR;
-            }
-            char hex[3];
-            hex[0] = value[0];
-            hex[1] = value[1];
-            hex[2] = '\0';
-            char *hexend;
-            long int c = strtol(hex, &hexend, 16);
-            if (*hexend != '\0') {
-                Tcl_Free(valuePtr);
-                Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid %xx sequence", -1));
-                return TCL_ERROR;
-            }
-            *q = (char) c;
-            q++;
-            value += 2;
-        } else if (*value == '+') {
-            // decode "+" into a space
-            *q = ' ';
-            q++;
-            value++;
-        }
-        p = tws_strpbrk(value, end, "%+");
-    }
-    // copy the rest of "value" into "valuePtr"
-    memcpy(q, value, end - value);
-    q += end - value;
-
-    int dstLen = 2 * (q - valuePtr) + 1;
-    char *dst = (char *) Tcl_Alloc(dstLen);
-    int srcRead;
-    int dstWrote;
-    int dstChars;
-    if (TCL_OK != Tcl_ExternalToUtf(
-            interp,
-            encoding,
-            valuePtr,
-            q - valuePtr,
-            TCL_ENCODING_STOPONERROR,
-            NULL,
-            dst,
-            dstLen,
-            &srcRead,
-            &dstWrote,
-            &dstChars)
-            ) {
-        Tcl_Free(dst);
-        Tcl_Free(valuePtr);
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid utf-8 sequence", -1));
-        return TCL_ERROR;
-    }
-    Tcl_SetStringObj(*valuePtrPtr, dst, dstWrote);
-    Tcl_Free(dst);
-    Tcl_Free(valuePtr);
-    return TCL_OK;
-}
-
 // Bits that identify different character types. These types identify different
 // bits that are set for each 8-bit character in the "shared_char_type_table".
 enum shared_char_types {
@@ -659,8 +573,10 @@ enum shared_char_types {
     CHAR_COMPONENT = 64,
 };
 
-// https://chromium.googlesource.com/chromium/src/+/refs/heads/main/url/url_canon_internal.cc#174
 // This table contains the flags in "shared_char_types" for each 8-bit character.
+//
+// https://chromium.googlesource.com/chromium/src/+/refs/heads/main/url/url_canon_internal.cc#174
+//
 static const unsigned char shared_char_type_table[0x100] = {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x00 - 0x0f
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x10 - 0x1f
@@ -770,9 +686,123 @@ static const unsigned char shared_char_type_table[0x100] = {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xf0 - 0xff
 };
 
+static inline int tws_IsCharOfType(unsigned char c, unsigned char type) {
+    return shared_char_type_table[c] & type;
+}
+
 static char hex_digits[] = "0123456789ABCDEF"; // A lookup table for hexadecimal digits
 
-static int tws_UrlEncode(Tcl_Interp *interp, Tcl_Encoding encoding, int enc_flags, const char *value, int value_length, Tcl_Obj **valuePtrPtr) {
+// This lookup table allows fast conversion between ASCII hex letters and their
+// corresponding numerical value. The 8-bit range is divided up into 8
+// regions of 0x20 characters each. Each of the three character types (numbers,
+// uppercase, lowercase) falls into different regions of this range. The table
+// contains the amount to subtract from characters in that range to get at
+// the corresponding numerical value.
+//
+// https://chromium.googlesource.com/chromium/src/+/refs/heads/main/url/url_canon_internal.cc#289
+//
+static const char char_to_hex_lookup[8] = {
+    0,         // 0x00 - 0x1f
+    '0',       // 0x20 - 0x3f: digits 0 - 9 are 0x30 - 0x39
+    'A' - 10,  // 0x40 - 0x5f: letters A - F are 0x41 - 0x46
+    'a' - 10,  // 0x60 - 0x7f: letters a - f are 0x61 - 0x66
+    0,         // 0x80 - 0x9F
+    0,         // 0xA0 - 0xBF
+    0,         // 0xC0 - 0xDF
+    0,         // 0xE0 - 0xFF
+};
+
+static inline int tws_HexCharToValue(unsigned char c) {
+  return c - char_to_hex_lookup[c / 0x20];
+}
+
+static int tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, int value_length, Tcl_Obj **valuePtrPtr) {
+    // check if url decoding is needed, value is not '\0' terminated
+    const char *p = value;
+    const char *end = value + value_length;
+    p = tws_strpbrk(value, end, "%+");
+
+    // no url decoding is needed
+    if (p == NULL) {
+        *valuePtrPtr = Tcl_NewStringObj(value, value_length);
+        return TCL_OK;
+    }
+
+    // url decoding is needed
+    // decode "value" into "valuePtr"
+
+    // allocate memory for "valuePtr"
+    char *valuePtr = (char *) Tcl_Alloc(value_length + 1);
+    char *q = valuePtr;
+    while (p != NULL) {
+        // copy the part of "value" before the first "%"
+        memcpy(q, value, p - value);
+        q += p - value;
+        value = p;
+        if (*value == '%') {
+            // decode "%xx" into a single char
+            value++;
+            if (value + 2 > end) {
+                Tcl_Free(valuePtr);
+                Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid %xx sequence", -1));
+                return TCL_ERROR;
+            }
+            if (!tws_IsCharOfType(value[0], CHAR_HEX) || !tws_IsCharOfType(value[1], CHAR_HEX)) {
+                Tcl_Free(valuePtr);
+                Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid %xx sequence", -1));
+                return TCL_ERROR;
+            }
+            unsigned char c = (tws_HexCharToValue(value[0]) << 4) + tws_HexCharToValue(value[1]);
+            if (tws_IsCharOfType(c, CHAR_COMPONENT)) {
+                Tcl_Free(valuePtr);
+                Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid %xx sequence", -1));
+                return TCL_ERROR;
+            }
+            *q = (char) c;
+            q++;
+            value += 2;
+        } else if (*value == '+') {
+            // decode "+" into a space
+            *q = ' ';
+            q++;
+            value++;
+        }
+        p = tws_strpbrk(value, end, "%+");
+    }
+    // copy the rest of "value" into "valuePtr"
+    memcpy(q, value, end - value);
+    q += end - value;
+
+    int dstLen = 2 * (q - valuePtr) + 1;
+    char *dst = (char *) Tcl_Alloc(dstLen);
+    int srcRead;
+    int dstWrote;
+    int dstChars;
+    if (TCL_OK != Tcl_ExternalToUtf(
+            interp,
+            encoding,
+            valuePtr,
+            q - valuePtr,
+            TCL_ENCODING_STOPONERROR,
+            NULL,
+            dst,
+            dstLen,
+            &srcRead,
+            &dstWrote,
+            &dstChars)
+            ) {
+        Tcl_Free(dst);
+        Tcl_Free(valuePtr);
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid utf-8 sequence", -1));
+        return TCL_ERROR;
+    }
+    Tcl_SetStringObj(*valuePtrPtr, dst, dstWrote);
+    Tcl_Free(dst);
+    Tcl_Free(valuePtr);
+    return TCL_OK;
+}
+
+static int tws_UrlEncode(Tcl_Interp *interp, int enc_flags, const char *value, int value_length, Tcl_Obj **valuePtrPtr) {
     // use "enc" to encode "value" into "valuePtr"
     // allocate memory for "valuePtr"
     char *valuePtr = (char *) Tcl_Alloc(3 * value_length + 1);
@@ -780,8 +810,8 @@ static int tws_UrlEncode(Tcl_Interp *interp, Tcl_Encoding encoding, int enc_flag
     const char *p = value;
     const char *end = value + value_length;
     while (p < end) {
-        unsigned int c = *p;
-        if (shared_char_type_table[c] & enc_flags) {
+        unsigned char c = *p;
+        if (tws_IsCharOfType(c, enc_flags)) {
             *q = c;
             q++;
         } else {
@@ -1351,8 +1381,44 @@ static int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int ob
 
 }
 
-static int tws_UrlDecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "UrlDecodeCmd\n"));
+
+static int tws_EncodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "EncodeURIComponentCmd\n"));
+    CheckArgs(2, 2, 1, "text");
+
+    int enc_flags = CHAR_COMPONENT;
+
+    int length;
+    const char *text = Tcl_GetStringFromObj(objv[1], &length);
+
+    Tcl_Obj *valuePtr = Tcl_NewObj();
+    if (TCL_OK != tws_UrlEncode(interp, enc_flags, text, length, &valuePtr)) {
+        return TCL_ERROR;
+    }
+    Tcl_SetObjResult(interp, valuePtr);
+    return TCL_OK;
+}
+
+static int tws_EncodeQueryCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "EncodeQueryCmd\n"));
+    CheckArgs(2, 2, 1, "text");
+
+    int enc_flags = CHAR_QUERY;
+
+    int length;
+    const char *text = Tcl_GetStringFromObj(objv[1], &length);
+
+    Tcl_Obj *valuePtr = Tcl_NewObj();
+    if (TCL_OK != tws_UrlEncode(interp, enc_flags, text, length, &valuePtr)) {
+        return TCL_ERROR;
+    }
+    Tcl_SetObjResult(interp, valuePtr);
+    return TCL_OK;
+}
+
+
+static int tws_DecodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "DecodeURIComponentCmd\n"));
     CheckArgs(2, 3, 1, "encoded_text ?encoding_name?");
 
     int length;
@@ -1367,42 +1433,6 @@ static int tws_UrlDecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc,
 
     Tcl_Obj *valuePtr = Tcl_NewObj();
     if (TCL_OK != tws_UrlDecode(interp, encoding, encoded_text, length, &valuePtr)) {
-        return TCL_ERROR;
-    }
-    Tcl_SetObjResult(interp, valuePtr);
-    return TCL_OK;
-}
-
-static int tws_UrlEncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "UrlEncodeCmd\n"));
-    CheckArgs(3, 4, 1, "part text ?encoding_name?");
-
-    int partLength;
-    const char *part = Tcl_GetStringFromObj(objv[1], &partLength);
-    int enc_flags = 0;
-    if (partLength == 4 && strncmp(part, "path", 4) == 0) {
-        enc_flags |= CHAR_COMPONENT;
-    } else if (partLength == 5 && strncmp(part, "query", 5) == 0) {
-        enc_flags |= CHAR_QUERY;
-    } else if (partLength == 6 && strncmp(part, "cookie", 6) == 0) {
-        enc_flags |= CHAR_COMPONENT;
-    } else {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("part must be one of \"query\", \"path\" or \"cookie\"", -1));
-        return TCL_ERROR;
-    }
-
-    int length;
-    const char *text = Tcl_GetStringFromObj(objv[2], &length);
-
-    Tcl_Encoding encoding;
-    if (objc == 4) {
-        encoding = Tcl_GetEncoding(interp, Tcl_GetString(objv[3]));
-    } else {
-        encoding = Tcl_GetEncoding(interp, "utf-8");
-    }
-
-    Tcl_Obj *valuePtr = Tcl_NewObj();
-    if (TCL_OK != tws_UrlEncode(interp, encoding, enc_flags, text, length, &valuePtr)) {
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
@@ -1439,8 +1469,9 @@ int Tws_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::tws::write_conn", tws_WriteConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::tws::close_conn", tws_CloseConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::tws::parse_request", tws_ParseRequestCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::tws::url_decode", tws_UrlDecodeCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::tws::url_encode", tws_UrlEncodeCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::tws::encode_uri_component", tws_EncodeURIComponentCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::tws::decode_uri_component", tws_DecodeURIComponentCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::tws::encode_query", tws_EncodeQueryCmd, NULL, NULL);
 
     return Tcl_PkgProvide(interp, "tws", "0.1");
 }

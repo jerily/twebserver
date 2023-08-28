@@ -1,0 +1,13 @@
+lappend auto_path ..
+package require tcltest
+package require tws
+
+namespace import -force ::tcltest::test
+
+::tcltest::configure {*}$argv
+
+# tests are of the form:
+#   test <test_name> {<description>} {<actual>} {<expected>}
+
+test encode_query_ok {} {::tws::encode_query "abc 123"} {abc+123}
+
