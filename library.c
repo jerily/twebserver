@@ -1494,7 +1494,7 @@ void tws_InitModule() {
     }
 }
 
-int Tws_Init(Tcl_Interp *interp) {
+int Twebserver_Init(Tcl_Interp *interp) {
     if (Tcl_InitStubs(interp, "8.6", 0) == NULL) {
         return TCL_ERROR;
     }

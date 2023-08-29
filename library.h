@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-extern int Tws_Init(Tcl_Interp *interp);
+extern int Twebserver_Init(Tcl_Interp *interp);
 
 #ifdef __cplusplus
 }
