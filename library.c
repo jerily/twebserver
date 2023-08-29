@@ -753,11 +753,6 @@ static int tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *
                 return TCL_ERROR;
             }
             unsigned char c = (tws_HexCharToValue(value[0]) << 4) + tws_HexCharToValue(value[1]);
-            if (tws_IsCharOfType(c, CHAR_COMPONENT)) {
-                Tcl_Free(valuePtr);
-                Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid %xx sequence", -1));
-                return TCL_ERROR;
-            }
             *q = (char) c;
             q++;
             value += 2;
