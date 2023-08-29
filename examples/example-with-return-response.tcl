@@ -2,9 +2,10 @@ package require twebserver
 
 proc process_request {request_dict} {
     puts req_body=[string range [dict get $request_dict body] 0 100]
+    set content_type [dict get $request_dict headers content-type]
     set response [dict create \
         statusCode 200 \
-        headers {Content-Type image/png} \
+        headers [dict create Content-Type $content_type] \
         multiValueHeaders {} \
         isBase64Encoded [dict get $request_dict isBase64Encoded] \
         body [dict get $request_dict body]]
