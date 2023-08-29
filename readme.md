@@ -66,3 +66,28 @@ tclsh ../examples/example-with-threads.tcl
 go install github.com/parkghost/gohttpbench@latest
 gohttpbench -c 500 -t 10  "https://localhost:4433/example?a=1&b=2"
 ```
+
+## TCL Commands
+
+* **::twebserver::create_server** *config_dict* *init_proc*
+    - returns a handle to a server
+* **::twebserver::destroy_server** *handle*
+    - destroys a server
+* **::twebserver::listen_server** *handle* *port*
+    - starts listening on a port
+* **::twebserver::add_context** *handle* *hostname* *key_file* *cert_file*
+    - adds an SSL context to a server (support multiple certificates for different hosts)
+* **::twebserver::read_conn** *conn*
+    - reads a connection
+* **::twebserver::write_conn** *conn* *text*
+    - writes to a connection
+* **::twebserver::close_conn** *conn*
+    - closes a connection
+* **::twebserver::parse_request** *request*
+    - parses a request into a dictionary (includes headers, query, and body among other things)
+* **:twebserver::encode_uri_component** *string*
+    - encodes a string for use in a URI
+* **::twebserver::decode_uri_component** *string* *encoding_name*
+    - decodes a string from a URI
+* **::twebserver::encode_query** *query_string*
+    - encodes a query string
