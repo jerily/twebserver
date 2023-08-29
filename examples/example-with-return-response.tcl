@@ -1,7 +1,6 @@
 package require twebserver
 
 proc process_request {request_dict} {
-    puts req_body=[string range [dict get $request_dict body] 0 100]
     set content_type [dict get $request_dict headers content-type]
     set response [dict create \
         statusCode 200 \
