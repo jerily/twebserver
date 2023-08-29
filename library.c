@@ -1501,18 +1501,18 @@ int Tws_Init(Tcl_Interp *interp) {
 
     tws_InitModule();
 
-    Tcl_CreateNamespace(interp, "::tws", NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::tws::create_server", tws_CreateCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::tws::destroy_server", tws_DestroyCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::tws::listen_server", tws_ListenCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::tws::add_context", tws_AddContextCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::tws::read_conn", tws_ReadConnCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::tws::write_conn", tws_WriteConnCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::tws::close_conn", tws_CloseConnCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::tws::parse_request", tws_ParseRequestCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::tws::encode_uri_component", tws_EncodeURIComponentCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::tws::decode_uri_component", tws_DecodeURIComponentCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::tws::encode_query", tws_EncodeQueryCmd, NULL, NULL);
+    Tcl_CreateNamespace(interp, "::twebserver", NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::create_server", tws_CreateCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::destroy_server", tws_DestroyCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::listen_server", tws_ListenCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::add_context", tws_AddContextCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::read_conn", tws_ReadConnCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::write_conn", tws_WriteConnCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::close_conn", tws_CloseConnCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::parse_request", tws_ParseRequestCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::encode_uri_component", tws_EncodeURIComponentCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::decode_uri_component", tws_DecodeURIComponentCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::encode_query", tws_EncodeQueryCmd, NULL, NULL);
 
-    return Tcl_PkgProvide(interp, "tws", "0.1");
+    return Tcl_PkgProvide(interp, "twebserver", "0.1");
 }
