@@ -5,6 +5,8 @@
  */
 
 #include "library.h"
+#include "base64.h"
+#include "uri.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -553,7 +555,7 @@ static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, 
 
 static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "WriteConnCmd\n"));
-    CheckArgs(3, 3, 1, "handle text");
+    CheckArgs(3, 3, 1, "conn_handle text");
 
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
@@ -578,12 +580,191 @@ static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
 
 }
 
+static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "ReturnConnCmd\n"));
+    CheckArgs(3, 4, 1, "conn_handle response ?encoding_name?");
+
+    const char *conn_handle = Tcl_GetString(objv[1]);
+    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
+    if (!conn) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("handle not found", -1));
+        return TCL_ERROR;
+    }
+
+    // "response" is a dictionary of the form:
+    //    Integer statusCode;
+    //    Map<String, String> headers;
+    //    Map<String, List<String>> multiValueHeaders;
+    //    String body;
+    //    Boolean isBase64Encoded;
+
+    Tcl_Obj *statusCodePtr;
+    Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("statusCode", -1), &statusCodePtr);
+
+    Tcl_Obj *headersPtr;
+    Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("headers", -1), &headersPtr);
+
+    Tcl_Obj *multiValueHeadersPtr;
+    Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("multiValueHeaders", -1), &multiValueHeadersPtr);
+
+    Tcl_Obj *bodyPtr;
+    Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("body", -1), &bodyPtr);
+
+    Tcl_Obj *isBase64EncodedPtr;
+    Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("isBase64Encoded", -1), &isBase64EncodedPtr);
+
+    Tcl_Obj *replyPtr = Tcl_NewStringObj("HTTP/1.1 ", 9);
+    Tcl_AppendObjToObj(replyPtr, statusCodePtr);
+
+    // write each "header" from the "headers" dictionary to the ssl connection
+    Tcl_Obj *keyPtr;
+    Tcl_Obj *valuePtr;
+    Tcl_DictSearch search;
+    int done;
+    if (headersPtr) {
+        for (Tcl_DictObjFirst(interp, headersPtr, &search, &keyPtr, &valuePtr, &done);
+             !done;
+             Tcl_DictObjNext(&search, &keyPtr, &valuePtr, &done)) {
+            // skip if "keyPtr" in "multiValueHeadersPtr" dictionary
+            Tcl_Obj *listPtr;
+            if (multiValueHeadersPtr) {
+                Tcl_DictObjGet(interp, multiValueHeadersPtr, keyPtr, &listPtr);
+                if (listPtr) {
+                    continue;
+                }
+            }
+            Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("\r\n", 2));
+            Tcl_AppendObjToObj(replyPtr, keyPtr);
+            Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj(": ", 2));
+            Tcl_AppendObjToObj(replyPtr, valuePtr);
+        }
+        Tcl_DictObjDone(&search);
+    }
+
+    if (multiValueHeadersPtr) {
+        // write each "header" from the "multiValueHeaders" dictionary to the ssl connection
+        for (Tcl_DictObjFirst(interp, multiValueHeadersPtr, &search, &keyPtr, &valuePtr, &done);
+             !done;
+             Tcl_DictObjNext(&search, &keyPtr, &valuePtr, &done)) {
+            Tcl_Obj *listPtr;
+            Tcl_DictObjGet(interp, valuePtr, Tcl_NewStringObj("list", -1), &listPtr);
+            Tcl_Obj *listKeyPtr;
+            Tcl_Obj *listValuePtr;
+            Tcl_DictSearch listSearch;
+            int listDone;
+            for (Tcl_DictObjFirst(interp, listPtr, &listSearch, &listKeyPtr, &listValuePtr, &listDone);
+                 !listDone;
+                 Tcl_DictObjNext(&listSearch, &listKeyPtr, &listValuePtr, &listDone)) {
+                Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("\r\n", 2));
+                Tcl_AppendObjToObj(replyPtr, keyPtr);
+                Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj(": ", 2));
+                Tcl_AppendObjToObj(replyPtr, listValuePtr);
+            }
+            Tcl_DictObjDone(&listSearch);
+        }
+        Tcl_DictObjDone(&search);
+    }
+
+    // write the body to the ssl connection
+    int isBase64Encoded;
+    Tcl_GetBooleanFromObj(interp, isBase64EncodedPtr, &isBase64Encoded);
+
+    int rc;
+    if (isBase64Encoded) {
+
+        int bodyLength;
+        const char *body = Tcl_GetStringFromObj(bodyPtr, &bodyLength);
+        size_t decodedLength = 0;
+        char *decoded = NULL;
+        if (bodyLength) {
+            decoded = Tcl_Alloc(3 * bodyLength / 4 + 2);
+            if (base64_decode(body, bodyLength, decoded, &decodedLength)) {
+                Tcl_Free(decoded);
+                tws_CloseConn(interp, conn_handle);
+                Tcl_SetObjResult(interp, Tcl_NewStringObj("base64 decode error", -1));
+                return TCL_ERROR;
+            }
+
+            Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("\r\n", 2));
+            Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("Content-Length: ", -1));
+            Tcl_AppendObjToObj(replyPtr, Tcl_NewIntObj(decodedLength));
+        }
+
+        Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("\r\n\r\n", 4));
+
+        int replyLength;
+        const char *reply = Tcl_GetStringFromObj(replyPtr, &replyLength);
+
+        rc = SSL_write(conn->ssl, reply, replyLength);
+        if (rc <= 0) {
+            int err = SSL_get_error(conn->ssl, rc);
+            tws_CloseConn(interp, conn_handle);
+            Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
+            Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
+            Tcl_SetObjResult(interp, resultObjPtr);
+            return TCL_ERROR;
+        }
+
+        if (bodyLength) {
+            rc = SSL_write(conn->ssl, decoded, decodedLength);
+            Tcl_Free(decoded);
+            if (rc <= 0) {
+                int err = SSL_get_error(conn->ssl, rc);
+                tws_CloseConn(interp, conn_handle);
+                Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
+                Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
+                Tcl_SetObjResult(interp, resultObjPtr);
+                return TCL_ERROR;
+            }
+        }
+
+    } else {
+        Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("\r\n", 2));
+        Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("Content-Length: ", -1));
+        Tcl_AppendObjToObj(replyPtr, Tcl_NewIntObj(Tcl_GetCharLength(bodyPtr)));
+        Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("\r\n\r\n", 4));
+        Tcl_AppendObjToObj(replyPtr, bodyPtr);
+
+        int replyLength;
+        const char *reply = Tcl_GetStringFromObj(replyPtr, &replyLength);
+
+        rc = SSL_write(conn->ssl, reply, replyLength);
+        if (rc <= 0) {
+            int err = SSL_get_error(conn->ssl, rc);
+            tws_CloseConn(interp, conn_handle);
+            Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
+            Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
+            Tcl_SetObjResult(interp, resultObjPtr);
+            return TCL_ERROR;
+        }
+    }
+    return TCL_OK;
+}
+
 static int tws_CloseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "CloseConnCmd\n"));
     CheckArgs(2, 2, 1, "handle");
 
     const char *conn_handle = Tcl_GetString(objv[1]);
     return tws_CloseConn(interp, conn_handle);
+}
+
+static int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "InfoConnCmd\n"));
+    CheckArgs(2, 2, 1, "conn_handle");
+
+    const char *conn_handle = Tcl_GetString(objv[1]);
+    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
+    if (!conn) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("handle not found", -1));
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *resultPtr = Tcl_NewDictObj();
+
+
+
+    return TCL_OK;
 }
 
 // search a string for any of a set of bytes
@@ -599,169 +780,6 @@ const char *tws_strpbrk(const char *s, const char *end, const char *accept) {
         s++;
     }
     return NULL;
-}
-
-// Bits that identify different character types. These types identify different
-// bits that are set for each 8-bit character in the "shared_char_type_table".
-enum shared_char_types {
-    // Characters that do not require escaping in queries. Characters that do
-    // not have this flag will be escaped; see url_canon_query.cc
-    CHAR_QUERY = 1,
-    // Valid in the username/password field.
-    CHAR_USERINFO = 2,
-    // Valid in a IPv4 address (digits plus dot and 'x' for hex).
-    CHAR_IPV4 = 4,
-    // Valid in an ASCII-representation of a hex digit (as in %-escaped).
-    CHAR_HEX = 8,
-    // Valid in an ASCII-representation of a decimal digit.
-    CHAR_DEC = 16,
-    // Valid in an ASCII-representation of an octal digit.
-    CHAR_OCT = 32,
-    // Characters that do not require escaping in encodeURIComponent.
-    CHAR_COMPONENT = 64,
-};
-
-// This table contains the flags in "shared_char_types" for each 8-bit character.
-//
-// https://chromium.googlesource.com/chromium/src/+/refs/heads/main/url/url_canon_internal.cc#174
-//
-static const unsigned char shared_char_type_table[0x100] = {
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x00 - 0x0f
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x10 - 0x1f
-        0,                           // 0x20  ' ' (escape spaces in queries)
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x21  !
-        0,                           // 0x22  "
-        0,                           // 0x23  #  (invalid in query since it marks the ref)
-        CHAR_QUERY | CHAR_USERINFO,  // 0x24  $
-        CHAR_QUERY | CHAR_USERINFO,  // 0x25  %
-        CHAR_QUERY | CHAR_USERINFO,  // 0x26  &
-        0,                           // 0x27  '  (Try to prevent XSS.)
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x28  (
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x29  )
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x2a  *
-        CHAR_QUERY | CHAR_USERINFO,  // 0x2b  +
-        CHAR_QUERY | CHAR_USERINFO,  // 0x2c  ,
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x2d  -
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_COMPONENT,  // 0x2e  .
-        CHAR_QUERY,                  // 0x2f  /
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x30  0
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x31  1
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x32  2
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x33  3
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x34  4
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x35  5
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x36  6
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_OCT | CHAR_COMPONENT,  // 0x37  7
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_COMPONENT,             // 0x38  8
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_DEC | CHAR_COMPONENT,             // 0x39  9
-        CHAR_QUERY,  // 0x3a  :
-        CHAR_QUERY,  // 0x3b  ;
-        0,           // 0x3c  <  (Try to prevent certain types of XSS.)
-        CHAR_QUERY,  // 0x3d  =
-        0,           // 0x3e  >  (Try to prevent certain types of XSS.)
-        CHAR_QUERY,  // 0x3f  ?
-        CHAR_QUERY,  // 0x40  @
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x41  A
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x42  B
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x43  C
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x44  D
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x45  E
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x46  F
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x47  G
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x48  H
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x49  I
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x4a  J
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x4b  K
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x4c  L
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x4d  M
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x4e  N
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x4f  O
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x50  P
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x51  Q
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x52  R
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x53  S
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x54  T
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x55  U
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x56  V
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x57  W
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_COMPONENT, // 0x58  X
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x59  Y
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x5a  Z
-        CHAR_QUERY,  // 0x5b  [
-        CHAR_QUERY,  // 0x5c  '\'
-        CHAR_QUERY,  // 0x5d  ]
-        CHAR_QUERY,  // 0x5e  ^
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x5f  _
-        CHAR_QUERY,  // 0x60  `
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x61  a
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x62  b
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x63  c
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x64  d
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x65  e
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_HEX | CHAR_COMPONENT,  // 0x66  f
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x67  g
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x68  h
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x69  i
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x6a  j
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x6b  k
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x6c  l
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x6d  m
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x6e  n
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x6f  o
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x70  p
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x71  q
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x72  r
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x73  s
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x74  t
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x75  u
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x76  v
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x77  w
-        CHAR_QUERY | CHAR_USERINFO | CHAR_IPV4 | CHAR_COMPONENT,  // 0x78  x
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x79  y
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x7a  z
-        CHAR_QUERY,  // 0x7b  {
-        CHAR_QUERY,  // 0x7c  |
-        CHAR_QUERY,  // 0x7d  }
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x7e  ~
-        0,           // 0x7f
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x80 - 0x8f
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x90 - 0x9f
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xa0 - 0xaf
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xb0 - 0xbf
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xc0 - 0xcf
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xd0 - 0xdf
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xe0 - 0xef
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0xf0 - 0xff
-};
-
-static inline int tws_IsCharOfType(unsigned char c, unsigned char type) {
-    return shared_char_type_table[c] & type;
-}
-
-static char hex_digits[] = "0123456789ABCDEF"; // A lookup table for hexadecimal digits
-
-// This lookup table allows fast conversion between ASCII hex letters and their
-// corresponding numerical value. The 8-bit range is divided up into 8
-// regions of 0x20 characters each. Each of the three character types (numbers,
-// uppercase, lowercase) falls into different regions of this range. The table
-// contains the amount to subtract from characters in that range to get at
-// the corresponding numerical value.
-//
-// https://chromium.googlesource.com/chromium/src/+/refs/heads/main/url/url_canon_internal.cc#289
-//
-static const char char_to_hex_lookup[8] = {
-    0,         // 0x00 - 0x1f
-    '0',       // 0x20 - 0x3f: digits 0 - 9 are 0x30 - 0x39
-    'A' - 10,  // 0x40 - 0x5f: letters A - F are 0x41 - 0x46
-    'a' - 10,  // 0x60 - 0x7f: letters a - f are 0x61 - 0x66
-    0,         // 0x80 - 0x9F
-    0,         // 0xA0 - 0xBF
-    0,         // 0xC0 - 0xDF
-    0,         // 0xE0 - 0xFF
-};
-
-static inline int tws_HexCharToValue(unsigned char c) {
-  return c - char_to_hex_lookup[c / 0x20];
 }
 
 static int tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, int value_length, Tcl_Obj **valuePtrPtr) {
@@ -1237,79 +1255,6 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
     return TCL_ERROR;
 }
 
-// https://en.wikibooks.org/wiki/Algorithm_Implementation/Miscellaneous/Base64#C
-static const char base64chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-int base64_encode(const void *data_buf, size_t dataLength, char *result, size_t resultSize) {
-    const uint8_t *data = (const uint8_t *) data_buf;
-    size_t resultIndex = 0;
-    size_t x;
-    uint32_t n = 0;
-    int padCount = dataLength % 3;
-    uint8_t n0, n1, n2, n3;
-
-    /* increment over the length of the string, three characters at a time */
-    for (x = 0; x < dataLength; x += 3) {
-        /* these three 8-bit (ASCII) characters become one 24-bit number */
-        n = ((uint32_t) data[x])
-                << 16; //parenthesis needed, compiler depending on flags can do the shifting before conversion to uint32_t, resulting to 0
-
-        if ((x + 1) < dataLength)
-            n += ((uint32_t) data[x + 1])
-                    << 8;//parenthesis needed, compiler depending on flags can do the shifting before conversion to uint32_t, resulting to 0
-
-        if ((x + 2) < dataLength)
-            n += data[x + 2];
-
-        /* this 24-bit number gets separated into four 6-bit numbers */
-        n0 = (uint8_t) (n >> 18) & 63;
-        n1 = (uint8_t) (n >> 12) & 63;
-        n2 = (uint8_t) (n >> 6) & 63;
-        n3 = (uint8_t) n & 63;
-
-        /*
-         * if we have one byte available, then its encoding is spread
-         * out over two characters
-         */
-        if (resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
-        result[resultIndex++] = base64chars[n0];
-        if (resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
-        result[resultIndex++] = base64chars[n1];
-
-        /*
-         * if we have only two bytes available, then their encoding is
-         * spread out over three chars
-         */
-        if ((x + 1) < dataLength) {
-            if (resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
-            result[resultIndex++] = base64chars[n2];
-        }
-
-        /*
-         * if we have all three bytes available, then their encoding is spread
-         * out over four characters
-         */
-        if ((x + 2) < dataLength) {
-            if (resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
-            result[resultIndex++] = base64chars[n3];
-        }
-    }
-
-    /*
-     * create and add padding that is required if we did not have a multiple of 3
-     * number of characters available
-     */
-    if (padCount > 0) {
-        for (; padCount < 3; padCount++) {
-            if (resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
-            result[resultIndex++] = '=';
-        }
-    }
-    if (resultIndex >= resultSize) return -1;   /* indicate failure: buffer too small */
-    result[resultIndex] = 0;
-    return resultIndex;   /* indicate success */
-}
-
 static int
 tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *resultPtr, Tcl_Obj *contentLengthPtr,
               Tcl_Obj *contentTypePtr) {
@@ -1350,8 +1295,8 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
     if (base64_encoded) {
         // base64 encode the body and remember as "body"
         char *body = Tcl_Alloc(contentLength * 2);
-        int bodyLength = base64_encode(curr, contentLength, body, contentLength * 2);
-        if (bodyLength == -1) {
+        size_t bodyLength;
+        if (base64_encode(curr, contentLength, body, &bodyLength)) {
             Tcl_SetObjResult(interp, Tcl_NewStringObj("base64_encode failed", -1));
             return TCL_ERROR;
         }
@@ -1510,7 +1455,9 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::add_context", tws_AddContextCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::read_conn", tws_ReadConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::write_conn", tws_WriteConnCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::return_conn", tws_ReturnConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::close_conn", tws_CloseConnCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::info_conn", tws_InfoConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::parse_request", tws_ParseRequestCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::encode_uri_component", tws_EncodeURIComponentCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::decode_uri_component", tws_DecodeURIComponentCmd, NULL, NULL);

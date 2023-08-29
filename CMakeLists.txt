@@ -10,7 +10,7 @@ find_package(Threads REQUIRED)
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 set(CMAKE_C_FLAGS  "-DVERSION=${PROJECT_VERSION} ${CMAKE_C_FLAGS}")
 
-add_library(twebserver MODULE library.c)
+add_library(twebserver MODULE src/library.c src/base64.c src/base64/cencode.c src/base64/cdecode.c)
 set_target_properties(twebserver PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 include(${CMAKE_CURRENT_LIST_DIR}/FindTCL.cmake)

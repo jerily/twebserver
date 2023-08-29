@@ -80,7 +80,9 @@ gohttpbench -c 500 -t 10  "https://localhost:4433/example?a=1&b=2"
 * **::twebserver::read_conn** *conn*
     - reads a connection
 * **::twebserver::write_conn** *conn* *text*
-    - writes to a connection
+  - writes to a connection
+* **::twebserver::return_conn** *conn* *response_dict*
+  - returns a response dictionary (including status code, body, etc) to a connection
 * **::twebserver::close_conn** *conn*
     - closes a connection
 * **::twebserver::parse_request** *request*
