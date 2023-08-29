@@ -20,11 +20,15 @@ make
 make install
 ```
 
-## Try it out
-```
-# start the server
-tclsh ../examples/example.tcl
+## Try it out without threads
 
+Run the example:
+```bash
+tclsh ../examples/example.tcl
+```
+
+Try a few requests:
+```bash
 # simple get request
 curl -k https://localhost:4433
 # json post request
@@ -38,6 +42,23 @@ curl -k -X POST -H "Content-Type: application/json" -H "X-Custom-Header: this is
 # multivalue query string parameters
 curl -k -X POST -H "Content-Type: application/json" -H "X-Custom-Header: this is a test" -H "X-Custom-Header: hello world" --data '{"message": "hello world"}' 'https://localhost:4433/exampl
 e?a=1&b=2&c=this+is+a+test&c=blah+blah'
+```
+
+## Try it out with threads
+
+Install TCL "Thread" package:
+```bash
+wget -O thread2.8.8.tar.gz https://sourceforge.net/projects/tcl/files/Thread%20Extension/2.8.8/thread2.8.8.tar.gz/download
+tar -xzvf thread2.8.8.tar.gz
+cd thread2.8.8/unix
+../configure --enable-threads
+make
+make install
+```
+
+Run the example:
+```bash
+tclsh ../examples/example-with-threads.tcl
 ```
 
 ## Benchmark
