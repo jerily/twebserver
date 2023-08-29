@@ -49,9 +49,12 @@ static int tws_ModuleInitialized;
 typedef struct {
     SSL_CTX *sslCtx;
     Tcl_Obj *cmdPtr;
+    int max_request_read_bytes;
+    int max_read_buffer_size;
 } tws_server_t;
 
 typedef struct {
+    tws_server_t *server;
     SSL *ssl;
     int client;
 } tws_conn_t;
@@ -249,14 +252,15 @@ int create_socket(int port) {
     return s;
 }
 
-tws_conn_t *tws_NewConn(SSL_CTX *sslCtx, int client) {
-    SSL *ssl = SSL_new(sslCtx);
+tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
+    SSL *ssl = SSL_new(server->sslCtx);
     if (ssl == NULL) {
         return NULL;
     }
     SSL_set_fd(ssl, client);
     SSL_set_accept_state(ssl);
     tws_conn_t *conn = (tws_conn_t *) Tcl_Alloc(sizeof(tws_conn_t));
+    conn->server = server;
     conn->ssl = ssl;
     conn->client = client;
     return conn;
@@ -304,7 +308,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
             return TCL_ERROR;
         }
 
-        tws_conn_t *conn = tws_NewConn(server->sslCtx, client);
+        tws_conn_t *conn = tws_NewConn(server, client);
         if (conn == NULL) {
             Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to create SSL connection", -1));
             return TCL_ERROR;
@@ -423,6 +427,22 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     tws_server_t *server_ctx = (tws_server_t *) Tcl_Alloc(sizeof(tws_server_t));
     server_ctx->sslCtx = ctx;
     server_ctx->cmdPtr = Tcl_DuplicateObj(objv[2]);
+    server_ctx->max_request_read_bytes = 10 * 1024 * 1024;
+    server_ctx->max_read_buffer_size = 1024 * 1024;
+
+    Tcl_Obj *maxRequestReadBytesPtr;
+    Tcl_DictObjGet(interp, objv[1], Tcl_NewStringObj("max_request_read_bytes", -1),
+                   &maxRequestReadBytesPtr);
+    if (maxRequestReadBytesPtr) {
+        Tcl_GetIntFromObj(interp, maxRequestReadBytesPtr, &server_ctx->max_request_read_bytes);
+    }
+
+    Tcl_Obj *maxReadBufferSizePtr;
+    Tcl_DictObjGet(interp, objv[1], Tcl_NewStringObj("max_read_buffer_size", -1),
+                   &maxReadBufferSizePtr);
+    if (maxReadBufferSizePtr) {
+        Tcl_GetIntFromObj(interp, maxReadBufferSizePtr, &server_ctx->max_read_buffer_size);
+    }
 
     char handle[80];
     CMD_SERVER_NAME(handle, server_ctx);
@@ -487,7 +507,7 @@ static const char *ssl_errors[] = {
 
 static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "ReadConnCmd\n"));
-    CheckArgs(2, 3, 1, "handle ?max_buffer_size?");
+    CheckArgs(2, 2, 1, "handle");
 
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
@@ -496,11 +516,8 @@ static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, 
         return TCL_ERROR;
     }
 
-    long max_request_read_bytes = 1024 * 1024 * 10;
-    int max_buffer_size = 1024 * 1024;
-    if (objc == 3) {
-        Tcl_GetIntFromObj(interp, objv[2], &max_buffer_size);
-    }
+    long max_request_read_bytes = conn->server->max_request_read_bytes;
+    int max_buffer_size = conn->server->max_read_buffer_size;
 
     char *buf = (char *) Tcl_Alloc(max_buffer_size);
     long total_read = 0;

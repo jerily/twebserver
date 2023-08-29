@@ -8,8 +8,8 @@ set thread_script {
         return "HTTP/1.1 200 OK\n\ntest message request_dict=$request_dict\n"
     }
 
-    proc thread_process_conn {conn addr port {max_timeout_millis 1000}} {
-        after $max_timeout_millis [list ::tws::close_conn $conn]
+    proc thread_process_conn {conn addr port} {
+        after 1000 [list ::tws::close_conn $conn]
         if { [catch {
             set request [::tws::read_conn $conn]
             set reply [thread_process_request [::tws::parse_request $request]]
@@ -22,14 +22,16 @@ set thread_script {
 
 }
 
-set pool [tpool::create -minworkers 5 -maxworkers 20 -idletime 40 -initcmd $thread_script]
+set pool [::tpool::create -minworkers 5 -maxworkers 20 -idletime 40 -initcmd $thread_script]
 
 proc process_conn {conn addr port} {
     global pool
     ::tpool::post -detached -nowait $pool [list thread_process_conn $conn $addr $port]
 }
 
-set config_dict [dict create]
+set max_request_read_bytes [expr { 10 * 1024 * 1024 }]
+set max_read_buffer_size [expr { 1024 * 1024 }]
+set config_dict [dict create max_request_read_bytes $max_request_read_bytes max_read_buffer_size $max_read_buffer_size]
 set server_handle [::tws::create_server $config_dict process_conn]
 ::tws::add_context $server_handle localhost "../certs/host1/key.pem" "../certs/host1/cert.pem"
 ::tws::add_context $server_handle www.example.com "../certs/host2/key.pem" "../certs/host2/cert.pem"
