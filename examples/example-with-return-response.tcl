@@ -2,12 +2,14 @@ package require twebserver
 
 proc process_request {request_dict} {
     set content_type [dict get $request_dict headers content-type]
+    set is_base64_encoded [dict get $request_dict isBase64Encoded]
+    set body [dict get $request_dict body]
     set response [dict create \
         statusCode 200 \
         headers [dict create Content-Type $content_type] \
         multiValueHeaders {} \
-        isBase64Encoded [dict get $request_dict isBase64Encoded] \
-        body [dict get $request_dict body]]
+        isBase64Encoded $is_base64_encoded \
+        body $body]
     return $response
 }
 
