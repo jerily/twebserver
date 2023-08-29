@@ -1,0 +1,3 @@
+set dir [file dirname [info script]]
+
+package ifneeded twebserver @PROJECT_VERSION@ [list load [file join $dir libtwebserver.so]]

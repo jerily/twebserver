@@ -16,6 +16,8 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
+#define XSTR(s) STR(s)
+#define STR(s) #s
 
 #ifdef DEBUG
 # define DBG(x) x
@@ -1514,5 +1516,5 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::decode_uri_component", tws_DecodeURIComponentCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::encode_query", tws_EncodeQueryCmd, NULL, NULL);
 
-    return Tcl_PkgProvide(interp, "twebserver", "0.1");
+    return Tcl_PkgProvide(interp, "twebserver", XSTR(VERSION));
 }
