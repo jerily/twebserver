@@ -76,7 +76,7 @@ gohttpbench -c 500 -t 10  "https://localhost:4433/example?a=1&b=2"
 * **::twebserver::listen_server** *handle* *port*
     - starts listening on a port
 * **::twebserver::add_context** *handle* *hostname* *key_file* *cert_file*
-    - adds an SSL context to a server (support multiple certificates for different hosts)
+    - adds an SSL context to a server (supports multiple certificates for different hosts)
 * **::twebserver::read_conn** *conn*
     - reads a connection
 * **::twebserver::write_conn** *conn* *text*
