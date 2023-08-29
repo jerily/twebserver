@@ -469,11 +469,28 @@ static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int objc
     return TCL_OK;
 }
 
+static const char *ssl_errors[] = {
+    "SSL_ERROR_NONE",
+    "SSL_ERROR_SSL",
+    "SSL_ERROR_WANT_READ",
+    "SSL_ERROR_WANT_WRITE",
+    "SSL_ERROR_WANT_X509_LOOKUP",
+    "SSL_ERROR_SYSCALL",
+    "SSL_ERROR_ZERO_RETURN",
+    "SSL_ERROR_WANT_CONNECT",
+    "SSL_ERROR_WANT_ACCEPT",
+    "SSL_ERROR_WANT_ASYNC",
+    "SSL_ERROR_WANT_ASYNC_JOB",
+    "SSL_ERROR_WANT_CLIENT_HELLO_CB"
+    "SSL_ERROR_WANT_RETRY_VERIFY"
+};
+
 static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "ReadConnCmd\n"));
     CheckArgs(2, 3, 1, "handle ?max_buffer_size?");
 
-    tws_conn_t *conn = tws_GetInternalFromConnName(Tcl_GetString(objv[1]));
+    const char *conn_handle = Tcl_GetString(objv[1]);
+    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
         Tcl_SetObjResult(interp, Tcl_NewStringObj("handle not found", -1));
         return TCL_ERROR;
@@ -487,7 +504,17 @@ static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, 
 
     char *buf = (char *) Tcl_Alloc(max_buffer_size);
     long total_read = 0;
-    int bytes_read = SSL_read(conn->ssl, buf, max_buffer_size);
+    int rc = SSL_read(conn->ssl, buf, max_buffer_size);
+    if (rc <= 0) {
+        int err = SSL_get_error(conn->ssl, rc);
+        tws_CloseConn(interp, conn_handle);
+        Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
+        Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
+        Tcl_SetObjResult(interp, resultObjPtr);
+        Tcl_Free(buf);
+        return TCL_ERROR;
+    }
+    int bytes_read = rc;
     Tcl_Obj *resultPtr = Tcl_NewStringObj(buf, bytes_read);
     total_read += bytes_read;
     while (SSL_pending(conn->ssl) > 0) {
@@ -509,7 +536,8 @@ static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     DBG(fprintf(stderr, "WriteConnCmd\n"));
     CheckArgs(3, 3, 1, "handle text");
 
-    tws_conn_t *conn = tws_GetInternalFromConnName(Tcl_GetString(objv[1]));
+    const char *conn_handle = Tcl_GetString(objv[1]);
+    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
         Tcl_SetObjResult(interp, Tcl_NewStringObj("handle not found", -1));
         return TCL_ERROR;
@@ -520,8 +548,9 @@ static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     int rc = SSL_write(conn->ssl, reply, length);
     if (rc <= 0) {
         int err = SSL_get_error(conn->ssl, rc);
-        Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_write error: ", -1);
-        Tcl_AppendObjToObj(resultObjPtr, Tcl_NewIntObj(err));
+        tws_CloseConn(interp, conn_handle);
+        Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
+        Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
         Tcl_SetObjResult(interp, resultObjPtr);
         return TCL_ERROR;
     }

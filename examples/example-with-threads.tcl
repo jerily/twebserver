@@ -8,7 +8,8 @@ set thread_script {
         return "HTTP/1.1 200 OK\n\ntest message request_dict=$request_dict\n"
     }
 
-    proc thread_process_conn {conn addr port} {
+    proc thread_process_conn {conn addr port {max_timeout_millis 1000}} {
+        after $max_timeout_millis [list ::tws::close_conn $conn]
         if { [catch {
             set request [::tws::read_conn $conn]
             set reply [thread_process_request [::tws::parse_request $request]]
