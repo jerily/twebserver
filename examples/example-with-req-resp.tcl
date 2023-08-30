@@ -1,7 +1,11 @@
 package require twebserver
 
 proc process_request {request_dict} {
-    set content_type [dict get $request_dict headers content-type]
+    if { [dict exists $request_dict headers content-type] } {
+        set content_type [dict get $request_dict headers content-type]
+    } else {
+        set content_type "text/plain"
+    }
     set is_base64_encoded [dict get $request_dict isBase64Encoded]
     set body [dict get $request_dict body]
     set response [dict create \
