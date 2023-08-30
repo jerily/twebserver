@@ -81,11 +81,13 @@ gohttpbench -c 500 -t 10  "https://localhost:4433/example?a=1&b=2"
     - reads a connection
 * **::twebserver::write_conn** *conn* *text*
   - writes to a connection
+* **::twebserver::parse_conn** *conn* *encoding_name*
+    - reads a connection and parses the request to a dictionary
 * **::twebserver::return_conn** *conn* *response_dict*
-  - returns a response dictionary (including status code, body, etc) to a connection
+    - returns a response dictionary (including status code, body, etc) to a connection
 * **::twebserver::close_conn** *conn*
     - closes a connection
-* **::twebserver::parse_request** *request*
+* **::twebserver::parse_request** *request* *encoding_name*
     - parses a request into a dictionary (includes headers, query, and body among other things)
 * **:twebserver::encode_uri_component** *string*
     - encodes a string for use in a URI
