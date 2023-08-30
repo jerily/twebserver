@@ -11,8 +11,7 @@ set thread_script {
     proc thread_process_conn {conn addr port} {
         after 1000 [list ::twebserver::close_conn $conn]
         if { [catch {
-            set request [::twebserver::read_conn $conn]
-            set reply [thread_process_request [::twebserver::parse_request $request]]
+            set reply [thread_process_request [::twebserver::parse_conn $conn]]
             ::twebserver::write_conn $conn $reply
         } errmsg] } {
             puts "error: $errmsg"
