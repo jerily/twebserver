@@ -1,0 +1,14 @@
+lappend auto_path ..
+package require tcltest
+package require twebserver
+
+namespace import -force ::tcltest::test
+
+::tcltest::configure {*}$argv
+
+# tests are of the form:
+#   test <test_name> {<description>} {<actual>} {<expected>}
+
+test base64_encode_ok {} {::twebserver::base64_decode "YWJjIDEyMw=="} {abc 123}
+test base64_encode_empty {} {::twebserver::base64_decode ""} {}
+test base64_encode_wrong_args {} -body {::twebserver::base64_decode} -returnCodes error -result {wrong # args: should be "::twebserver::base64_decode base64_encoded_string"}

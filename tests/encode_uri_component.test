@@ -1,6 +1,6 @@
 lappend auto_path ..
 package require tcltest
-package require tws
+package require twebserver
 
 namespace import -force ::tcltest::test
 
@@ -9,19 +9,19 @@ namespace import -force ::tcltest::test
 # tests are of the form:
 #   test <test_name> {<description>} {<actual>} {<expected>}
 
-test encode_uri_component_ok {} {::tws::encode_uri_component "abc 123"} {abc%20123}
+test encode_uri_component_ok {} {::twebserver::encode_uri_component "abc 123"} {abc%20123}
 
 # RFC 3986 section 2.3 Unreserved Characters
-test encode_uri_component_unreserved_chars_ok {} {::tws::encode_uri_component "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~()!*"} {abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~()!*}
+test encode_uri_component_unreserved_chars_ok {} {::twebserver::encode_uri_component "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~()!*"} {abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.~()!*}
 
 # RFC 3986 section 2.2 Reserved Characters
-test encode_uri_component_reserved_chars_ok {} {::tws::encode_uri_component {';:@&=+$,/?#[]}} {%27%3B%3A%40%26%3D%2B%24%2C%2F%3F%23%5B%5D}
+test encode_uri_component_reserved_chars_ok {} {::twebserver::encode_uri_component {';:@&=+$,/?#[]}} {%27%3B%3A%40%26%3D%2B%24%2C%2F%3F%23%5B%5D}
 
 # RFC 3986 section 2.1 Percent-Encoding
-test encode_uri_component_percent_encoding_ok {} {::tws::encode_uri_component "%"} {%25}
+test encode_uri_component_percent_encoding_ok {} {::twebserver::encode_uri_component "%"} {%25}
 
 # UTF-16 tests
-#test encode_high_low_pair_ok {} {::tws::encode_uri_component "\uD800\uDFFF"} {%F0%90%8F%BF}
-#test lone_high_surrogate_code_throws {} {::tws::encode_uri_component "\uD800"} {::tws::encode_uri_component: invalid UTF-16 code point: 55296}
-#test lone_low_surrogate_code_throws {} {::tws::encode_uri_component "\uDFFF"} {::tws::encode_uri_component: invalid UTF-16 code point: 57343}
+#test encode_high_low_pair_ok {} {::twebserver::encode_uri_component "\uD800\uDFFF"} {%F0%90%8F%BF}
+#test lone_high_surrogate_code_throws {} {::twebserver::encode_uri_component "\uD800"} {::twebserver::encode_uri_component: invalid UTF-16 code point: 55296}
+#test lone_low_surrogate_code_throws {} {::twebserver::encode_uri_component "\uDFFF"} {::twebserver::encode_uri_component: invalid UTF-16 code point: 57343}
 

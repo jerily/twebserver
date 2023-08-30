@@ -1,6 +1,6 @@
 lappend auto_path ..
 package require tcltest
-package require tws
+package require twebserver
 
 namespace import -force ::tcltest::test
 
@@ -9,5 +9,5 @@ namespace import -force ::tcltest::test
 # tests are of the form:
 #   test <test_name> {<description>} {<actual>} {<expected>}
 
-test encode_query_ok {} {::tws::encode_query "abc 123"} {abc+123}
+test encode_query_ok {} {::twebserver::encode_query "abc 123"} {abc+123}
 

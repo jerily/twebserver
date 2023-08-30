@@ -1496,6 +1496,44 @@ static int tws_DecodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
     return TCL_OK;
 }
 
+static int tws_Base64EncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "Base64EncodeCmd\n"));
+    CheckArgs(2, 2, 1, "bytes");
+
+    int input_length;
+    const char *input = (const char *) Tcl_GetByteArrayFromObj(objv[1], &input_length);
+
+    char *output = Tcl_Alloc(input_length * 2);
+    size_t output_length;
+    if (base64_encode(input, input_length, output, &output_length)) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("base64_encode failed", -1));
+        return TCL_ERROR;
+    }
+    Tcl_Obj *resultPtr = Tcl_NewStringObj(output, output_length);
+    Tcl_Free(output);
+    Tcl_SetObjResult(interp, resultPtr);
+    return TCL_OK;
+}
+
+static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "Base64EncodeCmd\n"));
+    CheckArgs(2, 2, 1, "base64_encoded_string");
+
+    int input_length;
+    const char *input = Tcl_GetStringFromObj(objv[1], &input_length);
+
+    char *output = Tcl_Alloc(3 * input_length / 4 + 2);
+    size_t output_length;
+    if (base64_decode(input, input_length, output, &output_length)) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("base64_decode failed", -1));
+        return TCL_ERROR;
+    }
+    Tcl_Obj *resultPtr = Tcl_NewByteArrayObj(output, output_length);
+    Tcl_Free(output);
+    Tcl_SetObjResult(interp, resultPtr);
+    return TCL_OK;
+}
+
 static void tws_ExitHandler(ClientData unused) {
 }
 
@@ -1532,6 +1570,8 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::encode_uri_component", tws_EncodeURIComponentCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::decode_uri_component", tws_DecodeURIComponentCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::encode_query", tws_EncodeQueryCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::base64_encode", tws_Base64EncodeCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::base64_decode", tws_Base64DecodeCmd, NULL, NULL);
 
     return Tcl_PkgProvide(interp, "twebserver", XSTR(VERSION));
 }
