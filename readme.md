@@ -95,3 +95,7 @@ ab -n 10000 -c 100 https://localhost:4433/
     - decodes a string from a URI
 * **::twebserver::encode_query** *query_string*
     - encodes a query string
+* **::twebserver::base64_encode** *bytes*
+    - encodes a string in base64
+* **::twebserver::base64_decode** *base64_encoded_string*
+    - decodes a base64 encoded string
