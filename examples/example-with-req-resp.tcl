@@ -15,9 +15,9 @@ proc process_request {request_dict} {
 
 proc process_conn {conn addr port} {
     if { [catch {
-        set request [::twebserver::read_conn $conn]
-        set response [process_request [::twebserver::parse_request $request]]
-        ::twebserver::return_conn $conn $response
+        set request_dict [::twebserver::parse_conn $conn]
+        set response_dict [process_request $request_dict]
+        ::twebserver::return_conn $conn $response_dict
     } errmsg] } {
         puts "error: $errmsg"
     }

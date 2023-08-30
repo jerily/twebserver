@@ -270,13 +270,7 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     return conn;
 }
 
-int tws_CloseConn(Tcl_Interp *interp, const char *conn_handle) {
-    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
-    if (!conn) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("handle not found", -1));
-        return TCL_ERROR;
-    }
-
+int tws_CloseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle) {
     tws_UnregisterConnName(conn_handle);
     SSL_shutdown(conn->ssl);
     SSL_free(conn->ssl);
@@ -330,7 +324,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
             Tcl_Obj *addrPtr = Tcl_NewStringObj(inet_ntoa(addr.sin_addr), -1);
             Tcl_Obj *cmdobjv[] = {server->cmdPtr, connPtr, addrPtr, portPtr, NULL};
             if (TCL_OK != Tcl_EvalObjv(interp, 4, cmdobjv, TCL_EVAL_GLOBAL)) {
-                tws_CloseConn(interp, conn_handle);
+                tws_CloseConn(interp, conn, conn_handle);
                 DBG(fprintf(stderr, "error evaluating script sock=%d\n", sock));
                 // TODO: log the error
             }
@@ -509,17 +503,7 @@ static const char *ssl_errors[] = {
     "SSL_ERROR_WANT_RETRY_VERIFY"
 };
 
-static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "ReadConnCmd\n"));
-    CheckArgs(2, 2, 1, "handle");
-
-    const char *conn_handle = Tcl_GetString(objv[1]);
-    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
-    if (!conn) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("handle not found", -1));
-        return TCL_ERROR;
-    }
-
+static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle, Tcl_DString *dsPtr) {
     long max_request_read_bytes = conn->server->max_request_read_bytes;
     int max_buffer_size = conn->server->max_read_buffer_size;
 
@@ -528,7 +512,7 @@ static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, 
     int rc = SSL_read(conn->ssl, buf, max_buffer_size);
     if (rc <= 0) {
         int err = SSL_get_error(conn->ssl, rc);
-        tws_CloseConn(interp, conn_handle);
+        tws_CloseConn(interp, conn, conn_handle);
         Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
         Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
         Tcl_SetObjResult(interp, resultObjPtr);
@@ -536,11 +520,11 @@ static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, 
         return TCL_ERROR;
     }
     int bytes_read = rc;
-    Tcl_Obj *resultPtr = Tcl_NewStringObj(buf, bytes_read);
+    Tcl_DStringAppend(dsPtr, buf, bytes_read);
     total_read += bytes_read;
     while (SSL_pending(conn->ssl) > 0) {
         bytes_read = SSL_read(conn->ssl, buf, max_buffer_size);
-        Tcl_AppendToObj(resultPtr, buf, bytes_read);
+        Tcl_DStringAppend(dsPtr, buf, bytes_read);
         total_read += bytes_read;
         if (total_read > max_request_read_bytes) {
             Tcl_SetObjResult(interp, Tcl_NewStringObj("request too large", -1));
@@ -548,8 +532,29 @@ static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, 
             return TCL_ERROR;
         }
     }
+    return TCL_OK;
+}
+
+static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "ReadConnCmd\n"));
+    CheckArgs(2, 2, 1, "conn_handle");
+
+    const char *conn_handle = Tcl_GetString(objv[1]);
+    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
+    if (!conn) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("conn handle not found", -1));
+        return TCL_ERROR;
+    }
+
+    Tcl_DString ds;
+    Tcl_DStringInit(&ds);
+    if (TCL_OK != tws_ReadConn(interp, conn, conn_handle, &ds)) {
+        Tcl_DStringFree(&ds);
+        return TCL_ERROR;
+    }
+    Tcl_Obj *resultPtr = Tcl_NewStringObj(Tcl_DStringValue(&ds), Tcl_DStringLength(&ds));
     Tcl_SetObjResult(interp, resultPtr);
-    Tcl_Free(buf);
+    Tcl_DStringFree(&ds);
     return TCL_OK;
 }
 
@@ -560,7 +565,7 @@ static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("handle not found", -1));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("conn handle not found", -1));
         return TCL_ERROR;
     }
 
@@ -569,7 +574,7 @@ static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     int rc = SSL_write(conn->ssl, reply, length);
     if (rc <= 0) {
         int err = SSL_get_error(conn->ssl, rc);
-        tws_CloseConn(interp, conn_handle);
+        tws_CloseConn(interp, conn, conn_handle);
         Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
         Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
         Tcl_SetObjResult(interp, resultObjPtr);
@@ -587,7 +592,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("handle not found", -1));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("conn handle not found", -1));
         return TCL_ERROR;
     }
 
@@ -680,7 +685,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
             decoded = Tcl_Alloc(3 * bodyLength / 4 + 2);
             if (base64_decode(body, bodyLength, decoded, &decodedLength)) {
                 Tcl_Free(decoded);
-                tws_CloseConn(interp, conn_handle);
+                tws_CloseConn(interp, conn, conn_handle);
                 Tcl_SetObjResult(interp, Tcl_NewStringObj("base64 decode error", -1));
                 return TCL_ERROR;
             }
@@ -698,7 +703,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         rc = SSL_write(conn->ssl, reply, replyLength);
         if (rc <= 0) {
             int err = SSL_get_error(conn->ssl, rc);
-            tws_CloseConn(interp, conn_handle);
+            tws_CloseConn(interp, conn, conn_handle);
             Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
             Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
             Tcl_SetObjResult(interp, resultObjPtr);
@@ -710,7 +715,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
             Tcl_Free(decoded);
             if (rc <= 0) {
                 int err = SSL_get_error(conn->ssl, rc);
-                tws_CloseConn(interp, conn_handle);
+                tws_CloseConn(interp, conn, conn_handle);
                 Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
                 Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
                 Tcl_SetObjResult(interp, resultObjPtr);
@@ -731,7 +736,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         rc = SSL_write(conn->ssl, reply, replyLength);
         if (rc <= 0) {
             int err = SSL_get_error(conn->ssl, rc);
-            tws_CloseConn(interp, conn_handle);
+            tws_CloseConn(interp, conn, conn_handle);
             Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
             Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
             Tcl_SetObjResult(interp, resultObjPtr);
@@ -746,7 +751,12 @@ static int tws_CloseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     CheckArgs(2, 2, 1, "handle");
 
     const char *conn_handle = Tcl_GetString(objv[1]);
-    return tws_CloseConn(interp, conn_handle);
+    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
+    if (!conn) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("handle not found", -1));
+        return TCL_ERROR;
+    }
+    return tws_CloseConn(interp, conn, conn_handle);
 }
 
 static int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
@@ -1313,6 +1323,51 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
     }
 }
 
+static int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsPtr, Tcl_Obj **resultPtr) {
+
+//    String version;
+//    String path;
+//    String httpMethod;
+//    Map<String, String> headers;
+//    Map<String, List<String>> multiValueHeaders;
+//    Map<String, String> queryStringParameters;
+//    Map<String, List<String>> multiValueQueryStringParameters;
+//    Map<String, String> pathParameters;
+//    String body;
+//    Boolean isBase64Encoded;
+
+    Tcl_Obj *dictPtr = Tcl_NewDictObj();
+
+    const char *request = Tcl_DStringValue(dsPtr);
+    int length = Tcl_DStringLength(dsPtr);
+
+    const char *curr = request;
+    const char *end = request + length;
+
+    // parse the first line of the request
+    if (TCL_OK != tws_ParseRequestLine(interp, encoding, &curr, end, dictPtr)) {
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *headersPtr = Tcl_NewDictObj();
+    Tcl_Obj *multiValueHeadersPtr = Tcl_NewDictObj();
+    if (TCL_OK != tws_ParseHeaders(interp, &curr, end, headersPtr, multiValueHeadersPtr)) {
+        return TCL_ERROR;
+    }
+    Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("headers", -1), headersPtr);
+    Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("multiValueHeaders", -1), multiValueHeadersPtr);
+
+    // get "Content-Length" header
+    Tcl_Obj *contentLengthPtr;
+    Tcl_DictObjGet(interp, headersPtr, Tcl_NewStringObj("content-length", -1), &contentLengthPtr);
+    Tcl_Obj *contentTypePtr;
+    Tcl_DictObjGet(interp, headersPtr, Tcl_NewStringObj("content-type", -1), &contentTypePtr);
+    tws_ParseBody(interp, curr, end, dictPtr, contentLengthPtr, contentTypePtr);
+
+    *resultPtr = dictPtr;
+    return TCL_OK;
+}
+
 static int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "ParseRequestCmd\n"));
     CheckArgs(2, 3, 1, "request ?encoding_name?");
@@ -1329,44 +1384,56 @@ static int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int ob
 
     DBG(fprintf(stderr, "request=%s\n", request));
 
-//    String version;
-//    String path;
-//    String httpMethod;
-//    Map<String, String> headers;
-//    Map<String, List<String>> multiValueHeaders;
-//    Map<String, String> queryStringParameters;
-//    Map<String, List<String>> multiValueQueryStringParameters;
-//    Map<String, String> pathParameters;
-//    String body;
-//    Boolean isBase64Encoded;
-    Tcl_Obj *resultPtr = Tcl_NewDictObj();
-
-    const char *curr = request;
-    const char *end = request + length;
-
-    // parse the first line of the request
-    if (TCL_OK != tws_ParseRequestLine(interp, encoding, &curr, end, resultPtr)) {
+    Tcl_DString ds;
+    Tcl_DStringInit(&ds);
+    Tcl_DStringAppend(&ds, request, length);
+    Tcl_Obj *resultPtr;
+    if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, &resultPtr)) {
+        Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
-
-    Tcl_Obj *headersPtr = Tcl_NewDictObj();
-    Tcl_Obj *multiValueHeadersPtr = Tcl_NewDictObj();
-    if (TCL_OK != tws_ParseHeaders(interp, &curr, end, headersPtr, multiValueHeadersPtr)) {
-        return TCL_ERROR;
-    }
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("headers", -1), headersPtr);
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("multiValueHeaders", -1), multiValueHeadersPtr);
-
-    // get "Content-Length" header
-    Tcl_Obj *contentLengthPtr;
-    Tcl_DictObjGet(interp, headersPtr, Tcl_NewStringObj("content-length", -1), &contentLengthPtr);
-    Tcl_Obj *contentTypePtr;
-    Tcl_DictObjGet(interp, headersPtr, Tcl_NewStringObj("content-type", -1), &contentTypePtr);
-    tws_ParseBody(interp, curr, end, resultPtr, contentLengthPtr, contentTypePtr);
 
     Tcl_SetObjResult(interp, resultPtr);
+    Tcl_DStringFree(&ds);
     return TCL_OK;
 
+}
+
+static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "ReadConnCmd\n"));
+    CheckArgs(2, 3, 1, "conn_handle ?encoding_name?");
+
+
+    const char *conn_handle = Tcl_GetString(objv[1]);
+    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
+    if (!conn) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("handle not found", -1));
+        return TCL_ERROR;
+    }
+
+    Tcl_Encoding encoding;
+    if (objc == 3) {
+        encoding = Tcl_GetEncoding(interp, Tcl_GetString(objv[2]));
+    } else {
+        encoding = Tcl_GetEncoding(interp, "utf-8");
+    }
+
+    Tcl_DString ds;
+    Tcl_DStringInit(&ds);
+    if (TCL_OK != tws_ReadConn(interp, conn, conn_handle, &ds)) {
+        Tcl_DStringFree(&ds);
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("read error", -1));
+        return TCL_ERROR;
+    }
+    Tcl_Obj *resultPtr;
+    if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, &resultPtr)) {
+        Tcl_DStringFree(&ds);
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("parse error", -1));
+        return TCL_ERROR;
+    }
+    Tcl_SetObjResult(interp, resultPtr);
+    Tcl_DStringFree(&ds);
+    return TCL_OK;
 }
 
 
@@ -1459,6 +1526,7 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::close_conn", tws_CloseConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::info_conn", tws_InfoConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::parse_request", tws_ParseRequestCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::parse_conn", tws_ParseConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::encode_uri_component", tws_EncodeURIComponentCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::decode_uri_component", tws_DecodeURIComponentCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::encode_query", tws_EncodeQueryCmd, NULL, NULL);
