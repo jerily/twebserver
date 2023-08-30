@@ -63,8 +63,8 @@ tclsh ../examples/example-with-threads.tcl
 
 ## Benchmark
 ```
-go install github.com/parkghost/gohttpbench@latest
-gohttpbench -c 500 -t 10  "https://localhost:4433/example?a=1&b=2"
+sudo apt install apache2-utils
+ab -n 10000 -c 100 https://localhost:4433/
 ```
 
 ## TCL Commands
