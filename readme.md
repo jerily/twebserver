@@ -11,8 +11,8 @@ openssl x509 -req -days 9999 -in csr.pem -signkey key.pem -out cert.pem
 
 ## Build
 ```
-git clone https://github.com/jerily/tws.git
-cd tws
+git clone https://github.com/jerily/twebserver.git
+cd twebserver
 mkdir build
 cd build
 cmake ..
