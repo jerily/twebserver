@@ -552,8 +552,7 @@ static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, 
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
-    Tcl_Obj *resultPtr = Tcl_NewStringObj(Tcl_DStringValue(&ds), Tcl_DStringLength(&ds));
-    Tcl_SetObjResult(interp, resultPtr);
+    Tcl_DStringResult(interp, &ds);
     Tcl_DStringFree(&ds);
     return TCL_OK;
 }
