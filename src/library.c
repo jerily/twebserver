@@ -604,7 +604,11 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
 
     Tcl_Obj *statusCodePtr;
     Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("statusCode", -1), &statusCodePtr);
-
+    if (statusCodePtr == NULL) {
+        tws_CloseConn(interp, conn, conn_handle);
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("statusCode not found", -1));
+        return TCL_ERROR;
+    }
     Tcl_Obj *headersPtr;
     Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("headers", -1), &headersPtr);
 
@@ -617,8 +621,13 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     Tcl_Obj *isBase64EncodedPtr;
     Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("isBase64Encoded", -1), &isBase64EncodedPtr);
 
-    Tcl_Obj *replyPtr = Tcl_NewStringObj("HTTP/1.1 ", 9);
-    Tcl_AppendObjToObj(replyPtr, statusCodePtr);
+    Tcl_DString ds;
+    Tcl_DStringInit(&ds);
+    Tcl_DStringAppend(&ds, "HTTP/1.1 ", 9);
+
+    int status_code_length;
+    const char *status_code = Tcl_GetStringFromObj(statusCodePtr, &status_code_length);
+    Tcl_DStringAppend(&ds, status_code, status_code_length);
 
     // write each "header" from the "headers" dictionary to the ssl connection
     Tcl_Obj *keyPtr;
@@ -637,10 +646,14 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
                     continue;
                 }
             }
-            Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("\r\n", 2));
-            Tcl_AppendObjToObj(replyPtr, keyPtr);
-            Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj(": ", 2));
-            Tcl_AppendObjToObj(replyPtr, valuePtr);
+            Tcl_DStringAppend(&ds, "\r\n", 2);
+            int key_length;
+            const char *key = Tcl_GetStringFromObj(keyPtr, &key_length);
+            Tcl_DStringAppend(&ds, key, key_length);
+            Tcl_DStringAppend(&ds, ": ", 2);
+            int value_length;
+            const char *value = Tcl_GetStringFromObj(valuePtr, &value_length);
+            Tcl_DStringAppend(&ds, value, value_length);
         }
         Tcl_DictObjDone(&search);
     }
@@ -659,10 +672,14 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
             for (Tcl_DictObjFirst(interp, listPtr, &listSearch, &listKeyPtr, &listValuePtr, &listDone);
                  !listDone;
                  Tcl_DictObjNext(&listSearch, &listKeyPtr, &listValuePtr, &listDone)) {
-                Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("\r\n", 2));
-                Tcl_AppendObjToObj(replyPtr, keyPtr);
-                Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj(": ", 2));
-                Tcl_AppendObjToObj(replyPtr, listValuePtr);
+                Tcl_DStringAppend(&ds, "\r\n", 2);
+                int key_length;
+                const char *key = Tcl_GetStringFromObj(keyPtr, &key_length);
+                Tcl_DStringAppend(&ds, key, key_length);
+                Tcl_DStringAppend(&ds, ": ", 2);
+                int value_length;
+                const char *value = Tcl_GetStringFromObj(listValuePtr, &value_length);
+                Tcl_DStringAppend(&ds, value, value_length);
             }
             Tcl_DictObjDone(&listSearch);
         }
@@ -683,24 +700,26 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         if (bodyLength) {
             decoded = Tcl_Alloc(3 * bodyLength / 4 + 2);
             if (base64_decode(body, bodyLength, decoded, &decodedLength)) {
+                Tcl_DStringFree(&ds);
                 Tcl_Free(decoded);
                 tws_CloseConn(interp, conn, conn_handle);
                 Tcl_SetObjResult(interp, Tcl_NewStringObj("base64 decode error", -1));
                 return TCL_ERROR;
             }
 
-            Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("\r\n", 2));
-            Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("Content-Length: ", -1));
-            Tcl_AppendObjToObj(replyPtr, Tcl_NewIntObj(decodedLength));
+            Tcl_DStringAppend(&ds, "\r\n", 2);
+            Tcl_DStringAppend(&ds, "Content-Length: ", 16);
+            Tcl_DStringAppend(&ds, Tcl_GetString(Tcl_NewIntObj(decodedLength)), -1);
         }
 
-        Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("\r\n\r\n", 4));
+        Tcl_DStringAppend(&ds, "\r\n\r\n", 4);
 
-        int replyLength;
-        const char *reply = Tcl_GetStringFromObj(replyPtr, &replyLength);
+        int reply_length = Tcl_DStringLength(&ds);
+        const char *reply = Tcl_DStringValue(&ds);
 
-        rc = SSL_write(conn->ssl, reply, replyLength);
+        rc = SSL_write(conn->ssl, reply, reply_length);
         if (rc <= 0) {
+            Tcl_DStringFree(&ds);
             int err = SSL_get_error(conn->ssl, rc);
             tws_CloseConn(interp, conn, conn_handle);
             Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
@@ -713,6 +732,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
             rc = SSL_write(conn->ssl, decoded, decodedLength);
             Tcl_Free(decoded);
             if (rc <= 0) {
+                Tcl_DStringFree(&ds);
                 int err = SSL_get_error(conn->ssl, rc);
                 tws_CloseConn(interp, conn, conn_handle);
                 Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
@@ -723,17 +743,20 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         }
 
     } else {
-        Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("\r\n", 2));
-        Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("Content-Length: ", -1));
-        Tcl_AppendObjToObj(replyPtr, Tcl_NewIntObj(Tcl_GetCharLength(bodyPtr)));
-        Tcl_AppendObjToObj(replyPtr, Tcl_NewStringObj("\r\n\r\n", 4));
-        Tcl_AppendObjToObj(replyPtr, bodyPtr);
+        Tcl_DStringAppend(&ds, "\r\n", 2);
+        Tcl_DStringAppend(&ds, "Content-Length: ", 16);
+        int body_length;
+        const char *body = Tcl_GetStringFromObj(bodyPtr, &body_length);
+        Tcl_DStringAppend(&ds, Tcl_GetString(Tcl_NewIntObj(body_length)), -1);
+        Tcl_DStringAppend(&ds, "\r\n\r\n", 4);
+        Tcl_DStringAppend(&ds, body, body_length);
 
-        int replyLength;
-        const char *reply = Tcl_GetStringFromObj(replyPtr, &replyLength);
+        int reply_length = Tcl_DStringLength(&ds);
+        const char *reply = Tcl_DStringValue(&ds);
 
-        rc = SSL_write(conn->ssl, reply, replyLength);
+        rc = SSL_write(conn->ssl, reply, reply_length);
         if (rc <= 0) {
+            Tcl_DStringFree(&ds);
             int err = SSL_get_error(conn->ssl, rc);
             tws_CloseConn(interp, conn, conn_handle);
             Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
@@ -742,6 +765,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
             return TCL_ERROR;
         }
     }
+    Tcl_DStringFree(&ds);
     return TCL_OK;
 }
 
