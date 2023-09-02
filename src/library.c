@@ -1532,9 +1532,8 @@ static int tws_Base64EncodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
         Tcl_SetObjResult(interp, Tcl_NewStringObj("base64_encode failed", -1));
         return TCL_ERROR;
     }
-    Tcl_Obj *resultPtr = Tcl_NewStringObj(output, output_length);
+    Tcl_SetObjResult(interp, Tcl_NewStringObj(output, output_length));
     Tcl_Free(output);
-    Tcl_SetObjResult(interp, resultPtr);
     return TCL_OK;
 }
 
@@ -1551,9 +1550,8 @@ static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
         Tcl_SetObjResult(interp, Tcl_NewStringObj("base64_decode failed", -1));
         return TCL_ERROR;
     }
-    Tcl_Obj *resultPtr = Tcl_NewByteArrayObj(output, output_length);
+    Tcl_SetObjResult(interp, Tcl_NewByteArrayObj(output, output_length));
     Tcl_Free(output);
-    Tcl_SetObjResult(interp, resultPtr);
     return TCL_OK;
 }
 
