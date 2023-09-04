@@ -9,7 +9,6 @@ set thread_script {
     }
 
     proc thread_process_conn {conn addr port} {
-        after 1000 [list ::twebserver::close_conn $conn]
         if { [catch {
             set reply [thread_process_request [::twebserver::parse_conn $conn]]
             ::twebserver::write_conn $conn $reply
