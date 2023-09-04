@@ -270,7 +270,7 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     return conn;
 }
 
-int tws_CloseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle) {
+int tws_CloseConn(tws_conn_t *conn, const char *conn_handle) {
     tws_UnregisterConnName(conn_handle);
     SSL_shutdown(conn->ssl);
     SSL_free(conn->ssl);
@@ -278,6 +278,53 @@ int tws_CloseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle)
     close(conn->client);
     Tcl_Free((char *) conn);
     return TCL_OK;
+}
+
+typedef struct {
+    int sock;
+    int port;
+    tws_server_t *server;
+    Tcl_Interp *interp;
+} tws_accept_ctx_t;
+
+static void tws_AcceptConn(void *data, int mask) {
+    tws_accept_ctx_t *ctx = (tws_accept_ctx_t *) data;
+    struct sockaddr_in addr;
+    unsigned int len = sizeof(addr);
+
+    int client = accept(ctx->sock, (struct sockaddr *) &addr, &len);
+    if (client < 0) {
+//        Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to accept", -1));
+//        return TCL_ERROR;
+        return;
+    }
+
+    tws_conn_t *conn = tws_NewConn(ctx->server, client);
+    if (conn == NULL) {
+//        Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to create SSL connection", -1));
+//        return TCL_ERROR;
+        return;
+    }
+
+    char conn_handle[80];
+    CMD_CONN_NAME(conn_handle, conn);
+    tws_RegisterConnName(conn_handle, conn);
+
+    if (SSL_accept(conn->ssl) <= 0) {
+        ERR_print_errors_fp(stderr);
+    } else {
+        Tcl_Obj *connPtr = Tcl_NewStringObj(conn_handle, -1);
+        Tcl_Obj *addrPtr = Tcl_NewStringObj(inet_ntoa(addr.sin_addr), -1);
+        Tcl_Obj *portPtr = Tcl_NewIntObj(ctx->port);
+        Tcl_Obj *cmdobjv[] = {ctx->server->cmdPtr, connPtr, addrPtr, portPtr, NULL};
+
+        if (TCL_OK != Tcl_EvalObjv(ctx->interp, 4, cmdobjv, TCL_EVAL_GLOBAL)) {
+            tws_CloseConn(conn, conn_handle);
+            DBG(fprintf(stderr, "error evaluating script sock=%d\n", sock));
+            // TODO: log the error
+        }
+    }
+
 }
 
 int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
@@ -294,43 +341,12 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
     }
 
     int sock = create_socket(port);
-
-    /* Handle connections */
-    while (1) {
-        struct sockaddr_in addr;
-        unsigned int len = sizeof(addr);
-
-        int client = accept(sock, (struct sockaddr *) &addr, &len);
-        if (client < 0) {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to accept", -1));
-            return TCL_ERROR;
-        }
-
-        tws_conn_t *conn = tws_NewConn(server, client);
-        if (conn == NULL) {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to create SSL connection", -1));
-            return TCL_ERROR;
-        }
-
-        char conn_handle[80];
-        CMD_CONN_NAME(conn_handle, conn);
-        tws_RegisterConnName(conn_handle, conn);
-
-        if (SSL_accept(conn->ssl) <= 0) {
-            ERR_print_errors_fp(stderr);
-        } else {
-            Tcl_ResetResult(interp);
-            Tcl_Obj *connPtr = Tcl_NewStringObj(conn_handle, -1);
-            Tcl_Obj *addrPtr = Tcl_NewStringObj(inet_ntoa(addr.sin_addr), -1);
-            Tcl_Obj *cmdobjv[] = {server->cmdPtr, connPtr, addrPtr, portPtr, NULL};
-            if (TCL_OK != Tcl_EvalObjv(interp, 4, cmdobjv, TCL_EVAL_GLOBAL)) {
-                tws_CloseConn(interp, conn, conn_handle);
-                DBG(fprintf(stderr, "error evaluating script sock=%d\n", sock));
-                // TODO: log the error
-            }
-        }
-    }
-
+    tws_accept_ctx_t *ctx = (tws_accept_ctx_t *) Tcl_Alloc(sizeof(tws_accept_ctx_t));
+    ctx->sock = sock;
+    ctx->port = port;
+    ctx->server = server;
+    ctx->interp = interp;
+    Tcl_CreateFileHandler(sock, TCL_READABLE, tws_AcceptConn, ctx);
     return TCL_OK;
 }
 
@@ -512,7 +528,7 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
     int rc = SSL_read(conn->ssl, buf, max_buffer_size);
     if (rc <= 0) {
         int err = SSL_get_error(conn->ssl, rc);
-        tws_CloseConn(interp, conn, conn_handle);
+        tws_CloseConn(conn, conn_handle);
         Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
         Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
         Tcl_SetObjResult(interp, resultObjPtr);
@@ -573,7 +589,7 @@ static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     int rc = SSL_write(conn->ssl, reply, length);
     if (rc <= 0) {
         int err = SSL_get_error(conn->ssl, rc);
-        tws_CloseConn(interp, conn, conn_handle);
+        tws_CloseConn(conn, conn_handle);
         Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
         Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
         Tcl_SetObjResult(interp, resultObjPtr);
@@ -605,7 +621,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     Tcl_Obj *statusCodePtr;
     Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("statusCode", -1), &statusCodePtr);
     if (statusCodePtr == NULL) {
-        tws_CloseConn(interp, conn, conn_handle);
+        tws_CloseConn(conn, conn_handle);
         Tcl_SetObjResult(interp, Tcl_NewStringObj("statusCode not found", -1));
         return TCL_ERROR;
     }
@@ -702,7 +718,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
             if (base64_decode(body, bodyLength, decoded, &decodedLength)) {
                 Tcl_DStringFree(&ds);
                 Tcl_Free(decoded);
-                tws_CloseConn(interp, conn, conn_handle);
+                tws_CloseConn(conn, conn_handle);
                 Tcl_SetObjResult(interp, Tcl_NewStringObj("base64 decode error", -1));
                 return TCL_ERROR;
             }
@@ -721,7 +737,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         if (rc <= 0) {
             Tcl_DStringFree(&ds);
             int err = SSL_get_error(conn->ssl, rc);
-            tws_CloseConn(interp, conn, conn_handle);
+            tws_CloseConn(conn, conn_handle);
             Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
             Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
             Tcl_SetObjResult(interp, resultObjPtr);
@@ -734,7 +750,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
             if (rc <= 0) {
                 Tcl_DStringFree(&ds);
                 int err = SSL_get_error(conn->ssl, rc);
-                tws_CloseConn(interp, conn, conn_handle);
+                tws_CloseConn(conn, conn_handle);
                 Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
                 Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
                 Tcl_SetObjResult(interp, resultObjPtr);
@@ -758,7 +774,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         if (rc <= 0) {
             Tcl_DStringFree(&ds);
             int err = SSL_get_error(conn->ssl, rc);
-            tws_CloseConn(interp, conn, conn_handle);
+            tws_CloseConn(conn, conn_handle);
             Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
             Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
             Tcl_SetObjResult(interp, resultObjPtr);
@@ -779,7 +795,7 @@ static int tws_CloseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
         Tcl_SetObjResult(interp, Tcl_NewStringObj("handle not found", -1));
         return TCL_ERROR;
     }
-    return tws_CloseConn(interp, conn, conn_handle);
+    return tws_CloseConn(conn, conn_handle);
 }
 
 static int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
