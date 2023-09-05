@@ -1605,9 +1605,15 @@ static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
 static void tws_ExitHandler(ClientData unused) {
 }
 
-
 void tws_InitModule() {
     if (!tws_ModuleInitialized) {
+        sigset_t sigset;
+        sigemptyset(&sigset);
+        sigaddset(&sigset, SIGPIPE);
+        if (pthread_sigmask(SIG_BLOCK, &sigset, NULL)) {
+            fprintf(stderr, "pthread_sigmask failed\n");
+        }
+
         Tcl_InitHashTable(&tws_ServerNameToInternal_HT, TCL_STRING_KEYS);
         Tcl_InitHashTable(&tws_ConnNameToInternal_HT, TCL_STRING_KEYS);
         Tcl_InitHashTable(&tws_HostNameToInternal_HT, TCL_STRING_KEYS);
