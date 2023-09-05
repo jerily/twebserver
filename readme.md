@@ -2,14 +2,23 @@
 
 TCL Web Server (HTTPS) Extension
 
-## Generate certs
-```
-openssl genrsa -out key.pem
-openssl req -new -key key.pem -out csr.pem
-openssl x509 -req -days 9999 -in csr.pem -signkey key.pem -out cert.pem
+## Getting Started
+
+The extension depends on OpenSSL (3.0.2 or later) and TCL (8.6.13).
+
+### Install Dependencies
+
+To install the packages on Debian/Ubuntu-based systems:
+```bash
+sudo apt-get install libssl-dev
 ```
 
-## Build
+To install the packages on Amazon Linux/Redhat/Fedora/CentOS-based systems
+```bash
+sudo yum install openssl-devel
+```
+
+### Build the library
 ```
 git clone https://github.com/jerily/twebserver.git
 cd twebserver
@@ -18,6 +27,28 @@ cd build
 cmake ..
 make
 make install
+```
+### Generate certs
+
+To use the library, you will need to generate a key and certificate.  You can do this with the following commands:
+```bash
+# First go into the directory where the certificate should be stored.
+openssl genrsa -out key.pem
+openssl req -new -key key.pem -out csr.pem
+openssl x509 -req -days 9999 -in csr.pem -signkey key.pem -out cert.pem
+```
+
+Alternatively, you can use the following command:
+```bash
+# First go into the directory where the certificate should be stored.
+openssl req -x509 \
+        -newkey rsa:4096 \
+        -keyout key.pem \
+        -out cert.pem \
+        -sha256 \
+        -days 3650 \
+        -nodes \
+        -subj "/C=CY/ST=Cyprus/L=Home/O=none/OU=CompanySectionName/CN=localhost/CN=www.example.com"
 ```
 
 ## Try it out without threads
@@ -80,7 +111,7 @@ ab -n 10000 -c 100 https://localhost:4433/
 * **::twebserver::read_conn** *conn*
     - reads a connection
 * **::twebserver::write_conn** *conn* *text*
-  - writes to a connection
+    - writes to a connection
 * **::twebserver::parse_conn** *conn* *encoding_name*
     - reads a connection and parses the request to a dictionary
 * **::twebserver::return_conn** *conn* *response_dict*
