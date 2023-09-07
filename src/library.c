@@ -1603,6 +1603,17 @@ static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
 }
 
 static void tws_ExitHandler(ClientData unused) {
+    Tcl_MutexLock(&tws_ServerNameToInternal_HT_Mutex);
+    Tcl_DeleteHashTable(&tws_ServerNameToInternal_HT);
+    Tcl_MutexUnlock(&tws_ServerNameToInternal_HT_Mutex);
+
+    Tcl_MutexLock(&tws_ConnNameToInternal_HT_Mutex);
+    Tcl_DeleteHashTable(&tws_ConnNameToInternal_HT);
+    Tcl_MutexUnlock(&tws_ConnNameToInternal_HT_Mutex);
+
+    Tcl_MutexLock(&tws_HostNameToInternal_HT_Mutex);
+    Tcl_DeleteHashTable(&tws_HostNameToInternal_HT);
+    Tcl_MutexUnlock(&tws_HostNameToInternal_HT_Mutex);
 }
 
 void tws_InitModule() {
@@ -1613,10 +1624,18 @@ void tws_InitModule() {
         if (pthread_sigmask(SIG_BLOCK, &sigset, NULL)) {
             fprintf(stderr, "pthread_sigmask failed\n");
         }
-
+        Tcl_MutexLock(&tws_ServerNameToInternal_HT_Mutex);
         Tcl_InitHashTable(&tws_ServerNameToInternal_HT, TCL_STRING_KEYS);
+        Tcl_MutexUnlock(&tws_ServerNameToInternal_HT_Mutex);
+
+        Tcl_MutexLock(&tws_ConnNameToInternal_HT_Mutex);
         Tcl_InitHashTable(&tws_ConnNameToInternal_HT, TCL_STRING_KEYS);
+        Tcl_MutexUnlock(&tws_ConnNameToInternal_HT_Mutex);
+
+        Tcl_MutexLock(&tws_HostNameToInternal_HT_Mutex);
         Tcl_InitHashTable(&tws_HostNameToInternal_HT, TCL_STRING_KEYS);
+        Tcl_MutexUnlock(&tws_HostNameToInternal_HT_Mutex);
+
         Tcl_CreateThreadExitHandler(tws_ExitHandler, NULL);
         tws_ModuleInitialized = 1;
     }
