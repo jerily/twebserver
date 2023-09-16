@@ -279,6 +279,9 @@ static int create_socket(Tcl_Interp *interp, int port, int *sock) {
         return TCL_ERROR;
     }
 
+    int reuseaddr = 1;
+    (void) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *) &reuseaddr, sizeof(reuseaddr));
+
 //    int keepalive = 0;
 //    setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive , sizeof(keepalive ));
 
@@ -544,6 +547,7 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
         return 0;
     remaining = len;
     if (p == NULL) {
+        DBG(fprintf(stderr, "p is null in clienthello callback\n"));
         return SSL_CLIENT_HELLO_ERROR;
     }
 
