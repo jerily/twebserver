@@ -402,7 +402,7 @@ static void tws_AcceptConn(void *data, int mask) {
     unsigned int len = sizeof(addr);
 
     int client = accept(server->accept_ctx->sock, (struct sockaddr *) &addr, &len);
-    fprintf(stderr, "client: %d, addr: %s\n", client, inet_ntoa(addr.sin_addr));
+    DBG(fprintf(stderr, "client: %d, addr: %s\n", client, inet_ntoa(addr.sin_addr)));
     if (client < 0) {
         DBG(fprintf(stderr, "Unable to accept"));
         return;
@@ -1597,6 +1597,59 @@ static int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int ob
 
 }
 
+// gzip is enabled q-values greater than 0.001
+static int tws_GzipAcceptEncoding(const char *accept_encoding, int accept_encoding_length) {
+    // check if "accept_encoding" contains "gzip"
+    const char *p = accept_encoding;
+    const char *end = accept_encoding + accept_encoding_length;
+
+    // use strstr to find the first "gzip" in "accept_encoding"
+    p = strstr(p, "gzip");
+
+    if (!p) {
+        return 0;
+    }
+
+    p = p + 4;
+
+    while (p < end) {
+        switch (*p++) {
+            case ',':
+                return 1;
+            case ';':
+                goto quantity;
+            case ' ':
+                continue;
+            default:
+                return 0;
+        }
+    }
+
+    return 1;
+
+    quantity:
+    while (p < end) {
+        switch (*p++) {
+            case 'q':
+            case 'Q':
+                goto equal;
+            case ' ':
+                continue;
+            default:
+                return 0;
+        }
+    }
+    return 1;
+
+    equal:
+    if (p + 2 > end || *p++ != '=') {
+        return 0;
+    }
+
+    double qvalue = strtod(p, NULL);
+    return qvalue >= 0.001 && qvalue <= 1.0;
+}
+
 static int tws_ParseAcceptEncoding(Tcl_Interp *interp, Tcl_Obj *requestDictPtr, tws_compression_method_t *compression) {
     // parse "Accept-Encoding" header and set "compression" accordingly
 
@@ -1609,8 +1662,8 @@ static int tws_ParseAcceptEncoding(Tcl_Interp *interp, Tcl_Obj *requestDictPtr, 
         return TCL_OK;
     }
 
-    int acceptEncodingLength;
-    const char *acceptEncoding = Tcl_GetStringFromObj(acceptEncodingPtr, &acceptEncodingLength);
+    int accept_encoding_length;
+    const char *accept_encoding = Tcl_GetStringFromObj(acceptEncodingPtr, &accept_encoding_length);
 
     /*
      * test first for the most common case "gzip,...":
@@ -1621,7 +1674,12 @@ static int tws_ParseAcceptEncoding(Tcl_Interp *interp, Tcl_Obj *requestDictPtr, 
      *   Opera:   "gzip, deflate"
      */
 
-    if (acceptEncodingLength >= 5 && strncmp(acceptEncoding, "gzip,", 5) == 0) {
+    if (accept_encoding_length >= 5 && strncmp(accept_encoding, "gzip,", 5) == 0) {
+        *compression = GZIP_COMPRESSION;
+        return TCL_OK;
+    }
+
+    if (tws_GzipAcceptEncoding(accept_encoding, accept_encoding_length)) {
         *compression = GZIP_COMPRESSION;
         return TCL_OK;
     }
