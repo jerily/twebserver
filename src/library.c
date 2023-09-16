@@ -17,6 +17,7 @@
 #include <arpa/inet.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <sys/time.h>
 
 #define XSTR(s) STR(s)
 #define STR(s) #s
@@ -66,11 +67,34 @@ typedef struct {
     tws_accept_ctx_t *accept_ctx;
 } tws_server_t;
 
+typedef enum tws_CompressionMethod {
+    NO_COMPRESSION,
+    GZIP_COMPRESSION,
+    BROTLI_COMPRESSION
+} tws_compression_method_t;
+
 typedef struct {
     tws_server_t *server;
     SSL *ssl;
     int client;
+    tws_compression_method_t compression;
 } tws_conn_t;
+
+static const char *ssl_errors[] = {
+        "SSL_ERROR_NONE",
+        "SSL_ERROR_SSL",
+        "SSL_ERROR_WANT_READ",
+        "SSL_ERROR_WANT_WRITE",
+        "SSL_ERROR_WANT_X509_LOOKUP",
+        "SSL_ERROR_SYSCALL",
+        "SSL_ERROR_ZERO_RETURN",
+        "SSL_ERROR_WANT_CONNECT",
+        "SSL_ERROR_WANT_ACCEPT",
+        "SSL_ERROR_WANT_ASYNC",
+        "SSL_ERROR_WANT_ASYNC_JOB",
+        "SSL_ERROR_WANT_CLIENT_HELLO_CB"
+        "SSL_ERROR_WANT_RETRY_VERIFY"
+};
 
 static int
 tws_RegisterServerName(const char *name, tws_server_t *internal) {
@@ -242,30 +266,34 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
 }
 
 static int create_socket(Tcl_Interp *interp, int port, int *sock) {
-    int s;
+    int fd;
     struct sockaddr_in addr;
 
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    s = socket(AF_INET, SOCK_STREAM, 0);
-    if (s < 0) {
+    fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
         Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to create socket", -1));
         return TCL_ERROR;
     }
 
-    if (bind(s, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
+//    int keepalive = 0;
+//    setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive , sizeof(keepalive ));
+
+    if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
         Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to bind", -1));
         return TCL_ERROR;
     }
 
-    if (listen(s, 1) < 0) {
+    int backlog = 1000; // the maximum length to which the  queue  of pending  connections  for sockfd may grow
+    if (listen(fd, backlog) < 0) {
         Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to listen", -1));
         return TCL_ERROR;
     }
 
-    *sock = s;
+    *sock = fd;
     return TCL_OK;
 }
 
@@ -280,15 +308,90 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     conn->server = server;
     conn->ssl = ssl;
     conn->client = client;
+    conn->compression = NO_COMPRESSION;
     return conn;
+}
+
+static int tws_Shutdown(tws_conn_t *conn);
+
+static void tws_ShutdownHandler(ClientData clientData) {
+    tws_conn_t *conn = (tws_conn_t *) clientData;
+    fprintf(stderr, "tws_ShutdownHandler\n");
+    tws_Shutdown(conn);
+}
+
+static int tws_Shutdown(tws_conn_t *conn) {
+
+    int result = TCL_OK;
+    int rc;
+    int mode;
+    int sslerr;
+    SSL *ssl = conn->ssl;
+
+    if (SSL_in_init(ssl)) {
+        /*
+         * OpenSSL 1.0.2f complains if SSL_shutdown() is called during
+         * an SSL handshake, while previous versions always return 0.
+         * Avoid calling SSL_shutdown() if handshake wasn't completed.
+         */
+
+        goto done;
+    }
+
+    int tries = 2;
+
+    for ( ;; ) {
+
+        /*
+         * For bidirectional shutdown, SSL_shutdown() needs to be called
+         * twice: first call sends the "close notify" alert and returns 0,
+         * second call waits for the peer's "close notify" alert.
+         */
+
+        rc = SSL_shutdown(ssl);
+
+        if (rc == 1) {
+            goto done;
+        }
+
+        if (rc == 0 && tries-- > 1) {
+            continue;
+        }
+
+        sslerr = SSL_get_error(ssl, rc);
+
+        if (sslerr == SSL_ERROR_WANT_READ || sslerr == SSL_ERROR_WANT_WRITE) {
+            fprintf(stderr, "SSL_shutdown want read/write - creating timer\n");
+            Tcl_CreateTimerHandler(3000, tws_ShutdownHandler, conn);
+            return TCL_OK; // TWS_AGAIN
+        }
+
+        if (sslerr == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
+            goto done;
+        }
+
+        if (sslerr == SSL_ERROR_SYSCALL) {
+            fprintf(stderr, "SSL_shutdown syscall failed");
+            goto failed;
+        }
+
+        break;
+    }
+
+    failed:
+    result = TCL_ERROR;
+
+    done:
+    return result;
 }
 
 int tws_CloseConn(tws_conn_t *conn, const char *conn_handle) {
     tws_UnregisterConnName(conn_handle);
-    SSL_shutdown(conn->ssl);
-    SSL_free(conn->ssl);
-    shutdown(conn->client, SHUT_RDWR);
+    tws_Shutdown(conn);
+    shutdown(conn->client, SHUT_WR);
+    shutdown(conn->client, SHUT_RD);
     close(conn->client);
+    SSL_free(conn->ssl);
     Tcl_Free((char *) conn);
     return TCL_OK;
 }
@@ -299,16 +402,15 @@ static void tws_AcceptConn(void *data, int mask) {
     unsigned int len = sizeof(addr);
 
     int client = accept(server->accept_ctx->sock, (struct sockaddr *) &addr, &len);
+    fprintf(stderr, "client: %d, addr: %s\n", client, inet_ntoa(addr.sin_addr));
     if (client < 0) {
-//        Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to accept", -1));
-//        return TCL_ERROR;
+        DBG(fprintf(stderr, "Unable to accept"));
         return;
     }
 
     tws_conn_t *conn = tws_NewConn(server, client);
     if (conn == NULL) {
-//        Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to create SSL connection", -1));
-//        return TCL_ERROR;
+        DBG(fprintf(stderr, "Unable to create SSL connection"));
         return;
     }
 
@@ -316,8 +418,9 @@ static void tws_AcceptConn(void *data, int mask) {
     CMD_CONN_NAME(conn_handle, conn);
     tws_RegisterConnName(conn_handle, conn);
 
+    ERR_clear_error();
     if (SSL_accept(conn->ssl) <= 0) {
-//        ERR_print_errors_fp(stderr);
+        ERR_print_errors_fp(stderr);
         return;
     } else {
         Tcl_Obj *connPtr = Tcl_NewStringObj(conn_handle, -1);
@@ -331,7 +434,7 @@ static void tws_AcceptConn(void *data, int mask) {
             Tcl_MutexUnlock(&tws_Eval_Mutex);
             tws_CloseConn(conn, conn_handle);
             DBG(fprintf(stderr, "error evaluating script sock=%d\n", sock));
-            // TODO: log the error
+            return;
         }
         Tcl_MutexUnlock(&tws_Eval_Mutex);
     }
@@ -382,11 +485,13 @@ static int create_context(Tcl_Interp *interp, SSL_CTX **sslCtx) {
         return TCL_ERROR;
     }
 
-    unsigned long op = SSL_OP_ALL;
-    op |= SSL_OP_NO_SSLv2;
+//    unsigned long op = SSL_OP_ALL;
+//    op |= SSL_OP_NO_SSLv2;
 //    op |= SSL_OP_NO_SSLv3;
 //    op |= SSL_OP_NO_TLSv1;
-    SSL_CTX_set_options(ctx, op);
+//    SSL_CTX_set_options(ctx, op);
+
+    SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
 
     *sslCtx = ctx;
     return TCL_OK;
@@ -534,52 +639,71 @@ static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int objc
     return TCL_OK;
 }
 
-static const char *ssl_errors[] = {
-    "SSL_ERROR_NONE",
-    "SSL_ERROR_SSL",
-    "SSL_ERROR_WANT_READ",
-    "SSL_ERROR_WANT_WRITE",
-    "SSL_ERROR_WANT_X509_LOOKUP",
-    "SSL_ERROR_SYSCALL",
-    "SSL_ERROR_ZERO_RETURN",
-    "SSL_ERROR_WANT_CONNECT",
-    "SSL_ERROR_WANT_ACCEPT",
-    "SSL_ERROR_WANT_ASYNC",
-    "SSL_ERROR_WANT_ASYNC_JOB",
-    "SSL_ERROR_WANT_CLIENT_HELLO_CB"
-    "SSL_ERROR_WANT_RETRY_VERIFY"
-};
-
 static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle, Tcl_DString *dsPtr) {
     long max_request_read_bytes = conn->server->max_request_read_bytes;
     int max_buffer_size = conn->server->max_read_buffer_size;
 
+    int timeout_millis = 3000;  // conn->server->recv_timeout_in_millis;
+
+    long start_time_in_millis = 0;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    start_time_in_millis = (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000;
+
     char *buf = (char *) Tcl_Alloc(max_buffer_size);
     long total_read = 0;
-    int rc = SSL_read(conn->ssl, buf, max_buffer_size);
-    if (rc <= 0) {
-        int err = SSL_get_error(conn->ssl, rc);
-        tws_CloseConn(conn, conn_handle);
-        Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
-        Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
-        Tcl_SetObjResult(interp, resultObjPtr);
-        Tcl_Free(buf);
-        return TCL_ERROR;
-    }
-    int bytes_read = rc;
-    Tcl_DStringAppend(dsPtr, buf, bytes_read);
-    total_read += bytes_read;
-    while (SSL_pending(conn->ssl) > 0) {
-        bytes_read = SSL_read(conn->ssl, buf, max_buffer_size);
-        Tcl_DStringAppend(dsPtr, buf, bytes_read);
-        total_read += bytes_read;
-        if (total_read > max_request_read_bytes) {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj("request too large", -1));
+    int rc;
+    int bytes_read;
+    for (;;) {
+        rc = SSL_read(conn->ssl, buf, max_buffer_size);
+        if (rc > 0) {
+            bytes_read = rc;
+            Tcl_DStringAppend(dsPtr, buf, bytes_read);
+            total_read += bytes_read;
+            if (total_read > max_request_read_bytes) {
+                goto failed_due_to_request_too_large;
+            }
+            return TCL_OK;
+        } else {
+            int err = SSL_get_error(conn->ssl, rc);
+            if (err == SSL_ERROR_WANT_READ) {
+                bytes_read = rc;
+                Tcl_DStringAppend(dsPtr, buf, bytes_read);
+                total_read += bytes_read;
+                if (total_read > max_request_read_bytes) {
+                    goto failed_due_to_request_too_large;
+                }
+
+                // check if elapsed time exceeds timeout
+                gettimeofday(&tv, NULL);
+                long elapsed_time_in_millis = (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000 - start_time_in_millis;
+                if (elapsed_time_in_millis > timeout_millis) {
+                    tws_CloseConn(conn, conn_handle);
+                    Tcl_SetObjResult(interp, Tcl_NewStringObj("timeout", -1));
+                    Tcl_Free(buf);
+                    return TCL_ERROR;
+                }
+
+                continue;
+            }
+
+            tws_CloseConn(conn, conn_handle);
+            Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
+            Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
+            Tcl_SetObjResult(interp, resultObjPtr);
             Tcl_Free(buf);
             return TCL_ERROR;
         }
+        break;
     }
     return TCL_OK;
+
+    failed_due_to_request_too_large:
+    tws_CloseConn(conn, conn_handle);
+    Tcl_SetObjResult(interp, Tcl_NewStringObj("request too large", -1));
+    Tcl_Free(buf);
+    return TCL_ERROR;
+
 }
 
 static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
@@ -621,7 +745,7 @@ static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     if (rc <= 0) {
         int err = SSL_get_error(conn->ssl, rc);
         tws_CloseConn(conn, conn_handle);
-        Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
+        Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_write error: ", -1);
         Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
         Tcl_SetObjResult(interp, resultObjPtr);
         return TCL_ERROR;
@@ -733,75 +857,76 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         Tcl_DictObjDone(&search);
     }
 
+    if (conn->compression == GZIP_COMPRESSION) {
+        // set the Content-Encoding header to "gzip"
+        Tcl_DStringAppend(&ds, "\r\n", 2);
+        Tcl_DStringAppend(&ds, "Content-Encoding: gzip", 22);
+    }
+
     // write the body to the ssl connection
     int isBase64Encoded;
     Tcl_GetBooleanFromObj(interp, isBase64EncodedPtr, &isBase64Encoded);
 
+    int body_length;
+    char *body = NULL;
     int rc;
     if (isBase64Encoded) {
 
-        int bodyLength;
-        const char *body = Tcl_GetStringFromObj(bodyPtr, &bodyLength);
-        size_t decodedLength = 0;
-        char *decoded = NULL;
-        if (bodyLength) {
-            decoded = Tcl_Alloc(3 * bodyLength / 4 + 2);
-            if (base64_decode(body, bodyLength, decoded, &decodedLength)) {
+        int b64_body_length;
+        const char *b64_body = Tcl_GetStringFromObj(bodyPtr, &b64_body_length);
+        if (b64_body_length) {
+            body = Tcl_Alloc(3 * b64_body_length / 4 + 2);
+            if (base64_decode(b64_body, b64_body_length, body, &body_length)) {
                 Tcl_DStringFree(&ds);
-                Tcl_Free(decoded);
+                Tcl_Free(body);
                 tws_CloseConn(conn, conn_handle);
                 Tcl_SetObjResult(interp, Tcl_NewStringObj("base64 decode error", -1));
                 return TCL_ERROR;
             }
-
-            Tcl_DStringAppend(&ds, "\r\n", 2);
-            Tcl_DStringAppend(&ds, "Content-Length: ", 16);
-            Tcl_DStringAppend(&ds, Tcl_GetString(Tcl_NewIntObj(decodedLength)), -1);
         }
+    } else {
+        body = Tcl_GetStringFromObj(bodyPtr, &body_length);
+    }
 
-        Tcl_DStringAppend(&ds, "\r\n\r\n", 4);
-
-        int reply_length = Tcl_DStringLength(&ds);
-        const char *reply = Tcl_DStringValue(&ds);
-
-        rc = SSL_write(conn->ssl, reply, reply_length);
-        if (rc <= 0) {
-            Tcl_DStringFree(&ds);
-            int err = SSL_get_error(conn->ssl, rc);
-            tws_CloseConn(conn, conn_handle);
-            Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
-            Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
-            Tcl_SetObjResult(interp, resultObjPtr);
-            return TCL_ERROR;
-        }
-
-        if (bodyLength) {
-            rc = SSL_write(conn->ssl, decoded, decodedLength);
-            Tcl_Free(decoded);
-            if (rc <= 0) {
+    if (body != NULL) {
+        if (conn->compression == GZIP_COMPRESSION) {
+            if (Tcl_ZlibDeflate(interp, TCL_ZLIB_FORMAT_GZIP, Tcl_NewByteArrayObj(body, body_length),
+                                TCL_ZLIB_COMPRESS_FAST, NULL)) {
                 Tcl_DStringFree(&ds);
-                int err = SSL_get_error(conn->ssl, rc);
+                if (isBase64Encoded) {
+                    Tcl_Free(body);
+                }
                 tws_CloseConn(conn, conn_handle);
-                Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
-                Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
-                Tcl_SetObjResult(interp, resultObjPtr);
+                Tcl_SetObjResult(interp, Tcl_NewStringObj("gzip compression error", -1));
                 return TCL_ERROR;
             }
+            Tcl_Obj *compressed = Tcl_GetObjResult(interp);
+            body = (char *) Tcl_GetByteArrayFromObj(compressed, &body_length);
         }
+    }
 
-    } else {
-        Tcl_DStringAppend(&ds, "\r\n", 2);
-        Tcl_DStringAppend(&ds, "Content-Length: ", 16);
-        int body_length;
-        const char *body = Tcl_GetStringFromObj(bodyPtr, &body_length);
-        Tcl_DStringAppend(&ds, Tcl_GetString(Tcl_NewIntObj(body_length)), -1);
-        Tcl_DStringAppend(&ds, "\r\n\r\n", 4);
-        Tcl_DStringAppend(&ds, body, body_length);
+    Tcl_DStringAppend(&ds, "\r\n", 2);
+    Tcl_DStringAppend(&ds, "Content-Length: ", 16);
+    Tcl_DStringAppend(&ds, Tcl_GetString(Tcl_NewIntObj(body_length)), -1);
+    Tcl_DStringAppend(&ds, "\r\n\r\n", 4);
 
-        int reply_length = Tcl_DStringLength(&ds);
-        const char *reply = Tcl_DStringValue(&ds);
+    int headers_length = Tcl_DStringLength(&ds);
+    const char *headers = Tcl_DStringValue(&ds);
 
-        rc = SSL_write(conn->ssl, reply, reply_length);
+    rc = SSL_write(conn->ssl, headers, headers_length);
+    if (rc <= 0) {
+        Tcl_DStringFree(&ds);
+        Tcl_Free(body);
+        tws_CloseConn(conn, conn_handle);
+        int err = SSL_get_error(conn->ssl, rc);
+        Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
+        Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
+        Tcl_SetObjResult(interp, resultObjPtr);
+        return TCL_ERROR;
+    }
+
+    if (body != NULL) {
+        rc = SSL_write(conn->ssl, body, body_length);
         if (rc <= 0) {
             Tcl_DStringFree(&ds);
             int err = SSL_get_error(conn->ssl, rc);
@@ -812,6 +937,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
             return TCL_ERROR;
         }
     }
+
     Tcl_DStringFree(&ds);
     return TCL_OK;
 }
@@ -1471,6 +1597,13 @@ static int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int ob
 
 }
 
+static int tws_ParseAcceptEncoding(Tcl_Interp *interp, Tcl_Obj *requestDictPtr, tws_compression_method_t *compression) {
+    // TODO: parse "Accept-Encoding" header and set "compression" accordingly
+    *compression = GZIP_COMPRESSION;
+//    *compression = NO_COMPRESSION;
+    return TCL_OK;
+}
+
 static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "ReadConnCmd\n"));
     CheckArgs(2, 3, 1, "conn_handle ?encoding_name?");
@@ -1494,15 +1627,19 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     Tcl_DStringInit(&ds);
     if (TCL_OK != tws_ReadConn(interp, conn, conn_handle, &ds)) {
         Tcl_DStringFree(&ds);
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("read error", -1));
         return TCL_ERROR;
     }
     Tcl_Obj *resultPtr;
     if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, &resultPtr)) {
         Tcl_DStringFree(&ds);
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("parse error", -1));
         return TCL_ERROR;
     }
+
+    if (TCL_OK != tws_ParseAcceptEncoding(interp, resultPtr, &conn->compression)) {
+        Tcl_DStringFree(&ds);
+        return TCL_ERROR;
+    }
+
     Tcl_SetObjResult(interp, resultPtr);
     Tcl_DStringFree(&ds);
     return TCL_OK;
