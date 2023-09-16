@@ -485,11 +485,11 @@ static int create_context(Tcl_Interp *interp, SSL_CTX **sslCtx) {
         return TCL_ERROR;
     }
 
-//    unsigned long op = SSL_OP_ALL;
-//    op |= SSL_OP_NO_SSLv2;
-//    op |= SSL_OP_NO_SSLv3;
-//    op |= SSL_OP_NO_TLSv1;
-//    SSL_CTX_set_options(ctx, op);
+    unsigned long op = SSL_OP_ALL;
+    op |= SSL_OP_NO_SSLv2;
+    op |= SSL_OP_NO_SSLv3;
+    op |= SSL_OP_NO_TLSv1;
+    SSL_CTX_set_options(ctx, op);
 
     SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
 
