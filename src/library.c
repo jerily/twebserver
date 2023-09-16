@@ -543,19 +543,22 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
     if (len + 2 > remaining)
         return 0;
     remaining = len;
-    const char *hostname = (const char *)p;
-
-    DBG(fprintf(stderr, "hostname=%s\n", hostname));
     if (p == NULL) {
         return SSL_CLIENT_HELLO_ERROR;
     }
 
-    SSL_CTX *ctx = tws_GetInternalFromHostName(hostname);
+    // "p" is not null-terminated, so we need to copy it to a new buffer
+    Tcl_Obj *hostnamePtr = Tcl_NewStringObj(p, len);
+    DBG(fprintf(stderr, "hostname=%.*s\n", (int)len, p));
+    SSL_CTX *ctx = tws_GetInternalFromHostName(Tcl_GetString(hostnamePtr));
     if (!ctx) {
         return SSL_CLIENT_HELLO_ERROR;
     }
 
     SSL_set_SSL_CTX(ssl, ctx);
+    SSL_clear_options(ssl, 0xFFFFFFFFL);
+    SSL_set_options(ssl, SSL_CTX_get_options(ctx));
+
     return SSL_CLIENT_HELLO_SUCCESS;
 }
 
