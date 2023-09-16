@@ -1621,7 +1621,7 @@ static int tws_ParseAcceptEncoding(Tcl_Interp *interp, Tcl_Obj *requestDictPtr, 
      *   Opera:   "gzip, deflate"
      */
 
-    if (acceptEncodingLength >= 4 && strncmp(acceptEncoding, "gzip", 4) == 0) {
+    if (acceptEncodingLength >= 5 && strncmp(acceptEncoding, "gzip,", 5) == 0) {
         *compression = GZIP_COMPRESSION;
         return TCL_OK;
     }
