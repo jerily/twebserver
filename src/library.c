@@ -1598,9 +1598,35 @@ static int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int ob
 }
 
 static int tws_ParseAcceptEncoding(Tcl_Interp *interp, Tcl_Obj *requestDictPtr, tws_compression_method_t *compression) {
-    // TODO: parse "Accept-Encoding" header and set "compression" accordingly
-    *compression = GZIP_COMPRESSION;
-//    *compression = NO_COMPRESSION;
+    // parse "Accept-Encoding" header and set "compression" accordingly
+
+    Tcl_Obj *headersPtr;
+    Tcl_DictObjGet(interp, requestDictPtr, Tcl_NewStringObj("headers", -1), &headersPtr);
+    Tcl_Obj *acceptEncodingPtr;
+    Tcl_DictObjGet(interp, headersPtr, Tcl_NewStringObj("accept-encoding", -1), &acceptEncodingPtr);
+    if (!acceptEncodingPtr) {
+        *compression = NO_COMPRESSION;
+        return TCL_OK;
+    }
+
+    int acceptEncodingLength;
+    const char *acceptEncoding = Tcl_GetStringFromObj(acceptEncodingPtr, &acceptEncodingLength);
+
+    /*
+     * test first for the most common case "gzip,...":
+     *   MSIE:    "gzip, deflate"
+     *   Firefox: "gzip,deflate"
+     *   Chrome:  "gzip,deflate,sdch"
+     *   Safari:  "gzip, deflate"
+     *   Opera:   "gzip, deflate"
+     */
+
+    if (acceptEncodingLength >= 4 && strncmp(acceptEncoding, "gzip", 4) == 0) {
+        *compression = GZIP_COMPRESSION;
+        return TCL_OK;
+    }
+
+    *compression = NO_COMPRESSION;
     return TCL_OK;
 }
 
