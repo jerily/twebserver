@@ -64,6 +64,7 @@ typedef struct {
     Tcl_Obj *cmdPtr;
     int max_request_read_bytes;
     int max_read_buffer_size;
+    int backlog;
     tws_accept_ctx_t *accept_ctx;
 } tws_server_t;
 
@@ -265,7 +266,7 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     return TCL_OK;
 }
 
-static int create_socket(Tcl_Interp *interp, int port, int *sock) {
+static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int *sock) {
     int fd;
     struct sockaddr_in addr;
 
@@ -290,7 +291,7 @@ static int create_socket(Tcl_Interp *interp, int port, int *sock) {
         return TCL_ERROR;
     }
 
-    int backlog = 1000; // the maximum length to which the  queue  of pending  connections  for sockfd may grow
+    int backlog = server->backlog; // the maximum length to which the  queue  of pending  connections  for sockfd may grow
     if (listen(fd, backlog) < 0) {
         Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to listen", -1));
         return TCL_ERROR;
@@ -432,6 +433,17 @@ static void tws_AcceptConn(void *data, int mask) {
         ERR_print_errors_fp(stderr);
         return;
     } else {
+        // check if socket fd "client" is still open using SSL_peek
+        char buf;
+        int rc = SSL_peek(conn->ssl, &buf, 1);
+        if (rc <= 0) {
+            int sslerr = SSL_get_error(conn->ssl, rc);
+            fprintf(stderr, "SSL_peek <= 0, ssl error=%s\n", ssl_errors[sslerr]);
+            tws_CloseConn(conn, conn_handle);
+            ERR_print_errors_fp(stderr);
+            return;
+        }
+
         Tcl_Obj *connPtr = Tcl_NewStringObj(conn_handle, -1);
         Tcl_Obj *addrPtr = Tcl_NewStringObj(inet_ntoa(addr.sin_addr), -1);
         Tcl_Obj *portPtr = Tcl_NewIntObj(server->accept_ctx->port);
@@ -465,7 +477,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
     }
 
     int sock;
-    if (TCL_OK != create_socket(interp, port, &sock)) {
+    if (TCL_OK != create_socket(interp, server, port, &sock)) {
         return TCL_ERROR;
     }
     if (sock < 0) {
@@ -497,6 +509,8 @@ static int create_context(Tcl_Interp *interp, SSL_CTX **sslCtx) {
     SSL_CTX_set_options(ctx, op);
 
     SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+    SSL_CTX_set_max_proto_version(ctx, TLS1_3_VERSION);
+    SSL_CTX_set_read_ahead(ctx, 1);
 
     *sslCtx = ctx;
     return TCL_OK;
@@ -636,6 +650,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->cmdPtr = Tcl_DuplicateObj(objv[2]);
     server_ctx->max_request_read_bytes = 10 * 1024 * 1024;
     server_ctx->max_read_buffer_size = 1024 * 1024;
+    server_ctx->backlog = 1024;
     server_ctx->accept_ctx = NULL;
 
     Tcl_Obj *maxRequestReadBytesPtr;
@@ -645,11 +660,35 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
         Tcl_GetIntFromObj(interp, maxRequestReadBytesPtr, &server_ctx->max_request_read_bytes);
     }
 
+    // check that max_request_read_bytes is between 1 and 100MB
+    if (server_ctx->max_request_read_bytes < 1 || server_ctx->max_request_read_bytes > 100 * 1024 * 1024) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("max_request_read_bytes must be between 1 and 100MB", -1));
+        return TCL_ERROR;
+    }
+
     Tcl_Obj *maxReadBufferSizePtr;
     Tcl_DictObjGet(interp, objv[1], Tcl_NewStringObj("max_read_buffer_size", -1),
                    &maxReadBufferSizePtr);
     if (maxReadBufferSizePtr) {
         Tcl_GetIntFromObj(interp, maxReadBufferSizePtr, &server_ctx->max_read_buffer_size);
+    }
+
+    // check that max_read_buffer_size is between 1 and 100MB
+    if (server_ctx->max_read_buffer_size < 1 || server_ctx->max_read_buffer_size > 100 * 1024 * 1024) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("max_read_buffer_size must be between 1 and 100MB", -1));
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *backlogPtr;
+    Tcl_DictObjGet(interp, objv[1], Tcl_NewStringObj("backlog", -1),&backlogPtr);
+    if (backlogPtr) {
+        Tcl_GetIntFromObj(interp, backlogPtr, &server_ctx->backlog);
+    }
+
+    // check that backlog is a value between 1 and SOMAXCONN
+    if (server_ctx->backlog < 1 || server_ctx->backlog > SOMAXCONN) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("backlog must be between 1 and SOMAXCONN", -1));
+        return TCL_ERROR;
     }
 
     char handle[80];
