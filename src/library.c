@@ -317,15 +317,15 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     return conn;
 }
 
-static int tws_Shutdown(tws_conn_t *conn);
+static int tws_ShutdownSSL(tws_conn_t *conn);
 
-static void tws_ShutdownHandler(ClientData clientData) {
-    tws_conn_t *conn = (tws_conn_t *) clientData;
-    fprintf(stderr, "tws_ShutdownHandler\n");
-    tws_Shutdown(conn);
-}
+//static void tws_ShutdownHandler(ClientData clientData) {
+//    tws_conn_t *conn = (tws_conn_t *) clientData;
+//    fprintf(stderr, "tws_ShutdownHandler\n");
+//    tws_ShutdownSSL(conn);
+//}
 
-static int tws_Shutdown(tws_conn_t *conn) {
+static int tws_ShutdownSSL(tws_conn_t *conn) {
 
     int result = TCL_OK;
     int rc;
@@ -366,17 +366,18 @@ static int tws_Shutdown(tws_conn_t *conn) {
         sslerr = SSL_get_error(ssl, rc);
 
         if (sslerr == SSL_ERROR_WANT_READ || sslerr == SSL_ERROR_WANT_WRITE) {
-            fprintf(stderr, "SSL_shutdown want read/write - creating timer\n");
-            Tcl_CreateTimerHandler(3000, tws_ShutdownHandler, conn);
+            DBG(fprintf(stderr, "SSL_shutdown want read/write\n"));
+//            Tcl_CreateTimerHandler(3000, tws_ShutdownHandler, conn);
             return TCL_OK; // TWS_AGAIN
         }
 
         if (sslerr == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
+            DBG(fprintf(stderr, "SSL_shutdown SSL_ERROR_ZERO_RETURN\n"));
             goto done;
         }
 
         if (sslerr == SSL_ERROR_SYSCALL) {
-            fprintf(stderr, "SSL_shutdown syscall failed");
+            DBG(fprintf(stderr, "SSL_shutdown syscall failed"));
             goto failed;
         }
 
@@ -392,7 +393,7 @@ static int tws_Shutdown(tws_conn_t *conn) {
 
 int tws_CloseConn(tws_conn_t *conn, const char *conn_handle) {
     tws_UnregisterConnName(conn_handle);
-    tws_Shutdown(conn);
+    tws_ShutdownSSL(conn);
     shutdown(conn->client, SHUT_WR);
     shutdown(conn->client, SHUT_RD);
     close(conn->client);
@@ -434,6 +435,7 @@ static void tws_AcceptConn(void *data, int mask) {
         return;
     } else {
         // check if socket fd "client" is still open using SSL_peek
+        // openssl s_client -connect localhost:4433 -servername localhost -reconnect -no_tls1_3
         char buf;
         int rc = SSL_peek(conn->ssl, &buf, 1);
         if (rc <= 0) {
@@ -618,14 +620,16 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
 //        }
 //    }
 
-    SSL_CTX *ctx = tws_GetInternalFromHostName(Tcl_GetString(servernamePtr));
+    int servername_len;
+    const char *servername = Tcl_GetStringFromObj(servernamePtr, &servername_len);
+    SSL_CTX *ctx = tws_GetInternalFromHostName(servername);
     if (!ctx) {
         DBG(fprintf(stderr, "servername not found in clienthello callback\n"));
         goto abort;
     }
 
 //    SSL_set_verify(ssl, SSL_CTX_get_verify_mode(ctx), NULL);
-    SSL_set_client_CA_list(ssl, SSL_dup_CA_list(SSL_CTX_get_client_CA_list(ctx)));
+//    SSL_set_client_CA_list(ssl, SSL_dup_CA_list(SSL_CTX_get_client_CA_list(ctx)));
     SSL_set_SSL_CTX(ssl, ctx);
 
     return SSL_CLIENT_HELLO_SUCCESS;
