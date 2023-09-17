@@ -492,6 +492,7 @@ static int create_context(Tcl_Interp *interp, SSL_CTX **sslCtx) {
     op |= SSL_OP_NO_SSLv2;
     op |= SSL_OP_NO_SSLv3;
     op |= SSL_OP_NO_TLSv1;
+    op |= SSL_OP_NO_TLSv1_1;
     SSL_CTX_set_options(ctx, op);
 
     SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
@@ -518,53 +519,105 @@ static int configure_context(Tcl_Interp *interp, SSL_CTX *ctx, const char *key_f
 // ClientHello callback
 int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
 
-    const unsigned char *p;
-    size_t remaining;
-    size_t len;
-    if (!SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_server_name, &p, &remaining) || remaining <= 2) {
-        return SSL_CLIENT_HELLO_ERROR;
+    const unsigned char *extension_data;
+    size_t extension_len;
+    if (!SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_server_name, &extension_data, &extension_len) || extension_len <= 2) {
+        goto abort;
     }
 
     /* Extract the length of the supplied list of names. */
-    len = (*(p++) << 8);
-    len += *(p++);
-    if (len + 2 != remaining)
-        return 0;
-    remaining = len;
+    size_t len;
+    len = (*(extension_data++) << 8);
+    len += *(extension_data++);
+    if (len + 2 != extension_len)
+        goto abort;
+    extension_len = len;
     /*
      * The list in practice only has a single element, so we only consider
      * the first one.
      */
-    if (remaining == 0 || *p++ != TLSEXT_NAMETYPE_host_name)
-        return 0;
-    remaining--;
+    if (extension_len == 0 || *extension_data++ != TLSEXT_NAMETYPE_host_name)
+        goto abort;
+    extension_len--;
     /* Now we can finally pull out the byte array with the actual hostname. */
-    if (remaining <= 2)
-        return 0;
-    len = (*(p++) << 8);
-    len += *(p++);
-    if (len + 2 > remaining)
-        return 0;
-    remaining = len;
-    if (p == NULL) {
-        DBG(fprintf(stderr, "p is null in clienthello callback\n"));
-        return SSL_CLIENT_HELLO_ERROR;
+    if (extension_len <= 2)
+        goto abort;
+    len = (*(extension_data++) << 8);
+    len += *(extension_data++);
+    if (len == 0 || len + 2 > extension_len || len > TLSEXT_MAXLEN_host_name
+        || memchr(extension_data, 0, len) != NULL) {
+        DBG(fprintf(stderr, "extension_data is null in clienthello callback\n"));
+        goto abort;
+    }
+    extension_len = len;
+
+    // "extension_data" is not null-terminated, so we need to copy it to a new buffer
+    Tcl_Obj *servernamePtr = Tcl_NewStringObj(extension_data, len);
+    DBG(fprintf(stderr, "servername=%.*s\n", (int)len, extension_data));
+
+    /* extract/check clientHello information */
+    int has_rsa_sig = 0, has_ecdsa_sig = 0;
+    if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_signature_algorithms, &extension_data, &extension_len)) {
+        uint8_t sign;
+//        size_t len;
+        if (extension_len < 2)
+            goto abort;
+        len = (*extension_data++) << 8;
+        len |= *extension_data++;
+        if (len + 2 != extension_len)
+            goto abort;
+        if (len % 2 != 0)
+            goto abort;
+        for (; len > 0; len -= 2) {
+            extension_data++; /* hash */
+            sign = *extension_data++;
+            switch (sign) {
+                case TLSEXT_signature_rsa:
+                    has_rsa_sig = 1;
+                    break;
+                case TLSEXT_signature_ecdsa:
+                    has_ecdsa_sig = 1;
+                    break;
+                default:
+                    continue;
+            }
+            if (has_ecdsa_sig && has_rsa_sig)
+                break;
+        }
+    } else {
+        /* without TLSEXT_TYPE_signature_algorithms extension (< TLSv1.2) */
+        goto abort;
     }
 
-    // "p" is not null-terminated, so we need to copy it to a new buffer
-    Tcl_Obj *hostnamePtr = Tcl_NewStringObj(p, len);
-    DBG(fprintf(stderr, "hostname=%.*s\n", (int)len, p));
-    SSL_CTX *ctx = tws_GetInternalFromHostName(Tcl_GetString(hostnamePtr));
+    // TODO: JA3 fingerprint
+    const SSL_CIPHER *cipher;
+    const uint8_t *cipher_suites;
+    len = SSL_client_hello_get0_ciphers(ssl, &cipher_suites);
+    if (len % 2 != 0)
+        goto abort;
+//    for (; len != 0; len -= 2, cipher_suites += 2) {
+//        cipher = SSL_CIPHER_find(ssl, cipher_suites);
+//        if (cipher && SSL_CIPHER_get_auth_nid(cipher) == NID_auth_ecdsa) {
+//            has_ecdsa_sig = 1;
+//            break;
+//        }
+//    }
+
+    SSL_CTX *ctx = tws_GetInternalFromHostName(Tcl_GetString(servernamePtr));
     if (!ctx) {
-        DBG(fprintf(stderr, "hostname not found in clienthello callback\n"));
-        return SSL_CLIENT_HELLO_ERROR;
+        DBG(fprintf(stderr, "servername not found in clienthello callback\n"));
+        goto abort;
     }
 
+//    SSL_set_verify(ssl, SSL_CTX_get_verify_mode(ctx), NULL);
+    SSL_set_client_CA_list(ssl, SSL_dup_CA_list(SSL_CTX_get_client_CA_list(ctx)));
     SSL_set_SSL_CTX(ssl, ctx);
-    SSL_clear_options(ssl, 0xFFFFFFFFL);
-    SSL_set_options(ssl, SSL_CTX_get_options(ctx));
 
     return SSL_CLIENT_HELLO_SUCCESS;
+
+    abort:
+    *al = SSL_AD_UNRECOGNIZED_NAME;
+    return SSL_CLIENT_HELLO_ERROR;
 }
 
 static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
