@@ -307,6 +307,7 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     }
     SSL_set_fd(ssl, client);
     SSL_set_accept_state(ssl);
+
     tws_conn_t *conn = (tws_conn_t *) Tcl_Alloc(sizeof(tws_conn_t));
     conn->server = server;
     conn->ssl = ssl;
@@ -413,6 +414,9 @@ static void tws_AcceptConn(void *data, int mask) {
 
     tws_conn_t *conn = tws_NewConn(server, client);
     if (conn == NULL) {
+        shutdown(client, SHUT_WR);
+        shutdown(client, SHUT_RD);
+        close(client);
         DBG(fprintf(stderr, "Unable to create SSL connection"));
         return;
     }
@@ -423,6 +427,8 @@ static void tws_AcceptConn(void *data, int mask) {
 
     ERR_clear_error();
     if (SSL_accept(conn->ssl) <= 0) {
+        DBG(fprintf(stderr, "SSL_accept <= 0\n"));
+        tws_CloseConn(conn, conn_handle);
         ERR_print_errors_fp(stderr);
         return;
     } else {
@@ -477,12 +483,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
 }
 
 static int create_context(Tcl_Interp *interp, SSL_CTX **sslCtx) {
-    const SSL_METHOD *method;
-    SSL_CTX *ctx;
-
-    method = TLS_server_method();
-
-    ctx = SSL_CTX_new(method);
+    SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
     if (!ctx) {
         Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to create SSL context", -1));
         return TCL_ERROR;
