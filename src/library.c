@@ -494,7 +494,7 @@ static int create_context(Tcl_Interp *interp, SSL_CTX **sslCtx) {
     op |= SSL_OP_NO_TLSv1;
     SSL_CTX_set_options(ctx, op);
 
-    SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
 
     *sslCtx = ctx;
     return TCL_OK;
@@ -575,6 +575,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     if (TCL_OK != create_context(interp, &ctx)) {
         return TCL_ERROR;
     }
+
     SSL_CTX_set_client_hello_cb(ctx, tws_ClientHelloCallback, NULL);
     tws_server_t *server_ctx = (tws_server_t *) Tcl_Alloc(sizeof(tws_server_t));
     server_ctx->sslCtx = ctx;
