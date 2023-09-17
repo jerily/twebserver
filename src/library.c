@@ -92,7 +92,7 @@ static const char *ssl_errors[] = {
         "SSL_ERROR_WANT_ACCEPT",
         "SSL_ERROR_WANT_ASYNC",
         "SSL_ERROR_WANT_ASYNC_JOB",
-        "SSL_ERROR_WANT_CLIENT_HELLO_CB"
+        "SSL_ERROR_WANT_CLIENT_HELLO_CB",
         "SSL_ERROR_WANT_RETRY_VERIFY"
 };
 
@@ -556,6 +556,7 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
     DBG(fprintf(stderr, "hostname=%.*s\n", (int)len, p));
     SSL_CTX *ctx = tws_GetInternalFromHostName(Tcl_GetString(hostnamePtr));
     if (!ctx) {
+        DBG(fprintf(stderr, "hostname not found in clienthello callback\n"));
         return SSL_CLIENT_HELLO_ERROR;
     }
 
