@@ -460,16 +460,27 @@ static void tws_AcceptConn(void *data, int mask) {
         Tcl_Obj *portPtr = Tcl_NewIntObj(server->accept_ctx->port);
         Tcl_Obj *cmdobjv[] = {server->cmdPtr, connPtr, addrPtr, portPtr, NULL};
 
+        for (int i = 0; cmdobjv[i] != NULL; i++) {
+            Tcl_IncrRefCount(cmdobjv[i]);
+        }
+
         Tcl_MutexLock(&tws_Eval_Mutex);
         Tcl_ResetResult(server->accept_ctx->interp);
         if (TCL_OK != Tcl_EvalObjv(server->accept_ctx->interp, 4, cmdobjv, TCL_EVAL_GLOBAL)) {
-            Tcl_ResetResult(server->accept_ctx->interp);
             Tcl_MutexUnlock(&tws_Eval_Mutex);
             tws_CloseConn(conn, conn_handle);
+
+            for (int i = 0; cmdobjv[i] != NULL; i++) {
+                Tcl_DecrRefCount(cmdobjv[i]);
+            }
+
             DBG(fprintf(stderr, "error evaluating script sock=%d\n", client));
             return;
         }
         Tcl_MutexUnlock(&tws_Eval_Mutex);
+        for (int i = 0; cmdobjv[i] != NULL; i++) {
+            Tcl_DecrRefCount(cmdobjv[i]);
+        }
     }
 
 }
