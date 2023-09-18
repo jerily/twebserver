@@ -460,27 +460,22 @@ static void tws_AcceptConn(void *data, int mask) {
         Tcl_Obj *portPtr = Tcl_NewIntObj(server->accept_ctx->port);
         Tcl_Obj *cmdobjv[] = {server->cmdPtr, connPtr, addrPtr, portPtr, NULL};
 
-        for (int i = 0; cmdobjv[i] != NULL; i++) {
-            Tcl_IncrRefCount(cmdobjv[i]);
-        }
+        Tcl_IncrRefCount(connPtr); Tcl_IncrRefCount(addrPtr); Tcl_IncrRefCount(portPtr);
 
         Tcl_MutexLock(&tws_Eval_Mutex);
         Tcl_ResetResult(server->accept_ctx->interp);
         if (TCL_OK != Tcl_EvalObjv(server->accept_ctx->interp, 4, cmdobjv, TCL_EVAL_GLOBAL)) {
+            DBG(fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(server->accept_ctx->interp))));
             Tcl_MutexUnlock(&tws_Eval_Mutex);
             tws_CloseConn(conn, conn_handle);
 
-            for (int i = 0; cmdobjv[i] != NULL; i++) {
-                Tcl_DecrRefCount(cmdobjv[i]);
-            }
+            Tcl_DecrRefCount(connPtr); Tcl_DecrRefCount(addrPtr); Tcl_DecrRefCount(portPtr);
 
             DBG(fprintf(stderr, "error evaluating script sock=%d\n", client));
             return;
         }
         Tcl_MutexUnlock(&tws_Eval_Mutex);
-        for (int i = 0; cmdobjv[i] != NULL; i++) {
-            Tcl_DecrRefCount(cmdobjv[i]);
-        }
+        Tcl_DecrRefCount(connPtr); Tcl_DecrRefCount(addrPtr); Tcl_DecrRefCount(portPtr);
     }
 
 }
@@ -1008,19 +1003,18 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     int isBase64Encoded;
     Tcl_GetBooleanFromObj(interp, isBase64EncodedPtr, &isBase64Encoded);
 
-    int body_length;
+    int body_length = 0;
     char *body = NULL;
     int rc;
     if (isBase64Encoded) {
 
         int b64_body_length;
         const char *b64_body = Tcl_GetStringFromObj(bodyPtr, &b64_body_length);
-        if (b64_body_length) {
+        if (b64_body_length > 0) {
             body = Tcl_Alloc(3 * b64_body_length / 4 + 2);
             if (base64_decode(b64_body, b64_body_length, body, &body_length)) {
                 Tcl_DStringFree(&ds);
                 Tcl_Free(body);
-                tws_CloseConn(conn, conn_handle);
                 SetResult("base64 decode error");
                 return TCL_ERROR;
             }
@@ -1029,7 +1023,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         body = Tcl_GetStringFromObj(bodyPtr, &body_length);
     }
 
-    if (body != NULL) {
+    if (body_length > 0) {
         if (conn->compression == GZIP_COMPRESSION) {
             if (Tcl_ZlibDeflate(interp, TCL_ZLIB_FORMAT_GZIP, Tcl_NewByteArrayObj(body, body_length),
                                 TCL_ZLIB_COMPRESS_FAST, NULL)) {
@@ -1037,7 +1031,6 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
                 if (isBase64Encoded) {
                     Tcl_Free(body);
                 }
-                tws_CloseConn(conn, conn_handle);
                 SetResult("gzip compression error");
                 return TCL_ERROR;
             }
@@ -1058,21 +1051,19 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     if (rc <= 0) {
         Tcl_DStringFree(&ds);
         Tcl_Free(body);
-        tws_CloseConn(conn, conn_handle);
         int err = SSL_get_error(conn->ssl, rc);
-        Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
+        Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_write error (headers): ", -1);
         Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
         Tcl_SetObjResult(interp, resultObjPtr);
         return TCL_ERROR;
     }
 
-    if (body != NULL) {
+    if (body_length > 0) {
         rc = SSL_write(conn->ssl, body, body_length);
         if (rc <= 0) {
             Tcl_DStringFree(&ds);
             int err = SSL_get_error(conn->ssl, rc);
-            tws_CloseConn(conn, conn_handle);
-            Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
+            Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_write error (body): ", -1);
             Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
             Tcl_SetObjResult(interp, resultObjPtr);
             return TCL_ERROR;
