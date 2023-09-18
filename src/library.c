@@ -1707,6 +1707,7 @@ static int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DStri
     tws_ParseBody(interp, curr, end, dictPtr, contentLengthPtr, contentTypePtr);
 
     *resultPtr = dictPtr;
+    Tcl_IncrRefCount(*resultPtr);
     return TCL_OK;
 }
 
@@ -1732,11 +1733,13 @@ static int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int ob
     Tcl_Obj *resultPtr;
     if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, &resultPtr)) {
         Tcl_DStringFree(&ds);
+        Tcl_DecrRefCount(resultPtr);
         return TCL_ERROR;
     }
 
     Tcl_SetObjResult(interp, resultPtr);
     Tcl_DStringFree(&ds);
+    Tcl_DecrRefCount(resultPtr);
     return TCL_OK;
 
 }
@@ -1860,16 +1863,19 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     Tcl_Obj *resultPtr;
     if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, &resultPtr)) {
         Tcl_DStringFree(&ds);
+        Tcl_DecrRefCount(resultPtr);
         return TCL_ERROR;
     }
 
     if (TCL_OK != tws_ParseAcceptEncoding(interp, resultPtr, &conn->compression)) {
         Tcl_DStringFree(&ds);
+        Tcl_DecrRefCount(resultPtr);
         return TCL_ERROR;
     }
 
     Tcl_SetObjResult(interp, resultPtr);
     Tcl_DStringFree(&ds);
+    Tcl_DecrRefCount(resultPtr);
     return TCL_OK;
 }
 
