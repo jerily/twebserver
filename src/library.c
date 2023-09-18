@@ -34,6 +34,9 @@
                      return TCL_ERROR; \
                  }
 
+#define SetResult(str) Tcl_ResetResult(interp); \
+                     Tcl_SetStringObj(Tcl_GetObjResult(interp), (str), -1)
+
 #define CMD_SERVER_NAME(s, internal) sprintf((s), "_TWS_SERVER_%p", (internal))
 #define CMD_CONN_NAME(s, internal) sprintf((s), "_TWS_CONN_%p", (internal))
 #define CHARTYPE(what, c) (is ## what ((int)((unsigned char)(c))))
@@ -251,11 +254,11 @@ tws_GetInternalFromHostName(const char *name) {
 int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     tws_server_t *server = tws_GetInternalFromServerName(handle);
     if (!server) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("server handle not found", -1));
+        SetResult("server handle not found");
         return TCL_ERROR;
     }
     if (!tws_UnregisterServerName(handle)) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("unregister server name failed", -1));
+        SetResult("unregister server name failed");
         return TCL_ERROR;
     }
 
@@ -280,7 +283,7 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
 
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to create socket", -1));
+        SetResult("Unable to create socket");
         return TCL_ERROR;
     }
 
@@ -291,13 +294,13 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
 //    setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive , sizeof(keepalive ));
 
     if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to bind", -1));
+        SetResult("Unable to bind");
         return TCL_ERROR;
     }
 
     int backlog = server->backlog; // the maximum length to which the  queue  of pending  connections  for sockfd may grow
     if (listen(fd, backlog) < 0) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to listen", -1));
+        SetResult("Unable to listen");
         return TCL_ERROR;
     }
 
@@ -475,13 +478,13 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
 
     tws_server_t *server = tws_GetInternalFromServerName(handle);
     if (!server) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("server handle not found", -1));
+        SetResult("server handle not found");
         return TCL_ERROR;
     }
 
     int port;
     if (Tcl_GetIntFromObj(interp, portPtr, &port) != TCL_OK) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("port must be an integer", -1));
+        SetResult("port must be an integer");
         return TCL_ERROR;
     }
 
@@ -490,7 +493,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
         return TCL_ERROR;
     }
     if (sock < 0) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to create socket", -1));
+        SetResult("Unable to create socket");
         return TCL_ERROR;
     }
 
@@ -506,7 +509,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
 static int create_context(Tcl_Interp *interp, SSL_CTX **sslCtx) {
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
     if (!ctx) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to create SSL context", -1));
+        SetResult("Unable to create SSL context");
         return TCL_ERROR;
     }
 
@@ -528,12 +531,12 @@ static int create_context(Tcl_Interp *interp, SSL_CTX **sslCtx) {
 static int configure_context(Tcl_Interp *interp, SSL_CTX *ctx, const char *key_file, const char *cert_file) {
     /* Set the key and cert */
     if (SSL_CTX_use_certificate_file(ctx, cert_file, SSL_FILETYPE_PEM) <= 0) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to load certificate", -1));
+        SetResult("Unable to load certificate");
         return TCL_ERROR;
     }
 
     if (SSL_CTX_use_PrivateKey_file(ctx, key_file, SSL_FILETYPE_PEM) <= 0) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("Unable to load private key", -1));
+        SetResult("Unable to load private key");
         return TCL_ERROR;
     }
 
@@ -673,7 +676,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
 
     // check that max_request_read_bytes is between 1 and 100MB
     if (server_ctx->max_request_read_bytes < 1 || server_ctx->max_request_read_bytes > 100 * 1024 * 1024) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("max_request_read_bytes must be between 1 and 100MB", -1));
+        SetResult("max_request_read_bytes must be between 1 and 100MB");
         return TCL_ERROR;
     }
 
@@ -686,7 +689,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
 
     // check that max_read_buffer_size is between 1 and 100MB
     if (server_ctx->max_read_buffer_size < 1 || server_ctx->max_read_buffer_size > 100 * 1024 * 1024) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("max_read_buffer_size must be between 1 and 100MB", -1));
+        SetResult("max_read_buffer_size must be between 1 and 100MB");
         return TCL_ERROR;
     }
 
@@ -698,7 +701,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
 
     // check that backlog is a value between 1 and SOMAXCONN
     if (server_ctx->backlog < 1 || server_ctx->backlog > SOMAXCONN) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("backlog must be between 1 and SOMAXCONN", -1));
+        SetResult("backlog must be between 1 and SOMAXCONN");
         return TCL_ERROR;
     }
 
@@ -711,7 +714,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
 //                         NULL,
 //                         NULL);
 
-    Tcl_SetObjResult(interp, Tcl_NewStringObj(handle, -1));
+    SetResult(handle);
     return TCL_OK;
 
 }
@@ -792,7 +795,7 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
                 long elapsed_time_in_millis = (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000 - start_time_in_millis;
                 if (elapsed_time_in_millis > timeout_millis) {
                     tws_CloseConn(conn, conn_handle);
-                    Tcl_SetObjResult(interp, Tcl_NewStringObj("timeout", -1));
+                    SetResult("timeout");
                     Tcl_Free(buf);
                     return TCL_ERROR;
                 }
@@ -813,7 +816,7 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
 
     failed_due_to_request_too_large:
     tws_CloseConn(conn, conn_handle);
-    Tcl_SetObjResult(interp, Tcl_NewStringObj("request too large", -1));
+    SetResult("request too large");
     Tcl_Free(buf);
     return TCL_ERROR;
 
@@ -826,7 +829,7 @@ static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, 
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("conn handle not found", -1));
+        SetResult("conn handle not found");
         return TCL_ERROR;
     }
 
@@ -848,7 +851,7 @@ static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("conn handle not found", -1));
+        SetResult("conn handle not found");
         return TCL_ERROR;
     }
 
@@ -875,7 +878,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("conn handle not found", -1));
+        SetResult("conn handle not found");
         return TCL_ERROR;
     }
 
@@ -888,34 +891,34 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
 
     Tcl_Obj *statusCodePtr;
     if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("statusCode", -1), &statusCodePtr)) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("error reading from dict", -1));
+        SetResult("error reading from dict");
         return TCL_ERROR;
     }
     if (!statusCodePtr) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("statusCode not found", -1));
+        SetResult("statusCode not found");
         return TCL_ERROR;
     }
     Tcl_Obj *headersPtr;
     if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("headers", -1), &headersPtr)) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("error reading from dict", -1));
+        SetResult("error reading from dict");
         return TCL_ERROR;
     }
 
     Tcl_Obj *multiValueHeadersPtr;
     if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("multiValueHeaders", -1), &multiValueHeadersPtr)) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("error reading from dict", -1));
+        SetResult("error reading from dict");
         return TCL_ERROR;
     }
 
     Tcl_Obj *bodyPtr;
     if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("body", -1), &bodyPtr)) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("error reading from dict", -1));
+        SetResult("error reading from dict");
         return TCL_ERROR;
     }
 
     Tcl_Obj *isBase64EncodedPtr;
     if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("isBase64Encoded", -1), &isBase64EncodedPtr)) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("error reading from dict", -1));
+        SetResult("error reading from dict");
         return TCL_ERROR;
     }
 
@@ -1007,7 +1010,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
                 Tcl_DStringFree(&ds);
                 Tcl_Free(body);
                 tws_CloseConn(conn, conn_handle);
-                Tcl_SetObjResult(interp, Tcl_NewStringObj("base64 decode error", -1));
+                SetResult("base64 decode error");
                 return TCL_ERROR;
             }
         }
@@ -1024,7 +1027,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
                     Tcl_Free(body);
                 }
                 tws_CloseConn(conn, conn_handle);
-                Tcl_SetObjResult(interp, Tcl_NewStringObj("gzip compression error", -1));
+                SetResult("gzip compression error");
                 return TCL_ERROR;
             }
             Tcl_Obj *compressed = Tcl_GetObjResult(interp);
@@ -1076,11 +1079,11 @@ static int tws_CloseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("conn handle not found", -1));
+        SetResult("conn handle not found");
         return TCL_ERROR;
     }
     if (TCL_OK != tws_CloseConn(conn, conn_handle)) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("close conn failed", -1));
+        SetResult("close conn failed");
         return TCL_ERROR;
     }
     return TCL_OK;
@@ -1093,7 +1096,7 @@ static int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, 
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("conn handle not found", -1));
+        SetResult("conn handle not found");
         return TCL_ERROR;
     }
 
@@ -1147,12 +1150,12 @@ static int tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *
             value++;
             if (value + 2 > end) {
                 Tcl_Free(valuePtr);
-                Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid %xx sequence", -1));
+                SetResult("urldecode error: invalid %xx sequence");
                 return TCL_ERROR;
             }
             if (!tws_IsCharOfType(value[0], CHAR_HEX) || !tws_IsCharOfType(value[1], CHAR_HEX)) {
                 Tcl_Free(valuePtr);
-                Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid %xx sequence", -1));
+                SetResult("urldecode error: invalid %xx sequence");
                 return TCL_ERROR;
             }
             unsigned char c = (tws_HexCharToValue(value[0]) << 4) + tws_HexCharToValue(value[1]);
@@ -1191,7 +1194,7 @@ static int tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *
             ) {
         Tcl_Free(dst);
         Tcl_Free(valuePtr);
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("urldecode error: invalid utf-8 sequence", -1));
+        SetResult("urldecode error: invalid utf-8 sequence");
         return TCL_ERROR;
     }
     Tcl_SetStringObj(*valuePtrPtr, dst, dstWrote);
@@ -1239,7 +1242,7 @@ static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Encoding encoding
     Tcl_Obj *keyPtr = Tcl_NewStringObj(key, value - key - 1);
     Tcl_Obj *valuePtr = Tcl_NewObj();
     if (TCL_OK != tws_UrlDecode(interp, encoding, value, value_length, &valuePtr)) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("query string urldecode error", -1));
+        SetResult("query string urldecode error");
         return TCL_ERROR;
     }
     Tcl_Obj *existingValuePtr;
@@ -1276,7 +1279,7 @@ static int tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encod
             p++;
         }
         if (p == end) {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj("query string parse error", -1));
+            SetResult("query string parse error");
             return TCL_ERROR;
         }
         value = p + 1;
@@ -1287,7 +1290,7 @@ static int tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encod
             if (TCL_OK !=
                 tws_AddQueryStringParameter(interp, encoding, queryStringParametersPtr, multiValueQueryStringParametersPtr, key,
                                             value, p - value)) {
-                Tcl_SetObjResult(interp, Tcl_NewStringObj("query string parse error", -1));
+                SetResult("query string parse error");
                 return TCL_ERROR;
             }
             break;
@@ -1295,7 +1298,7 @@ static int tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encod
         if (TCL_OK !=
             tws_AddQueryStringParameter(interp, encoding, queryStringParametersPtr, multiValueQueryStringParametersPtr, key,
                                         value, p - value)) {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj("query string parse error", -1));
+            SetResult("query string parse error");
             return TCL_ERROR;
         }
         p++;
@@ -1314,7 +1317,7 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding
             int path_length = p2 - url;
             Tcl_Obj *pathPtr = Tcl_NewObj();
             if (TCL_OK != tws_UrlDecode(interp, encoding, url, path_length, &pathPtr)) {
-                Tcl_SetObjResult(interp, Tcl_NewStringObj("path urldecode error", -1));
+                SetResult("path urldecode error");
                 return TCL_ERROR;
             }
             Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), pathPtr);
@@ -1346,7 +1349,7 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, Tcl_Encoding encoding, const
         curr++;
     }
     if (curr == end) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("request line parse error: no http method", -1));
+        SetResult("request line parse error: no http method");
         return TCL_ERROR;
     }
 
@@ -1369,7 +1372,7 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, Tcl_Encoding encoding, const
         curr++;
     }
     if (curr == end) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("request line parse error: no url", -1));
+        SetResult("request line parse error: no url");
         return TCL_ERROR;
     }
 
@@ -1392,7 +1395,7 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, Tcl_Encoding encoding, const
     p = curr;
 
     if (curr == end) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("request line parse error: no version", -1));
+        SetResult("request line parse error: no version");
         return TCL_ERROR;
     }
 
@@ -1404,7 +1407,7 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, Tcl_Encoding encoding, const
             curr++;
         }
         if (curr == end) {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj("request line parse error: while extracting version", -1));
+            SetResult("request line parse error: while extracting version");
             return TCL_ERROR;
         }
 
@@ -1588,7 +1591,7 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
     return TCL_OK;
 
     done:
-    Tcl_SetObjResult(interp, Tcl_NewStringObj("headers parse error", -1));
+    SetResult("headers parse error");
     return TCL_ERROR;
 }
 
@@ -1598,7 +1601,7 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
     int contentLength;
     if (contentLengthPtr) {
         if (Tcl_GetIntFromObj(interp, contentLengthPtr, &contentLength) != TCL_OK) {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj("Content-Length must be an integer", -1));
+            SetResult("Content-Length must be an integer");
             return TCL_ERROR;
         }
 
@@ -1636,7 +1639,7 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
         char *body = Tcl_Alloc(contentLength * 2);
         size_t bodyLength;
         if (base64_encode(curr, contentLength, body, &bodyLength)) {
-            Tcl_SetObjResult(interp, Tcl_NewStringObj("base64_encode failed", -1));
+            SetResult("base64_encode failed");
             return TCL_ERROR;
         }
         Tcl_Obj *bodyPtr = Tcl_NewStringObj(body, bodyLength);
@@ -1827,7 +1830,7 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("conn handle not found", -1));
+        SetResult("conn handle not found");
         return TCL_ERROR;
     }
 
@@ -1928,7 +1931,7 @@ static int tws_Base64EncodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
     char *output = Tcl_Alloc(input_length * 2);
     size_t output_length;
     if (base64_encode(input, input_length, output, &output_length)) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("base64_encode failed", -1));
+        SetResult("base64_encode failed");
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, Tcl_NewStringObj(output, output_length));
@@ -1946,7 +1949,7 @@ static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
     char *output = Tcl_Alloc(3 * input_length / 4 + 2);
     size_t output_length;
     if (base64_decode(input, input_length, output, &output_length)) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("base64_decode failed", -1));
+        SetResult("base64_decode failed");
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, Tcl_NewByteArrayObj(output, output_length));
@@ -1970,12 +1973,12 @@ static void tws_ExitHandler(ClientData unused) {
 
 void tws_InitModule() {
     if (!tws_ModuleInitialized) {
-        sigset_t sigset;
-        sigemptyset(&sigset);
-        sigaddset(&sigset, SIGPIPE);
-        if (pthread_sigmask(SIG_BLOCK, &sigset, NULL)) {
-            fprintf(stderr, "pthread_sigmask failed\n");
-        }
+//        sigset_t sigset;
+//        sigemptyset(&sigset);
+//        sigaddset(&sigset, SIGPIPE);
+//        if (pthread_sigmask(SIG_BLOCK, &sigset, NULL)) {
+//            fprintf(stderr, "pthread_sigmask failed\n");
+//        }
         Tcl_MutexLock(&tws_ServerNameToInternal_HT_Mutex);
         Tcl_InitHashTable(&tws_ServerNameToInternal_HT, TCL_STRING_KEYS);
         Tcl_MutexUnlock(&tws_ServerNameToInternal_HT_Mutex);
