@@ -250,8 +250,12 @@ tws_GetInternalFromHostName(const char *name) {
 
 int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     tws_server_t *server = tws_GetInternalFromServerName(handle);
+    if (!server) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("server handle not found", -1));
+        return TCL_ERROR;
+    }
     if (!tws_UnregisterServerName(handle)) {
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("handle not found", -1));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("unregister server name failed", -1));
         return TCL_ERROR;
     }
 
@@ -392,7 +396,9 @@ static int tws_ShutdownSSL(tws_conn_t *conn) {
 }
 
 int tws_CloseConn(tws_conn_t *conn, const char *conn_handle) {
-    tws_UnregisterConnName(conn_handle);
+    if (!tws_UnregisterConnName(conn_handle)) {
+        return TCL_ERROR;
+    }
     tws_ShutdownSSL(conn);
     shutdown(conn->client, SHUT_WR);
     shutdown(conn->client, SHUT_RD);
@@ -454,9 +460,10 @@ static void tws_AcceptConn(void *data, int mask) {
         Tcl_MutexLock(&tws_Eval_Mutex);
         Tcl_ResetResult(server->accept_ctx->interp);
         if (TCL_OK != Tcl_EvalObjv(server->accept_ctx->interp, 4, cmdobjv, TCL_EVAL_GLOBAL)) {
+            Tcl_ResetResult(server->accept_ctx->interp);
             Tcl_MutexUnlock(&tws_Eval_Mutex);
             tws_CloseConn(conn, conn_handle);
-            DBG(fprintf(stderr, "error evaluating script sock=%d\n", sock));
+            DBG(fprintf(stderr, "error evaluating script sock=%d\n", client));
             return;
         }
         Tcl_MutexUnlock(&tws_Eval_Mutex);
@@ -880,23 +887,37 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     //    Boolean isBase64Encoded;
 
     Tcl_Obj *statusCodePtr;
-    Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("statusCode", -1), &statusCodePtr);
-    if (statusCodePtr == NULL) {
-        tws_CloseConn(conn, conn_handle);
+    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("statusCode", -1), &statusCodePtr)) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("error reading from dict", -1));
+        return TCL_ERROR;
+    }
+    if (!statusCodePtr) {
         Tcl_SetObjResult(interp, Tcl_NewStringObj("statusCode not found", -1));
         return TCL_ERROR;
     }
     Tcl_Obj *headersPtr;
-    Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("headers", -1), &headersPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("headers", -1), &headersPtr)) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("error reading from dict", -1));
+        return TCL_ERROR;
+    }
 
     Tcl_Obj *multiValueHeadersPtr;
-    Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("multiValueHeaders", -1), &multiValueHeadersPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("multiValueHeaders", -1), &multiValueHeadersPtr)) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("error reading from dict", -1));
+        return TCL_ERROR;
+    }
 
     Tcl_Obj *bodyPtr;
-    Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("body", -1), &bodyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("body", -1), &bodyPtr)) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("error reading from dict", -1));
+        return TCL_ERROR;
+    }
 
     Tcl_Obj *isBase64EncodedPtr;
-    Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("isBase64Encoded", -1), &isBase64EncodedPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("isBase64Encoded", -1), &isBase64EncodedPtr)) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("error reading from dict", -1));
+        return TCL_ERROR;
+    }
 
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
@@ -1058,7 +1079,11 @@ static int tws_CloseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
         Tcl_SetObjResult(interp, Tcl_NewStringObj("conn handle not found", -1));
         return TCL_ERROR;
     }
-    return tws_CloseConn(conn, conn_handle);
+    if (TCL_OK != tws_CloseConn(conn, conn_handle)) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("close conn failed", -1));
+        return TCL_ERROR;
+    }
+    return TCL_OK;
 }
 
 static int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
