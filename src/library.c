@@ -324,87 +324,23 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     return conn;
 }
 
-static int tws_ShutdownSSL(tws_conn_t *conn);
-
-//static void tws_ShutdownHandler(ClientData clientData) {
-//    tws_conn_t *conn = (tws_conn_t *) clientData;
-//    fprintf(stderr, "tws_ShutdownHandler\n");
-//    tws_ShutdownSSL(conn);
-//}
-
-static int tws_ShutdownSSL(tws_conn_t *conn) {
-
-    int result = TCL_OK;
-    int rc;
-    int mode;
-    int sslerr;
-    SSL *ssl = conn->ssl;
-
-    if (SSL_in_init(ssl)) {
-        /*
-         * OpenSSL 1.0.2f complains if SSL_shutdown() is called during
-         * an SSL handshake, while previous versions always return 0.
-         * Avoid calling SSL_shutdown() if handshake wasn't completed.
-         */
-
-        goto done;
-    }
-
-    int tries = 2;
-
-    for ( ;; ) {
-
-        /*
-         * For bidirectional shutdown, SSL_shutdown() needs to be called
-         * twice: first call sends the "close notify" alert and returns 0,
-         * second call waits for the peer's "close notify" alert.
-         */
-
-        rc = SSL_shutdown(ssl);
-
-        if (rc == 1) {
-            goto done;
-        }
-
-        if (rc == 0 && tries-- > 1) {
-            continue;
-        }
-
-        sslerr = SSL_get_error(ssl, rc);
-
-        if (sslerr == SSL_ERROR_WANT_READ || sslerr == SSL_ERROR_WANT_WRITE) {
-            DBG(fprintf(stderr, "SSL_shutdown want read/write\n"));
-//            Tcl_CreateTimerHandler(3000, tws_ShutdownHandler, conn);
-            return TCL_OK; // TWS_AGAIN
-        }
-
-        if (sslerr == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
-            DBG(fprintf(stderr, "SSL_shutdown SSL_ERROR_ZERO_RETURN\n"));
-            goto done;
-        }
-
-        if (sslerr == SSL_ERROR_SYSCALL) {
-            DBG(fprintf(stderr, "SSL_shutdown syscall failed"));
-            goto failed;
-        }
-
-        break;
-    }
-
-    failed:
-    result = TCL_ERROR;
-
-    done:
-    return result;
-}
-
 int tws_CloseConn(tws_conn_t *conn, const char *conn_handle) {
     if (!tws_UnregisterConnName(conn_handle)) {
         return TCL_ERROR;
     }
-    tws_ShutdownSSL(conn);
-    shutdown(conn->client, SHUT_WR);
-    shutdown(conn->client, SHUT_RD);
+    int shutdown_client = 1;
+    if (SSL_is_init_finished(conn->ssl)) {
+        int rc = SSL_shutdown(conn->ssl);
+        if (rc == 0) {
+            shutdown(conn->client, SHUT_RDWR);
+            SSL_shutdown(conn->ssl);
+            shutdown_client = 0;
+        }
+    }
+    if (shutdown_client) {
+        shutdown(conn->client, SHUT_WR);
+        shutdown(conn->client, SHUT_RD);
+    }
     close(conn->client);
     SSL_free(conn->ssl);
     Tcl_Free((char *) conn);
