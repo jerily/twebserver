@@ -481,6 +481,11 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     DBG(fprintf(stderr, "tws_KeepaliveConnHandler mask=%d\n",mask));
     tws_conn_t *conn = (tws_conn_t *) data;
 
+    if (!conn->keepalive) {
+        DBG(fprintf(stderr, "tws_KeepaliveConnHandler - not keepalive client: %d\n", conn->client));
+        return;
+    }
+
     // reuse conn
     char conn_handle[80];
     CMD_CONN_NAME(conn_handle, conn);
@@ -515,6 +520,12 @@ static void tws_AcceptConn(void *data, int mask) {
     char conn_handle[80];
     CMD_CONN_NAME(conn_handle, conn);
     tws_RegisterConnName(conn_handle, conn);
+
+    if (!conn->created_file_handler_p) {
+        Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
+        conn->created_file_handler_p = 1;
+        DBG(fprintf(stderr, "created file handler for client: %d\n", conn->client));
+    }
 
     tws_HandleConn(conn, conn_handle);
 }
@@ -1941,12 +1952,6 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
             Tcl_DStringFree(&ds);
 //            Tcl_DecrRefCount(resultPtr);
             return TCL_ERROR;
-        }
-
-        if (conn->keepalive && !conn->created_file_handler_p) {
-            Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
-            conn->created_file_handler_p = 1;
-            DBG(fprintf(stderr, "created file handler for client: %d\n", conn->client));
         }
 
         if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
