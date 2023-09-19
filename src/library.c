@@ -357,6 +357,12 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
 static void tws_KeepaliveConnHandler(void *data, int mask);
 
 static void tws_ShutdownConn(tws_conn_t *conn, int force) {
+
+    if (conn->created_file_handler_p) {
+        Tcl_DeleteFileHandler(conn->client);
+        conn->created_file_handler_p = 0;
+    }
+
     int shutdown_client = 1;
     int shutdown_ssl_p = force == 2;
     if (shutdown_ssl_p && SSL_is_init_finished(conn->ssl)) {
@@ -399,10 +405,6 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
     }
     DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force, conn->keepalive, conn->created_file_handler_p));
     if (force) {
-        if (conn->created_file_handler_p) {
-            Tcl_DeleteFileHandler(conn->client);
-            conn->created_file_handler_p = 0;
-        }
         tws_ShutdownConn(conn, force);
     } else {
         if (!conn->keepalive) {
