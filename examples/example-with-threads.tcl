@@ -16,7 +16,7 @@ set thread_script {
         } errmsg] } {
             puts "error: $errmsg"
         }
-        ::twebserver::close_conn $conn true
+        ::twebserver::close_conn $conn
     }
 
 }
