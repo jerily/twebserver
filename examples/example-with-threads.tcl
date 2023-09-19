@@ -5,17 +5,18 @@ set thread_script {
     package require twebserver
 
     proc thread_process_request {request_dict} {
-        return "HTTP/1.1 200 OK\n\ntest message request_dict=$request_dict\n"
+        set content "test message request_dict=$request_dict"
+        return [dict create statusCode 200 headers {content-type text/plain} body $content isBase64Encoded false]
     }
 
     proc thread_process_conn {conn addr port} {
         if { [catch {
             set reply [thread_process_request [::twebserver::parse_conn $conn]]
-            ::twebserver::write_conn $conn $reply
+            ::twebserver::return_conn $conn $reply
         } errmsg] } {
             puts "error: $errmsg"
         }
-        ::twebserver::close_conn $conn
+        ::twebserver::close_conn $conn true
     }
 
 }
