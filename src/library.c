@@ -72,6 +72,7 @@ typedef struct {
     int max_request_read_bytes;
     int max_read_buffer_size;
     int backlog;
+    int with_threads;
     tws_accept_ctx_t *accept_ctx;
 } tws_server_t;
 
@@ -454,6 +455,7 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
 
 //        Tcl_Obj *objPtr = Tcl_NewListObj(4, cmdobjv);
         Tcl_MutexLock(&tws_Eval_Mutex);
+
         Tcl_ResetResult(server->accept_ctx->interp);
         if (TCL_OK != Tcl_EvalObjv(server->accept_ctx->interp, 4, cmdobjv, TCL_EVAL_GLOBAL)) {
 //        if (TCL_OK != Tcl_EvalObjEx(server->accept_ctx->interp, objPtr, TCL_EVAL_GLOBAL))
@@ -469,6 +471,7 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
 
             return;
         }
+
         Tcl_MutexUnlock(&tws_Eval_Mutex);
         Tcl_DecrRefCount(cmdobjv[0]);
         Tcl_DecrRefCount(connPtr);
@@ -521,10 +524,13 @@ static void tws_AcceptConn(void *data, int mask) {
     CMD_CONN_NAME(conn_handle, conn);
     tws_RegisterConnName(conn_handle, conn);
 
-    if (!conn->created_file_handler_p) {
-        Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
-        conn->created_file_handler_p = 1;
-        DBG(fprintf(stderr, "created file handler for client: %d\n", conn->client));
+
+    if (conn->server->with_threads) {
+//        if (!conn->created_file_handler_p) {
+//            Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
+//            conn->created_file_handler_p = 1;
+//            DBG(fprintf(stderr, "created file handler for client: %d\n", conn->client));
+//        }
     }
 
     tws_HandleConn(conn, conn_handle);
@@ -724,7 +730,14 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->max_request_read_bytes = 10 * 1024 * 1024;
     server_ctx->max_read_buffer_size = 1024 * 1024;
     server_ctx->backlog = 1024;
+    server_ctx->with_threads = 0;
     server_ctx->accept_ctx = NULL;
+
+    Tcl_Obj *withThreadsPtr;
+    Tcl_DictObjGet(interp, objv[1], Tcl_NewStringObj("with_threads", -1), &withThreadsPtr);
+    if (withThreadsPtr) {
+        Tcl_GetIntFromObj(interp, withThreadsPtr, &server_ctx->with_threads);
+    }
 
     Tcl_Obj *maxRequestReadBytesPtr;
     Tcl_DictObjGet(interp, objv[1], Tcl_NewStringObj("max_request_read_bytes", -1),
@@ -1952,6 +1965,15 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
             Tcl_DStringFree(&ds);
 //            Tcl_DecrRefCount(resultPtr);
             return TCL_ERROR;
+        }
+
+        // this is for the case without threads
+        if (!conn->server->with_threads) {
+            if (conn->keepalive && !conn->created_file_handler_p) {
+                Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
+                conn->created_file_handler_p = 1;
+                DBG(fprintf(stderr, "created file handler for client: %d\n", conn->client));
+            }
         }
 
         if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
