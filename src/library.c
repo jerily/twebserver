@@ -1089,12 +1089,15 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     Tcl_DStringAppend(&ds, Tcl_GetString(Tcl_NewIntObj(body_length)), -1);
     Tcl_DStringAppend(&ds, "\r\n\r\n", 4);
 
-    int headers_length = Tcl_DStringLength(&ds);
-    const char *headers = Tcl_DStringValue(&ds);
+    if (body_length > 0) {
+        Tcl_DStringAppend(&ds, body, body_length);
+    }
+    int reply_length = Tcl_DStringLength(&ds);
+    const char *reply = Tcl_DStringValue(&ds);
 
-    rc = SSL_write(conn->ssl, headers, headers_length);
+    rc = SSL_write(conn->ssl, reply, reply_length);
     if (rc <= 0) {
-        DBG(fprintf(stderr, "SSL_write error (headers)\n"));
+        DBG(fprintf(stderr, "SSL_write error (reply)\n"));
         Tcl_DStringFree(&ds);
         // no ssl shutdown in this case
         tws_CloseConn(conn, conn_handle, 1);
@@ -1105,20 +1108,6 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         return TCL_ERROR;
     }
 
-    if (body_length > 0) {
-        rc = SSL_write(conn->ssl, body, body_length);
-        if (rc <= 0) {
-            DBG(fprintf(stderr, "SSL_write error (body)\n"));
-            Tcl_DStringFree(&ds);
-            // no ssl shutdown in this case
-            tws_CloseConn(conn, conn_handle, 1);
-            int err = SSL_get_error(conn->ssl, rc);
-            Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_write error (body): ", -1);
-            Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
-            Tcl_SetObjResult(interp, resultObjPtr);
-            return TCL_ERROR;
-        }
-    }
     Tcl_DStringFree(&ds);
     return TCL_OK;
 }
