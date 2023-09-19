@@ -1096,7 +1096,6 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     if (rc <= 0) {
         DBG(fprintf(stderr, "SSL_write error (headers)\n"));
         Tcl_DStringFree(&ds);
-        Tcl_Free(body);
         // no ssl shutdown in this case
         tws_CloseConn(conn, conn_handle, 1);
         int err = SSL_get_error(conn->ssl, rc);
@@ -1111,7 +1110,6 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         if (rc <= 0) {
             DBG(fprintf(stderr, "SSL_write error (body)\n"));
             Tcl_DStringFree(&ds);
-            Tcl_Free(body);
             // no ssl shutdown in this case
             tws_CloseConn(conn, conn_handle, 1);
             int err = SSL_get_error(conn->ssl, rc);
