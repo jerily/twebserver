@@ -88,6 +88,7 @@ typedef struct {
     // refactor the following into a flags field
     tws_compression_method_t compression;
     int keepalive;
+    int created_file_handler_p;
 } tws_conn_t;
 
 static const char *ssl_errors[] = {
@@ -293,7 +294,9 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
     }
 
     int reuseaddr = 1;
-    (void) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *) &reuseaddr, sizeof(reuseaddr));
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *) &reuseaddr, sizeof(reuseaddr))) {
+        DBG(fprintf(stderr, "setsockopt SO_REUSEADDR failed"));
+    }
 
     int keepalive = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive))) {
@@ -347,41 +350,64 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     conn->client = client;
     conn->compression = NO_COMPRESSION;
     conn->keepalive = 0;
+    conn->created_file_handler_p = 0;
     return conn;
 }
 
 static void tws_KeepaliveConnHandler(void *data, int mask);
 
-static void tws_ShutdownConn(tws_conn_t *conn) {
-    Tcl_DeleteFileHandler(conn->client);
+static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     int shutdown_client = 1;
-    if (SSL_is_init_finished(conn->ssl)) {
+    int shutdown_ssl_p = force == 2;
+    if (shutdown_ssl_p && SSL_is_init_finished(conn->ssl)) {
+        DBG(fprintf(stderr, "SSL_is_init_finished: true\n"));
         int rc = SSL_shutdown(conn->ssl);
+        DBG(fprintf(stderr, "first SSL_shutdown rc: %d\n", rc));
         if (rc == 0) {
             shutdown(conn->client, SHUT_RDWR);
             shutdown_client = 0;
             rc = SSL_shutdown(conn->ssl);
-            DBG(fprintf(stderr, "second SSL_shutdown rc = %d\n", rc));
+            DBG(fprintf(stderr, "second SSL_shutdown rc: %d\n", rc));
+        } else if (rc < 0) {
+            int sslerr = SSL_get_error(conn->ssl, rc);
+            DBG(fprintf(stderr, "SSL_get_error after first SSL_shutdown: %s\n", ssl_errors[sslerr]));
+            if (sslerr == SSL_ERROR_WANT_READ || sslerr == SSL_ERROR_WANT_WRITE) {
+                shutdown_client = 0;
+            } else if (sslerr == SSL_ERROR_ZERO_RETURN) {
+                shutdown_client = 0;
+            }
         }
     }
+    DBG(fprintf(stderr, "shutdown_client: %d\n", shutdown_client));
     if (shutdown_client) {
         shutdown(conn->client, SHUT_WR);
         shutdown(conn->client, SHUT_RD);
+//        shutdown(conn->client, SHUT_RDWR);
     }
-    close(conn->client);
+    if (close(conn->client)) {
+        DBG(fprintf(stderr, "close failed\n"));
+    }
     SSL_free(conn->ssl);
     Tcl_Free((char *) conn);
+    DBG(fprintf(stderr, "done shutdown\n"));
 }
 
-int tws_CloseConn(tws_conn_t *conn, const char *conn_handle) {
-    DBG(fprintf(stderr, "CloseConn - client: %d keepalive: %d\n", conn->client, conn->keepalive));
+int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
     if (!tws_UnregisterConnName(conn_handle)) {
+        DBG(fprintf(stderr, "already unregistered conn_handle=%s\n", conn_handle));
         return TCL_ERROR;
     }
-    if (!conn->keepalive) {
-        tws_ShutdownConn(conn);
+    DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force, conn->keepalive, conn->created_file_handler_p));
+    if (force) {
+        if (conn->created_file_handler_p) {
+            Tcl_DeleteFileHandler(conn->client);
+            conn->created_file_handler_p = 0;
+        }
+        tws_ShutdownConn(conn, force);
     } else {
-        Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
+        if (!conn->keepalive) {
+            tws_ShutdownConn(conn, 0);
+        }
     }
 
     return TCL_OK;
@@ -389,46 +415,52 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle) {
 
 static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
     tws_server_t *server = conn->server;
-    struct sockaddr_in addr;
-    unsigned int len = sizeof(addr);
-    getpeername(conn->client, (struct sockaddr *) &addr, &len);
 
     ERR_clear_error();
     if (SSL_accept(conn->ssl) <= 0) {
-        DBG(fprintf(stderr, "SSL_accept <= 0\n"));
-        tws_ShutdownConn(conn);
+        DBG(fprintf(stderr, "SSL_accept <= 0 client: %d\n", conn->client));
+        tws_CloseConn(conn, conn_handle, 1);
         ERR_print_errors_fp(stderr);
         return;
     } else {
-        // check if socket fd "client" is still open using SSL_peek
-        // openssl s_client -connect localhost:4433 -servername localhost -reconnect -no_tls1_3
-        char buf;
-        int rc = SSL_peek(conn->ssl, &buf, 1);
-        if (rc <= 0) {
-            int sslerr = SSL_get_error(conn->ssl, rc);
-            fprintf(stderr, "SSL_peek <= 0, ssl error=%s\n", ssl_errors[sslerr]);
-            tws_ShutdownConn(conn);
-            ERR_print_errors_fp(stderr);
-            return;
+
+        int protection = 1;
+        if (protection) {
+            char buf;
+            int rc = SSL_peek(conn->ssl, &buf, 1);
+            if (rc <= 0) {
+                DBG(fprintf(stderr, "SSL_peek <= 0 client: %d\n", conn->client));
+                tws_CloseConn(conn, conn_handle, 1);
+                ERR_print_errors_fp(stderr);
+                return;
+            }
         }
 
-        Tcl_Obj *connPtr = Tcl_NewStringObj(conn_handle, -1);
-        Tcl_Obj *addrPtr = Tcl_NewStringObj(inet_ntoa(addr.sin_addr), -1);
-        Tcl_Obj *portPtr = Tcl_NewIntObj(server->accept_ctx->port);
-        Tcl_Obj *cmdobjv[] = {server->cmdPtr, connPtr, addrPtr, portPtr, NULL};
+        struct sockaddr_in addr;
+        unsigned int len = sizeof(addr);
+        getpeername(conn->client, (struct sockaddr *) &addr, &len);
 
+        Tcl_Obj *const connPtr = Tcl_NewStringObj(conn_handle, -1);
+        Tcl_Obj *const addrPtr = Tcl_NewStringObj(inet_ntoa(addr.sin_addr), -1);
+        Tcl_Obj *const portPtr = Tcl_NewIntObj(server->accept_ctx->port);
+        Tcl_Obj *const cmdobjv[] = {Tcl_DuplicateObj(server->cmdPtr), connPtr, addrPtr, portPtr, NULL};
+
+        Tcl_IncrRefCount(cmdobjv[0]);
         Tcl_IncrRefCount(connPtr);
         Tcl_IncrRefCount(addrPtr);
         Tcl_IncrRefCount(portPtr);
 
+//        Tcl_Obj *objPtr = Tcl_NewListObj(4, cmdobjv);
         Tcl_MutexLock(&tws_Eval_Mutex);
         Tcl_ResetResult(server->accept_ctx->interp);
         if (TCL_OK != Tcl_EvalObjv(server->accept_ctx->interp, 4, cmdobjv, TCL_EVAL_GLOBAL)) {
+//        if (TCL_OK != Tcl_EvalObjEx(server->accept_ctx->interp, objPtr, TCL_EVAL_GLOBAL))
             DBG(fprintf(stderr, "error evaluating script sock=%d\n", conn->client));
             DBG(fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(server->accept_ctx->interp))));
             Tcl_MutexUnlock(&tws_Eval_Mutex);
-            tws_CloseConn(conn, conn_handle);
+            tws_CloseConn(conn, conn_handle, 1);
 
+            Tcl_DecrRefCount(cmdobjv[0]);
             Tcl_DecrRefCount(connPtr);
             Tcl_DecrRefCount(addrPtr);
             Tcl_DecrRefCount(portPtr);
@@ -436,6 +468,7 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
             return;
         }
         Tcl_MutexUnlock(&tws_Eval_Mutex);
+        Tcl_DecrRefCount(cmdobjv[0]);
         Tcl_DecrRefCount(connPtr);
         Tcl_DecrRefCount(addrPtr);
         Tcl_DecrRefCount(portPtr);
@@ -443,7 +476,7 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
 }
 
 static void tws_KeepaliveConnHandler(void *data, int mask) {
-    DBG(fprintf(stderr, "tws_KeepaliveConnHandler\n"));
+    DBG(fprintf(stderr, "tws_KeepaliveConnHandler mask=%d\n",mask));
     tws_conn_t *conn = (tws_conn_t *) data;
 
     // reuse conn
@@ -459,7 +492,7 @@ static void tws_AcceptConn(void *data, int mask) {
     struct sockaddr_in addr;
     unsigned int len = sizeof(addr);
 
-    DBG(fprintf(stderr, "tws_AcceptConn\n"));
+    DBG(fprintf(stderr, "-------------------tws_AcceptConn\n"));
 
     int client = accept(server->accept_ctx->sock, (struct sockaddr *) &addr, &len);
     DBG(fprintf(stderr, "client: %d, addr: %s\n", client, inet_ntoa(addr.sin_addr)));
@@ -593,6 +626,7 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
     Tcl_Obj *servernamePtr = Tcl_NewStringObj(extension_data, len);
     DBG(fprintf(stderr, "servername=%.*s\n", (int) len, extension_data));
 
+#ifdef TWS_JA3
     /* extract/check clientHello information */
     int has_rsa_sig = 0, has_ecdsa_sig = 0;
     if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_signature_algorithms, &extension_data, &extension_len)) {
@@ -640,6 +674,7 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
 //            break;
 //        }
 //    }
+#endif
 
     int servername_len;
     const char *servername = Tcl_GetStringFromObj(servernamePtr, &servername_len);
@@ -767,15 +802,16 @@ static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int objc
 }
 
 static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle, Tcl_DString *dsPtr) {
+    DBG(fprintf(stderr, "ReadConn client: %d\n", conn->client));
     long max_request_read_bytes = conn->server->max_request_read_bytes;
     int max_buffer_size = conn->server->max_read_buffer_size;
 
     int timeout_millis = 3000;  // conn->server->recv_timeout_in_millis;
 
-    long start_time_in_millis = 0;
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    start_time_in_millis = (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000;
+//    long start_time_in_millis = 0;
+//    struct timeval tv;
+//    gettimeofday(&tv, NULL);
+//    start_time_in_millis = (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000;
 
     char *buf = (char *) Tcl_Alloc(max_buffer_size);
     long total_read = 0;
@@ -803,24 +839,23 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
                 }
 
                 // check if elapsed time exceeds timeout
-                gettimeofday(&tv, NULL);
-                long elapsed_time_in_millis = (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000 - start_time_in_millis;
-                if (elapsed_time_in_millis > timeout_millis) {
-                    tws_CloseConn(conn, conn_handle);
-                    SetResult("timeout");
-                    Tcl_Free(buf);
-                    return TCL_ERROR;
-                }
+//                gettimeofday(&tv, NULL);
+//                long elapsed_time_in_millis = (tv.tv_sec) * 1000 + (tv.tv_usec) / 1000 - start_time_in_millis;
+//                if (elapsed_time_in_millis > timeout_millis) {
+//                    Tcl_Free(buf);
+//                    tws_CloseConn(conn, conn_handle, 2);
+//                    SetResult("timeout");
+//                    return TCL_ERROR;
+//                }
 
                 continue;
             }
 
-            tws_ShutdownConn(conn);
-            tws_CloseConn(conn, conn_handle);
+            Tcl_Free(buf);
+            tws_CloseConn(conn, conn_handle, 1);
             Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_read error: ", -1);
             Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
             Tcl_SetObjResult(interp, resultObjPtr);
-            Tcl_Free(buf);
             return TCL_ERROR;
         }
         break;
@@ -829,9 +864,9 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
     return TCL_OK;
 
     failed_due_to_request_too_large:
-    tws_CloseConn(conn, conn_handle);
-    SetResult("request too large");
     Tcl_Free(buf);
+    tws_CloseConn(conn, conn_handle, 2);
+    SetResult("request too large");
     return TCL_ERROR;
 
 }
@@ -874,7 +909,7 @@ static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     int rc = SSL_write(conn->ssl, reply, length);
     if (rc <= 0) {
         int err = SSL_get_error(conn->ssl, rc);
-        tws_CloseConn(conn, conn_handle);
+        tws_CloseConn(conn, conn_handle, 1);
         Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_write error: ", -1);
         Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
         Tcl_SetObjResult(interp, resultObjPtr);
@@ -1057,8 +1092,11 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
 
     rc = SSL_write(conn->ssl, headers, headers_length);
     if (rc <= 0) {
+        DBG(fprintf(stderr, "SSL_write error (headers)\n"));
         Tcl_DStringFree(&ds);
         Tcl_Free(body);
+        // no ssl shutdown in this case
+        tws_CloseConn(conn, conn_handle, 1);
         int err = SSL_get_error(conn->ssl, rc);
         Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_write error (headers): ", -1);
         Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
@@ -1069,7 +1107,11 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     if (body_length > 0) {
         rc = SSL_write(conn->ssl, body, body_length);
         if (rc <= 0) {
+            DBG(fprintf(stderr, "SSL_write error (body)\n"));
             Tcl_DStringFree(&ds);
+            Tcl_Free(body);
+            // no ssl shutdown in this case
+            tws_CloseConn(conn, conn_handle, 1);
             int err = SSL_get_error(conn->ssl, rc);
             Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_write error (body): ", -1);
             Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
@@ -1077,22 +1119,26 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
             return TCL_ERROR;
         }
     }
-
     Tcl_DStringFree(&ds);
     return TCL_OK;
 }
 
 static int tws_CloseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "CloseConnCmd\n"));
-    CheckArgs(2, 2, 1, "handle");
+    CheckArgs(2, 3, 1, "handle ?force_shutdown?");
 
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
+        DBG(fprintf(stderr, "conn handle not found\n"));
         SetResult("conn handle not found");
         return TCL_ERROR;
     }
-    if (TCL_OK != tws_CloseConn(conn, conn_handle)) {
+    int force_shutdown = 0;
+    if (objc == 3) {
+        Tcl_GetBooleanFromObj(interp, objv[2], &force_shutdown);
+    }
+    if (TCL_OK != tws_CloseConn(conn, conn_handle, force_shutdown)) {
         SetResult("close conn failed");
         return TCL_ERROR;
     }
@@ -1141,7 +1187,7 @@ tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, int 
     // no url decoding is needed
     if (p == NULL) {
         *valuePtrPtr = Tcl_NewStringObj(value, value_length);
-        Tcl_IncrRefCount(*valuePtrPtr);
+//        Tcl_IncrRefCount(*valuePtrPtr);
         return TCL_OK;
     }
 
@@ -1209,7 +1255,7 @@ tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, int 
         return TCL_ERROR;
     }
     *valuePtrPtr = Tcl_NewStringObj(dst, dstWrote);
-    Tcl_IncrRefCount(*valuePtrPtr);
+//    Tcl_IncrRefCount(*valuePtrPtr);
     Tcl_Free(dst);
     Tcl_Free(valuePtr);
     return TCL_OK;
@@ -1247,7 +1293,7 @@ tws_UrlEncode(Tcl_Interp *interp, int enc_flags, const char *value, int value_le
         p++;
     }
     *valuePtrPtr = Tcl_NewStringObj(valuePtr, q - valuePtr);
-    Tcl_IncrRefCount(*valuePtrPtr);
+//    Tcl_IncrRefCount(*valuePtrPtr);
     Tcl_Free(valuePtr);
     return TCL_OK;
 }
@@ -1278,7 +1324,7 @@ static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Encoding encoding
         Tcl_DictObjPut(interp, multivalueQueryStringParametersPtr, keyPtr, multiValuePtr);
     }
     Tcl_DictObjPut(interp, queryStringParametersPtr, keyPtr, valuePtr);
-    Tcl_DecrRefCount(valuePtr);
+//    Tcl_DecrRefCount(valuePtr);
     return TCL_OK;
 }
 
@@ -1347,7 +1393,7 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding
             Tcl_Obj *queryStringPtr = Tcl_NewStringObj(p2 + 1, query_string_length);
             Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), queryStringPtr);
             tws_ParseQueryStringParameters(interp, encoding, queryStringPtr, resultPtr);
-            Tcl_DecrRefCount(pathPtr);
+//            Tcl_DecrRefCount(pathPtr);
             break;
         }
         p2++;
@@ -1721,7 +1767,7 @@ static int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DStri
     tws_ParseBody(interp, curr, end, dictPtr, contentLengthPtr, contentTypePtr);
 
     *resultPtr = dictPtr;
-    Tcl_IncrRefCount(*resultPtr);
+//    Tcl_IncrRefCount(*resultPtr);
     return TCL_OK;
 }
 
@@ -1747,13 +1793,13 @@ static int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int ob
     Tcl_Obj *resultPtr;
     if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, &resultPtr)) {
         Tcl_DStringFree(&ds);
-        Tcl_DecrRefCount(resultPtr);
+//        Tcl_DecrRefCount(resultPtr);
         return TCL_ERROR;
     }
 
     Tcl_SetObjResult(interp, resultPtr);
     Tcl_DStringFree(&ds);
-    Tcl_DecrRefCount(resultPtr);
+//    Tcl_DecrRefCount(resultPtr);
     return TCL_OK;
 
 }
@@ -1863,7 +1909,7 @@ static int tws_ParseAcceptEncoding(Tcl_Interp *interp, Tcl_Obj *headersPtr, tws_
 }
 
 static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "ReadConnCmd\n"));
+    DBG(fprintf(stderr, "ParseConnCmd\n"));
     CheckArgs(2, 3, 1, "conn_handle ?encoding_name?");
 
 
@@ -1890,33 +1936,40 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     Tcl_Obj *resultPtr;
     if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, &resultPtr)) {
         Tcl_DStringFree(&ds);
-        Tcl_DecrRefCount(resultPtr);
+//        Tcl_DecrRefCount(resultPtr);
         return TCL_ERROR;
     }
 
     Tcl_Obj *headersPtr;
     if (TCL_OK != Tcl_DictObjGet(interp, resultPtr, Tcl_NewStringObj("headers", -1), &headersPtr)) {
         Tcl_DStringFree(&ds);
-        Tcl_DecrRefCount(resultPtr);
+//        Tcl_DecrRefCount(resultPtr);
         return TCL_ERROR;
     }
 
     if (headersPtr) {
         if (TCL_OK != tws_ParseConnectionKeepalive(interp, headersPtr, &conn->keepalive)) {
             Tcl_DStringFree(&ds);
-            Tcl_DecrRefCount(resultPtr);
+//            Tcl_DecrRefCount(resultPtr);
             return TCL_ERROR;
         }
+
+        if (conn->keepalive && !conn->created_file_handler_p) {
+            Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
+            conn->created_file_handler_p = 1;
+            DBG(fprintf(stderr, "created file handler for client: %d\n", conn->client));
+        }
+
         if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
             Tcl_DStringFree(&ds);
-            Tcl_DecrRefCount(resultPtr);
+//            Tcl_DecrRefCount(resultPtr);
             return TCL_ERROR;
         }
     }
 
     Tcl_SetObjResult(interp, resultPtr);
     Tcl_DStringFree(&ds);
-    Tcl_DecrRefCount(resultPtr);
+//    Tcl_DecrRefCount(resultPtr);
     return TCL_OK;
 }
 
@@ -1935,7 +1988,7 @@ static int tws_EncodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
-    Tcl_DecrRefCount(valuePtr);
+//    Tcl_DecrRefCount(valuePtr);
     return TCL_OK;
 }
 
@@ -1953,7 +2006,7 @@ static int tws_EncodeQueryCmd(ClientData clientData, Tcl_Interp *interp, int obj
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
-    Tcl_DecrRefCount(valuePtr);
+//    Tcl_DecrRefCount(valuePtr);
     return TCL_OK;
 }
 
@@ -1977,7 +2030,7 @@ static int tws_DecodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
-    Tcl_DecrRefCount(valuePtr);
+//    Tcl_DecrRefCount(valuePtr);
     return TCL_OK;
 }
 
