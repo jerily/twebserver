@@ -55,7 +55,7 @@ openssl req -x509 \
 
 Run the example:
 ```bash
-tclsh ../examples/example.tcl
+tclsh ../examples/example-with-req-resp.tcl
 ```
 
 Try a few requests:
