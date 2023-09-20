@@ -92,6 +92,12 @@ typedef struct {
     int created_file_handler_p;
 } tws_conn_t;
 
+typedef struct {
+    Tcl_EventProc *proc;	/* Function to call to service this event. */
+    Tcl_Event *nextPtr;	/* Next in list of pending events, or NULL. */
+    ClientData *clientData; // The pointer to the client data
+} tws_keepalive_event_t;
+
 static const char *ssl_errors[] = {
         "SSL_ERROR_NONE",
         "SSL_ERROR_SSL",
@@ -398,12 +404,6 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     Tcl_Free((char *) conn);
     DBG(fprintf(stderr, "done shutdown\n"));
 }
-
-typedef struct {
-    Tcl_EventProc *proc;	/* Function to call to service this event. */
-    Tcl_Event *nextPtr;	/* Next in list of pending events, or NULL. */
-    ClientData *clientData; // The pointer to the client data
-} tws_keepalive_event_t;
 
 static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn\n"));
