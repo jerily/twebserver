@@ -383,7 +383,7 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     if (conn->created_file_handler_p) {
         DBG(fprintf(stderr, "delete file handler client: %d\n", conn->client));
         Tcl_DeleteFileHandler(conn->client);
-        conn->created_file_handler_p = 0;
+//        conn->created_file_handler_p = 0;
     }
 
     int shutdown_client = 1;
@@ -421,17 +421,15 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     if (close_client && close(conn->client)) {
         DBG(fprintf(stderr, "close failed\n"));
     }
-    if (conn->ssl != NULL && shutdown_ssl_p) {
+
+    if (conn->ssl != NULL) {
         SSL_free(conn->ssl);
         conn->ssl = NULL;
+        Tcl_Free((char *) conn);
     } else {
         DBG(fprintf(stderr, "shutdown called with NULL ssl\n"));
     }
-    if (conn != NULL) {
-        Tcl_Free((char *) conn);
-    } else {
-        fprintf(stderr, "shutdown called with NULL conn\n");
-    }
+
     DBG(fprintf(stderr, "done shutdown\n"));
 }
 
@@ -471,8 +469,9 @@ static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn\n"));
     tws_keepalive_event_t *keepaliveEvPtr = (tws_keepalive_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
-    Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
+    DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn conn=%p client=%d\n", conn, conn->client));
     conn->created_file_handler_p = 1;
+    Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
     return 1;
 }
 
@@ -487,7 +486,7 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
     } else {
         if (!conn->keepalive) {
             tws_ShutdownConn(conn, 2);
-        } else if (!conn->todelete) {
+        } else if (!conn->created_file_handler_p) {
             // notify the event loop to keep the connection alive
             tws_keepalive_event_t *evPtr = (tws_keepalive_event_t *) Tcl_Alloc(sizeof(tws_keepalive_event_t));
             evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
