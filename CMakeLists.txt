@@ -8,7 +8,7 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)
-set(CMAKE_C_FLAGS  "-DTCL_THREADS -DVERSION=${PROJECT_VERSION} ${CMAKE_C_FLAGS}")
+set(CMAKE_C_FLAGS  "-g -DTCL_THREADS -DVERSION=${PROJECT_VERSION} ${CMAKE_C_FLAGS}")
 
 add_library(twebserver MODULE src/library.c src/base64.c src/base64/cencode.c src/base64/cdecode.c)
 set_target_properties(twebserver PROPERTIES POSITION_INDEPENDENT_CODE ON)
