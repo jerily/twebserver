@@ -472,7 +472,7 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
         tws_ShutdownConn(conn, force);
     } else {
         if (!conn->keepalive) {
-            tws_ShutdownConn(conn, 0);
+            tws_ShutdownConn(conn, 2);
         } else {
             // notify the event loop to keep the connection alive
             tws_keepalive_event_t *evPtr = (tws_keepalive_event_t *) Tcl_Alloc(sizeof(tws_keepalive_event_t));
