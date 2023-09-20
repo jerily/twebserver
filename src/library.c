@@ -1238,9 +1238,9 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     if (rc <= 0) {
         DBG(fprintf(stderr, "SSL_write error (reply)\n"));
         Tcl_DStringFree(&ds);
+        int err = SSL_get_error(conn->ssl, rc);
         // no ssl shutdown in this case
         tws_CloseConn(conn, conn_handle, 1);
-        int err = SSL_get_error(conn->ssl, rc);
         Tcl_Obj *resultObjPtr = Tcl_NewStringObj("SSL_write error (headers): ", -1);
         Tcl_AppendObjToObj(resultObjPtr, Tcl_NewStringObj(ssl_errors[err], -1));
         Tcl_SetObjResult(interp, resultObjPtr);
