@@ -378,6 +378,8 @@ static void tws_KeepaliveConnHandler(void *data, int mask);
 
 static void tws_ShutdownConn(tws_conn_t *conn, int force) {
 
+    conn->todelete = 1;
+
     if (conn->created_file_handler_p) {
         DBG(fprintf(stderr, "delete file handler client: %d\n", conn->client));
         Tcl_DeleteFileHandler(conn->client);
@@ -485,7 +487,7 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
     } else {
         if (!conn->keepalive) {
             tws_ShutdownConn(conn, 2);
-        } else {
+        } else if (!conn->todelete) {
             // notify the event loop to keep the connection alive
             tws_keepalive_event_t *evPtr = (tws_keepalive_event_t *) Tcl_Alloc(sizeof(tws_keepalive_event_t));
             evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
