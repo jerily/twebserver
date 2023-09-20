@@ -100,7 +100,7 @@ ab -n 10000 -c 100 https://localhost:4433/
 
 ## TCL Commands
 
-* **::twebserver::create_server** *config_dict* *init_proc*
+* **::twebserver::create_server** *config_dict* *request_processor_proc*
     - returns a handle to a server
   ```tcl
   set server_handle [::twebserver::create_server [dict create] process_conn]
