@@ -94,8 +94,11 @@ tclsh ../examples/example-with-threads.tcl
 
 ## Benchmark
 ```
-sudo apt install apache2-utils
-ab -n 10000 -c 100 https://localhost:4433/
+go install github.com/parkghost/gohttpbench@latest
+# with keepalive
+gohttpbench -v 10 -n 100000 -c 10 -t 10 -k "https://localhost:4433/example?a=1&b=2"
+# without keepalive
+gohttpbench -v 10 -n 100000 -c 10 -t 10 "https://localhost:4433/example?a=1&b=2"
 ```
 
 ## TCL Commands
