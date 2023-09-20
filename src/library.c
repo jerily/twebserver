@@ -379,12 +379,14 @@ static void tws_KeepaliveConnHandler(void *data, int mask);
 static void tws_ShutdownConn(tws_conn_t *conn, int force) {
 
     if (conn->created_file_handler_p) {
+        DBG(fprintf(stderr, "delete file handler client: %d\n", conn->client));
         Tcl_DeleteFileHandler(conn->client);
         conn->created_file_handler_p = 0;
     }
 
     int shutdown_client = 1;
     int shutdown_ssl_p = force == 2;
+    DBG(fprintf(stderr, "shutdown_ssl_p: %d\n", shutdown_ssl_p));
     if (shutdown_ssl_p && SSL_is_init_finished(conn->ssl)) {
         DBG(fprintf(stderr, "SSL_is_init_finished: true\n"));
         int rc = SSL_shutdown(conn->ssl);
@@ -397,24 +399,37 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
         } else if (rc < 0) {
             int sslerr = SSL_get_error(conn->ssl, rc);
             DBG(fprintf(stderr, "SSL_get_error after first SSL_shutdown: %s\n", ssl_errors[sslerr]));
-            if (sslerr == SSL_ERROR_WANT_READ || sslerr == SSL_ERROR_WANT_WRITE) {
-                shutdown_client = 0;
-            } else if (sslerr == SSL_ERROR_ZERO_RETURN) {
-                shutdown_client = 0;
-            }
+//            if (sslerr == SSL_ERROR_WANT_READ || sslerr == SSL_ERROR_WANT_WRITE) {
+//                shutdown_client = 0;
+//            } else if (sslerr == SSL_ERROR_ZERO_RETURN) {
+//                shutdown_client = 0;
+//            }
         }
     }
     DBG(fprintf(stderr, "shutdown_client: %d\n", shutdown_client));
+    int close_client = 1;
     if (shutdown_client) {
-        shutdown(conn->client, SHUT_WR);
-        shutdown(conn->client, SHUT_RD);
-//        shutdown(conn->client, SHUT_RDWR);
+//        shutdown(conn->client, SHUT_WR);
+//        shutdown(conn->client, SHUT_RD);
+        if (!shutdown(conn->client, SHUT_RDWR)) {
+            DBG(fprintf(stderr, "failed to shutdown client: %d\n", conn->client));
+            close_client = 0;
+        }
     }
-    if (close(conn->client)) {
+    if (close_client && close(conn->client)) {
         DBG(fprintf(stderr, "close failed\n"));
     }
-    SSL_free(conn->ssl);
-    Tcl_Free((char *) conn);
+    if (conn->ssl != NULL && shutdown_ssl_p) {
+        SSL_free(conn->ssl);
+        conn->ssl = NULL;
+    } else {
+        DBG(fprintf(stderr, "shutdown called with NULL ssl\n"));
+    }
+    if (conn != NULL) {
+        Tcl_Free((char *) conn);
+    } else {
+        fprintf(stderr, "shutdown called with NULL conn\n");
+    }
     DBG(fprintf(stderr, "done shutdown\n"));
 }
 
@@ -566,6 +581,8 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     char conn_handle[80];
     CMD_CONN_NAME(conn_handle, conn);
     tws_RegisterConnName(conn_handle, conn);
+
+    fprintf(stderr, "tws_KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn_handle);
 
     tws_HandleConn(conn, conn_handle);
 }
