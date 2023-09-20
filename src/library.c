@@ -941,6 +941,14 @@ static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int objc
     DBG(fprintf(stderr, "AddContextCmd\n"));
     CheckArgs(5, 5, 1, "handle hostname key cert");
 
+    int handle_len;
+    const char *handle = Tcl_GetStringFromObj(objv[1], &handle_len);
+
+    tws_server_t *server = tws_GetInternalFromServerName(handle);
+    if (!server) {
+        SetResult("server handle not found");
+        return TCL_ERROR;
+    }
 
     int hostname_len;
     const char *hostname = Tcl_GetStringFromObj(objv[2], &hostname_len);
