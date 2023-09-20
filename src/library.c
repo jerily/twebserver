@@ -583,7 +583,7 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     CMD_CONN_NAME(conn_handle, conn);
     tws_RegisterConnName(conn_handle, conn);
 
-    fprintf(stderr, "tws_KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn_handle);
+    DBG(fprintf(stderr, "tws_KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn_handle));
 
     tws_HandleConn(conn, conn_handle);
 }
