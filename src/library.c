@@ -456,9 +456,6 @@ static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
     Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
     conn->created_file_handler_p = 1;
-
-    // TODO: we need to do some bookkeeping here to make sure we don't leak memory
-
     return 1;
 }
 
