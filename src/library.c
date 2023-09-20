@@ -69,11 +69,13 @@ typedef struct {
 typedef struct {
     SSL_CTX *sslCtx;
     Tcl_Obj *cmdPtr;
+    tws_accept_ctx_t *accept_ctx;
+    Tcl_ThreadId thread_id;
     int max_request_read_bytes;
     int max_read_buffer_size;
     int backlog;
-    tws_accept_ctx_t *accept_ctx;
-    Tcl_ThreadId thread_id;
+    int max_conn_lifetime_millis;
+    int garbage_collection_interval_millis;
 } tws_server_t;
 
 typedef enum tws_CompressionMethod {
@@ -86,10 +88,12 @@ typedef struct {
     tws_server_t *server;
     SSL *ssl;
     int client;
+    long long started_millis;
     // refactor the following into a flags field
     tws_compression_method_t compression;
     int keepalive;
     int created_file_handler_p;
+    int todelete;
 } tws_conn_t;
 
 typedef struct {
@@ -358,6 +362,15 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     conn->compression = NO_COMPRESSION;
     conn->keepalive = 0;
     conn->created_file_handler_p = 0;
+    conn->todelete = 0;
+
+    // get current tv
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    // convert tv to milliseconds
+    long long milliseconds = (tv.tv_sec * 1000LL) + (tv.tv_usec / 1000LL);
+    conn->started_millis = milliseconds;
+
     return conn;
 }
 
@@ -403,6 +416,38 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     SSL_free(conn->ssl);
     Tcl_Free((char *) conn);
     DBG(fprintf(stderr, "done shutdown\n"));
+}
+
+static void tws_CleanupConnections(ClientData clientData) {
+    tws_server_t *server = (tws_server_t *) clientData;
+    DBG(fprintf(stderr, "tws_CleanupConnections\n"));
+
+    // get time tv
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    // convert tv to milliseconds
+    long long milliseconds = (tv.tv_sec * 1000LL) + (tv.tv_usec / 1000LL);
+
+    Tcl_HashEntry *entryPtr;
+    Tcl_HashSearch search;
+    Tcl_MutexLock(&tws_ConnNameToInternal_HT_Mutex);
+    for (entryPtr = Tcl_FirstHashEntry(&tws_ConnNameToInternal_HT, &search); entryPtr != NULL;
+         entryPtr = Tcl_NextHashEntry(&search)) {
+        tws_conn_t *conn = (tws_conn_t *) Tcl_GetHashValue(entryPtr);
+        if (conn->server == server && conn->todelete) {
+            DBG(fprintf(stderr, "tws_CleanupConnections - deleting conn\n"));
+            tws_ShutdownConn(conn, 2);
+            Tcl_DeleteHashEntry(entryPtr);
+        } else {
+            long long elapsed = milliseconds - conn->started_millis;
+            if (elapsed > conn->server->max_conn_lifetime_millis) {
+                DBG(fprintf(stderr, "tws_CleanupConnections - mark connection for deletion\n"));
+                conn->todelete = 1;
+            }
+        }
+    }
+    Tcl_MutexUnlock(&tws_ConnNameToInternal_HT_Mutex);
+    Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, clientData);
 }
 
 static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
@@ -510,6 +555,11 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     DBG(fprintf(stderr, "tws_KeepaliveConnHandler mask=%d\n",mask));
     tws_conn_t *conn = (tws_conn_t *) data;
 
+    if (conn->todelete) {
+        DBG(fprintf(stderr, "tws_KeepaliveConnHandler - todelete client: %d\n", conn->client));
+        return;
+    }
+
     if (!conn->keepalive) {
         DBG(fprintf(stderr, "tws_KeepaliveConnHandler - not keepalive client: %d\n", conn->client));
         return;
@@ -582,6 +632,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
     accept_ctx->interp = interp;
     server->accept_ctx = accept_ctx;
     Tcl_CreateFileHandler(sock, TCL_READABLE, tws_AcceptConn, server);
+    Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, server);
     return TCL_OK;
 }
 
@@ -731,6 +782,89 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
     return SSL_CLIENT_HELLO_ERROR;
 }
 
+static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server_ctx, Tcl_Obj *const configDictPtr) {
+    Tcl_Obj *maxRequestReadBytesPtr;
+    Tcl_DictObjGet(interp, configDictPtr, Tcl_NewStringObj("max_request_read_bytes", -1),
+                   &maxRequestReadBytesPtr);
+    if (maxRequestReadBytesPtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, maxRequestReadBytesPtr, &server_ctx->max_request_read_bytes)) {
+            SetResult("max_request_read_bytes must be an integer");
+            return TCL_ERROR;
+        }
+    }
+
+    // check that max_request_read_bytes is between 1 and 100MB
+    if (server_ctx->max_request_read_bytes < 1 || server_ctx->max_request_read_bytes > 100 * 1024 * 1024) {
+        SetResult("max_request_read_bytes must be between 1 and 100MB");
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *maxReadBufferSizePtr;
+    Tcl_DictObjGet(interp, configDictPtr, Tcl_NewStringObj("max_read_buffer_size", -1),
+                   &maxReadBufferSizePtr);
+    if (maxReadBufferSizePtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, maxReadBufferSizePtr, &server_ctx->max_read_buffer_size)) {
+            SetResult("max_read_buffer_size must be an integer");
+            return TCL_ERROR;
+        }
+    }
+
+    // check that max_read_buffer_size is between 1 and 100MB
+    if (server_ctx->max_read_buffer_size < 1 || server_ctx->max_read_buffer_size > 100 * 1024 * 1024) {
+        SetResult("max_read_buffer_size must be between 1 and 100MB");
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *backlogPtr;
+    Tcl_DictObjGet(interp, configDictPtr, Tcl_NewStringObj("backlog", -1), &backlogPtr);
+    if (backlogPtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, backlogPtr, &server_ctx->backlog)) {
+            SetResult("backlog must be an integer");
+            return TCL_ERROR;
+        }
+    }
+
+    // check that backlog is a value between 1 and SOMAXCONN
+    if (server_ctx->backlog < 1 || server_ctx->backlog > SOMAXCONN) {
+        SetResult("backlog must be between 1 and SOMAXCONN");
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *maxConnLifetimeMillisPtr;
+    Tcl_DictObjGet(interp, configDictPtr, Tcl_NewStringObj("max_conn_lifetime_millis", -1),
+                   &maxConnLifetimeMillisPtr);
+    if (maxConnLifetimeMillisPtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, maxConnLifetimeMillisPtr, &server_ctx->max_conn_lifetime_millis)) {
+            SetResult("max_conn_lifetime_millis must be an integer");
+            return TCL_ERROR;
+        }
+    }
+
+    // check that max_conn_lifetime_millis is between 1 and 1 hour
+    if (server_ctx->max_conn_lifetime_millis < 1 || server_ctx->max_conn_lifetime_millis > 60 * 60 * 1000) {
+        SetResult("max_conn_lifetime_millis must be between 1 millisecond and 1 hour");
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *garbageCollectionIntervalMillisPtr;
+    Tcl_DictObjGet(interp, configDictPtr, Tcl_NewStringObj("garbage_collection_interval_millis", -1),
+                   &garbageCollectionIntervalMillisPtr);
+    if (garbageCollectionIntervalMillisPtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, garbageCollectionIntervalMillisPtr, &server_ctx->garbage_collection_interval_millis)) {
+            SetResult("garbage_collection_interval_millis must be an integer");
+            return TCL_ERROR;
+        }
+    }
+
+    // check that garbage_collection_interval_millis is between 1 and 1 hour
+    if (server_ctx->garbage_collection_interval_millis < 1 || server_ctx->garbage_collection_interval_millis > 60 * 60 * 1000) {
+        SetResult("garbage_collection_interval_millis must be between 1 millisecond and 1 hour");
+        return TCL_ERROR;
+    }
+
+    return TCL_OK;
+}
+
 static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "CreateCmd\n"));
     CheckArgs(3, 3, 1, "config_dict cmd_name");
@@ -747,46 +881,13 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->max_request_read_bytes = 10 * 1024 * 1024;
     server_ctx->max_read_buffer_size = 1024 * 1024;
     server_ctx->backlog = 1024;
+//    server_ctx->max_conn_timeout = 10 * 1000;  // 10 seconds
+    server_ctx->max_conn_lifetime_millis = 60 * 60 * 1000;  // 1 hour
+    server_ctx->garbage_collection_interval_millis = 60 * 1000;  // 1 minute
     server_ctx->accept_ctx = NULL;
     server_ctx->thread_id = Tcl_GetCurrentThread();
 
-    Tcl_Obj *maxRequestReadBytesPtr;
-    Tcl_DictObjGet(interp, objv[1], Tcl_NewStringObj("max_request_read_bytes", -1),
-                   &maxRequestReadBytesPtr);
-    if (maxRequestReadBytesPtr) {
-        Tcl_GetIntFromObj(interp, maxRequestReadBytesPtr, &server_ctx->max_request_read_bytes);
-    }
-
-    // check that max_request_read_bytes is between 1 and 100MB
-    if (server_ctx->max_request_read_bytes < 1 || server_ctx->max_request_read_bytes > 100 * 1024 * 1024) {
-        SetResult("max_request_read_bytes must be between 1 and 100MB");
-        return TCL_ERROR;
-    }
-
-    Tcl_Obj *maxReadBufferSizePtr;
-    Tcl_DictObjGet(interp, objv[1], Tcl_NewStringObj("max_read_buffer_size", -1),
-                   &maxReadBufferSizePtr);
-    if (maxReadBufferSizePtr) {
-        Tcl_GetIntFromObj(interp, maxReadBufferSizePtr, &server_ctx->max_read_buffer_size);
-    }
-
-    // check that max_read_buffer_size is between 1 and 100MB
-    if (server_ctx->max_read_buffer_size < 1 || server_ctx->max_read_buffer_size > 100 * 1024 * 1024) {
-        SetResult("max_read_buffer_size must be between 1 and 100MB");
-        return TCL_ERROR;
-    }
-
-    Tcl_Obj *backlogPtr;
-    Tcl_DictObjGet(interp, objv[1], Tcl_NewStringObj("backlog", -1), &backlogPtr);
-    if (backlogPtr) {
-        Tcl_GetIntFromObj(interp, backlogPtr, &server_ctx->backlog);
-    }
-
-    // check that backlog is a value between 1 and SOMAXCONN
-    if (server_ctx->backlog < 1 || server_ctx->backlog > SOMAXCONN) {
-        SetResult("backlog must be between 1 and SOMAXCONN");
-        return TCL_ERROR;
-    }
+    tws_InitServerFromConfigDict(interp, server_ctx, objv[1]);
 
     char handle[80];
     CMD_SERVER_NAME(handle, server_ctx);
