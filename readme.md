@@ -102,31 +102,81 @@ ab -n 10000 -c 100 https://localhost:4433/
 
 * **::twebserver::create_server** *config_dict* *init_proc*
     - returns a handle to a server
-* **::twebserver::destroy_server** *handle*
-    - destroys a server
+```tcl
+set server_handle [::twebserver::create_server [dict create] process_conn]
+```
+* **::twebserver::add_context** *handle* *hostname* *key_file* *cert_file*
+  - adds an SSL context to a server (supports multiple certificates for different hosts)
+```tcl
+::twebserver::add_context $server_handle localhost "../certs/host1/key.pem" "../certs/host1/cert.pem"
+::twebserver::add_context $server_handle www.example.com "../certs/host2/key.pem" "../certs/host2/cert.pem"
+```
 * **::twebserver::listen_server** *handle* *port*
     - starts listening on a port
-* **::twebserver::add_context** *handle* *hostname* *key_file* *cert_file*
-    - adds an SSL context to a server (supports multiple certificates for different hosts)
-* **::twebserver::read_conn** *conn*
-    - reads a connection
-* **::twebserver::write_conn** *conn* *text*
-    - writes to a connection
+```tcl
+::twebserver::listen_server $server_handle 4433
+```
 * **::twebserver::parse_conn** *conn* *encoding_name*
-    - reads a connection and parses the request to a dictionary
+  - reads a connection and parses the request to a dictionary.
+    The dictionary includes the following:
+    - **httpMethod** - GET, POST, PUT, DELETE, etc
+    - **url** - the url
+    - **version** - HTTP/1.1
+    - **path** - the path
+    - **queryString** - the query string
+    - **queryStringParameters** - a dictionary of query string parameters
+    - **multiValueQueryStringParameters** - a dictionary of query string parameters (with multiple values)
+    - **headers** - a dictionary of headers
+    - **multiValueHeaders** - a dictionary of headers (with multiple values)
+    - **isBase64Encoded** - whether the body is base64 encoded
+    - **body** - the body
+```tcl
+set request_dict [::twebserver::parse_conn $conn]
+```
 * **::twebserver::return_conn** *conn* *response_dict*
-    - returns a response dictionary (including status code, body, etc) to a connection
-* **::twebserver::close_conn** *conn*
-    - closes a connection
+  - returns a response dictionary to a connection
+    The response dictionary should include the following:
+    - **statusCode** - the status code
+    - **headers** - a dictionary of headers
+    - **multiValueHeaders** - a dictionary of headers (with multiple values)
+    - **isBase64Encoded** - whether the body is base64 encoded
+    - **body** - the body
+```tcl
+::twebserver::return_conn $conn $response_dict
+```
+* **::twebserver::read_conn** *conn*
+    - reads a connection, low-level command, prefer **::twebserver::parse_conn**
+```tcl
+set request [::twebserver::read_conn $conn]
+```
+* **::twebserver::write_conn** *conn* *text*
+    - writes to a connection, low-level command, prefer **::twebserver::return_conn**
+```tcl
+::twebserver::write_conn $conn $response
+```
+* **::twebserver::close_conn** *conn* *?force_shutdown?*
+    - closes a connection unless it is marked as keep-alive,
+      force_shutdown will force the connection to close no matter what
+```tcl
+::twebserver::close_conn $conn
+```
 * **::twebserver::parse_request** *request* *encoding_name*
-    - parses a request into a dictionary (includes headers, query, and body among other things)
+    - parses a request into a dictionary, low-level command, prefer **::twebserver::parse_conn**
+```tcl
+set request_dict [::twebserver::parse_request $request]
+```
+* **::twebserver::destroy_server** *handle*
+  - destroys a server
+```tcl
+::twebserver::destroy_server $server_handle
+```
 * **:twebserver::encode_uri_component** *string*
-    - encodes a string for use in a URI
+  - encodes a string for use in a URI
 * **::twebserver::decode_uri_component** *string* *encoding_name*
-    - decodes a string from a URI
+  - decodes a string from a URI
 * **::twebserver::encode_query** *query_string*
-    - encodes a query string
+  - encodes a query string
 * **::twebserver::base64_encode** *bytes*
-    - encodes a string in base64
+  - encodes a string in base64
 * **::twebserver::base64_decode** *base64_encoded_string*
-    - decodes a base64 encoded string
+  - decodes a base64 encoded string
