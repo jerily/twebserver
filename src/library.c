@@ -942,14 +942,32 @@ static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int objc
     CheckArgs(5, 5, 1, "handle hostname key cert");
 
 
-    const char *hostname = Tcl_GetString(objv[2]);
-    Tcl_Obj *keyFilePtr = objv[3];
-    Tcl_Obj *certFilePtr = objv[4];
+    int hostname_len;
+    const char *hostname = Tcl_GetStringFromObj(objv[2], &hostname_len);
+    if (hostname_len == 0) {
+        SetResult("hostname must not be empty");
+        return TCL_ERROR;
+    }
+
+    int keyfile_len;
+    const char *keyfile = Tcl_GetStringFromObj(objv[3], &keyfile_len);
+    if (keyfile_len == 0) {
+        SetResult("keyfile must not be empty");
+        return TCL_ERROR;
+    }
+
+    int certfile_len;
+    const char *certfile = Tcl_GetStringFromObj(objv[4], &certfile_len);
+    if (certfile_len == 0) {
+        SetResult("certfile must not be empty");
+        return TCL_ERROR;
+    }
+
     SSL_CTX *ctx;
     if (TCL_OK != create_context(interp, &ctx)) {
         return TCL_ERROR;
     }
-    if (TCL_OK != configure_context(interp, ctx, Tcl_GetString(keyFilePtr), Tcl_GetString(certFilePtr))) {
+    if (TCL_OK != configure_context(interp, ctx, keyfile, certfile)) {
         return TCL_ERROR;
     }
     tws_RegisterHostName(hostname, ctx);
