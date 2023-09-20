@@ -887,7 +887,10 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->accept_ctx = NULL;
     server_ctx->thread_id = Tcl_GetCurrentThread();
 
-    tws_InitServerFromConfigDict(interp, server_ctx, objv[1]);
+    if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ctx, objv[1])) {
+        Tcl_Free((char *) server_ctx);
+        return TCL_ERROR;
+    }
 
     char handle[80];
     CMD_SERVER_NAME(handle, server_ctx);
