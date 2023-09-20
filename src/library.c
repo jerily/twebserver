@@ -72,8 +72,8 @@ typedef struct {
     int max_request_read_bytes;
     int max_read_buffer_size;
     int backlog;
-    int with_threads;
     tws_accept_ctx_t *accept_ctx;
+    Tcl_ThreadId thread_id;
 } tws_server_t;
 
 typedef enum tws_CompressionMethod {
@@ -399,6 +399,24 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     DBG(fprintf(stderr, "done shutdown\n"));
 }
 
+typedef struct {
+    Tcl_EventProc *proc;	/* Function to call to service this event. */
+    Tcl_Event *nextPtr;	/* Next in list of pending events, or NULL. */
+    ClientData *clientData; // The pointer to the client data
+} tws_keepalive_event_t;
+
+static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
+    DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn\n"));
+    tws_keepalive_event_t *keepaliveEvPtr = (tws_keepalive_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
+    Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
+    conn->created_file_handler_p = 1;
+
+    // TODO: we need to do some bookkeeping here to make sure we don't leak memory
+
+    return 1;
+}
+
 int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
     if (!tws_UnregisterConnName(conn_handle)) {
         DBG(fprintf(stderr, "already unregistered conn_handle=%s\n", conn_handle));
@@ -410,6 +428,14 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
     } else {
         if (!conn->keepalive) {
             tws_ShutdownConn(conn, 0);
+        } else {
+            // notify the event loop to keep the connection alive
+            tws_keepalive_event_t *evPtr = (tws_keepalive_event_t *) Tcl_Alloc(sizeof(tws_keepalive_event_t));
+            evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
+            evPtr->nextPtr = NULL;
+            evPtr->clientData = (ClientData *) conn;
+            Tcl_ThreadQueueEvent(conn->server->thread_id, (Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+            Tcl_ThreadAlert(conn->server->thread_id);
         }
     }
 
@@ -523,15 +549,6 @@ static void tws_AcceptConn(void *data, int mask) {
     char conn_handle[80];
     CMD_CONN_NAME(conn_handle, conn);
     tws_RegisterConnName(conn_handle, conn);
-
-
-    if (conn->server->with_threads) {
-//        if (!conn->created_file_handler_p) {
-//            Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
-//            conn->created_file_handler_p = 1;
-//            DBG(fprintf(stderr, "created file handler for client: %d\n", conn->client));
-//        }
-    }
 
     tws_HandleConn(conn, conn_handle);
 }
@@ -730,14 +747,8 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->max_request_read_bytes = 10 * 1024 * 1024;
     server_ctx->max_read_buffer_size = 1024 * 1024;
     server_ctx->backlog = 1024;
-    server_ctx->with_threads = 0;
     server_ctx->accept_ctx = NULL;
-
-    Tcl_Obj *withThreadsPtr;
-    Tcl_DictObjGet(interp, objv[1], Tcl_NewStringObj("with_threads", -1), &withThreadsPtr);
-    if (withThreadsPtr) {
-        Tcl_GetIntFromObj(interp, withThreadsPtr, &server_ctx->with_threads);
-    }
+    server_ctx->thread_id = Tcl_GetCurrentThread();
 
     Tcl_Obj *maxRequestReadBytesPtr;
     Tcl_DictObjGet(interp, objv[1], Tcl_NewStringObj("max_request_read_bytes", -1),
@@ -1965,15 +1976,6 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
             Tcl_DStringFree(&ds);
 //            Tcl_DecrRefCount(resultPtr);
             return TCL_ERROR;
-        }
-
-        // this is for the case without threads
-        if (!conn->server->with_threads) {
-            if (conn->keepalive && !conn->created_file_handler_p) {
-                Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
-                conn->created_file_handler_p = 1;
-                DBG(fprintf(stderr, "created file handler for client: %d\n", conn->client));
-            }
         }
 
         if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
