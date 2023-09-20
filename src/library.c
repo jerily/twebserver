@@ -1016,7 +1016,7 @@ static int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, 
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
-        SetResult("conn handle not found");
+        SetResult("read_conn: conn handle not found");
         return TCL_ERROR;
     }
 
@@ -1038,7 +1038,7 @@ static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
-        SetResult("conn handle not found");
+        SetResult("write_conn: conn handle not found");
         return TCL_ERROR;
     }
 
@@ -1065,7 +1065,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
-        SetResult("conn handle not found");
+        SetResult("return_conn: conn handle not found");
         return TCL_ERROR;
     }
 
@@ -1256,7 +1256,7 @@ static int tws_CloseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
         DBG(fprintf(stderr, "conn handle not found\n"));
-        SetResult("conn handle not found");
+        SetResult("close_conn: conn handle not found");
         return TCL_ERROR;
     }
     int force_shutdown = 0;
@@ -1277,7 +1277,7 @@ static int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, 
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
-        SetResult("conn handle not found");
+        SetResult("info_conn: conn handle not found");
         return TCL_ERROR;
     }
 
@@ -2041,7 +2041,7 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     const char *conn_handle = Tcl_GetString(objv[1]);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
-        SetResult("conn handle not found");
+        SetResult("parse_conn: conn handle not found");
         return TCL_ERROR;
     }
 
