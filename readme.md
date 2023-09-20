@@ -134,7 +134,7 @@ ab -n 10000 -c 100 https://localhost:4433/
   set request_dict [::twebserver::parse_conn $conn]
   ```
 * **::twebserver::return_conn** *conn* *response_dict*
-  - returns a response dictionary to a connection
+  - returns a response dictionary to a connection.
     The response dictionary should include the following:
     - **statusCode** - the status code
     - **headers** - a dictionary of headers
