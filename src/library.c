@@ -702,9 +702,10 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
     }
 
     /* Extract the length of the supplied list of names. */
+    const unsigned char *p = extension_data;
     size_t len;
-    len = (*(extension_data++) << 8);
-    len += *(extension_data++);
+    len = (*(p++) << 8);
+    len += *(p++);
     if (len + 2 != extension_len)
         goto abort;
     extension_len = len;
@@ -712,24 +713,24 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
      * The list in practice only has a single element, so we only consider
      * the first one.
      */
-    if (extension_len == 0 || *extension_data++ != TLSEXT_NAMETYPE_host_name)
+    if (extension_len == 0 || *p++ != TLSEXT_NAMETYPE_host_name)
         goto abort;
     extension_len--;
     /* Now we can finally pull out the byte array with the actual hostname. */
     if (extension_len <= 2)
         goto abort;
-    len = (*(extension_data++) << 8);
-    len += *(extension_data++);
+    len = (*(p++) << 8);
+    len += *(p++);
     if (len == 0 || len + 2 > extension_len || len > TLSEXT_MAXLEN_host_name
-        || memchr(extension_data, 0, len) != NULL) {
+        || memchr(p, 0, len) != NULL) {
         DBG(fprintf(stderr, "extension_data is null in clienthello callback\n"));
         goto abort;
     }
     extension_len = len;
-
+    int servername_len = len;
+    const char *servername = (const char *) p;
     // "extension_data" is not null-terminated, so we need to copy it to a new buffer
-    Tcl_Obj *servernamePtr = Tcl_NewStringObj(extension_data, len);
-    DBG(fprintf(stderr, "servername=%.*s\n", (int) len, extension_data));
+    DBG(fprintf(stderr, "servername=%.*s\n", (int) len, p));
 
 #ifdef TWS_JA3
     /* extract/check clientHello information */
@@ -781,8 +782,6 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
 //    }
 #endif
 
-    int servername_len;
-    const char *servername = Tcl_GetStringFromObj(servernamePtr, &servername_len);
     SSL_CTX *ctx = tws_GetInternalFromHostName(servername);
     if (!ctx) {
         DBG(fprintf(stderr, "servername not found in clienthello callback\n"));
@@ -892,10 +891,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
         return TCL_ERROR;
     }
 
-    if (TCL_OK != configure_context(interp, ctx, "../certs/host1/key.pem", "../certs/host1/cert.pem")) {
-        return TCL_ERROR;
-    }
-    // SSL_CTX_set_client_hello_cb(ctx, tws_ClientHelloCallback, NULL);
+    SSL_CTX_set_client_hello_cb(ctx, tws_ClientHelloCallback, NULL);
     tws_server_t *server_ctx = (tws_server_t *) Tcl_Alloc(sizeof(tws_server_t));
     server_ctx->sslCtx = ctx;
     server_ctx->cmdPtr = Tcl_DuplicateObj(objv[2]);
