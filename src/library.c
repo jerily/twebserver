@@ -501,10 +501,10 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
     } else {
         if (!conn->keepalive) {
             tws_ShutdownConn(conn, 2);
-//            if (!tws_UnregisterConnName(conn_handle)) {
-//                DBG(fprintf(stderr, "already unregistered conn_handle=%s\n", conn_handle));
-//                return TCL_ERROR;
-//            }
+            if (!tws_UnregisterConnName(conn_handle)) {
+                DBG(fprintf(stderr, "already unregistered conn_handle=%s\n", conn_handle));
+                return TCL_ERROR;
+            }
         }
     }
 
