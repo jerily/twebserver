@@ -546,7 +546,7 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
 
         Tcl_MutexLock(&tws_Eval_Mutex);
         Tcl_ResetResult(server->accept_ctx->interp);
-        if (TCL_OK != Tcl_EvalObjv(server->accept_ctx->interp, 4, cmdobjv, TCL_EVAL_GLOBAL)) {
+        if (TCL_OK != Tcl_EvalObjv(server->accept_ctx->interp, 4, cmdobjv, TCL_EVAL_INVOKE)) {
             DBG(fprintf(stderr, "error evaluating script sock=%d\n", conn->client));
             DBG(fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(server->accept_ctx->interp))));
             Tcl_MutexUnlock(&tws_Eval_Mutex);
@@ -562,6 +562,7 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
         Tcl_DecrRefCount(connPtr);
         Tcl_DecrRefCount(addrPtr);
         Tcl_DecrRefCount(portPtr);
+
     }
 }
 
@@ -1333,7 +1334,7 @@ const char *tws_strpbrk(const char *s, const char *end, const char *accept) {
 }
 
 static int
-tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, int value_length, Tcl_Obj **valuePtrPtr) {
+tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, int value_length, Tcl_Obj *resultPtr) {
     // check if url decoding is needed, value is not '\0' terminated
     const char *p = value;
     const char *end = value + value_length;
@@ -1341,8 +1342,7 @@ tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, int 
 
     // no url decoding is needed
     if (p == NULL) {
-        *valuePtrPtr = Tcl_NewStringObj(value, value_length);
-        Tcl_IncrRefCount(*valuePtrPtr);
+        Tcl_SetStringObj(resultPtr, value, value_length);
         return TCL_OK;
     }
 
@@ -1409,8 +1409,7 @@ tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, int 
         SetResult("urldecode error: invalid utf-8 sequence");
         return TCL_ERROR;
     }
-    *valuePtrPtr = Tcl_NewStringObj(dst, dstWrote);
-    Tcl_IncrRefCount(*valuePtrPtr);
+    Tcl_SetStringObj(resultPtr, dst, dstWrote);
     Tcl_Free(dst);
     Tcl_Free(valuePtr);
     return TCL_OK;
@@ -1457,8 +1456,8 @@ static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Encoding encoding
                                        int value_length) {
     // check if "key" already exists in "queryStringParameters"
     Tcl_Obj *keyPtr = Tcl_NewStringObj(key, value - key - 1);
-    Tcl_Obj *valuePtr;
-    if (TCL_OK != tws_UrlDecode(interp, encoding, value, value_length, &valuePtr)) {
+    Tcl_Obj *valuePtr = Tcl_NewStringObj("", 0);
+    if (TCL_OK != tws_UrlDecode(interp, encoding, value, value_length, valuePtr)) {
         SetResult("query string urldecode error");
         return TCL_ERROR;
     }
@@ -1478,7 +1477,6 @@ static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Encoding encoding
         Tcl_DictObjPut(interp, multivalueQueryStringParametersPtr, keyPtr, multiValuePtr);
     }
     Tcl_DictObjPut(interp, queryStringParametersPtr, keyPtr, valuePtr);
-    Tcl_DecrRefCount(valuePtr);
     return TCL_OK;
 }
 
@@ -1537,8 +1535,8 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding
     while (p2 < url + url_length && *p2 != '\0') {
         if (*p2 == '?') {
             int path_length = p2 - url;
-            Tcl_Obj *pathPtr;
-            if (TCL_OK != tws_UrlDecode(interp, encoding, url, path_length, &pathPtr)) {
+            Tcl_Obj *pathPtr = Tcl_NewStringObj("", 0);
+            if (TCL_OK != tws_UrlDecode(interp, encoding, url, path_length, pathPtr)) {
                 SetResult("path urldecode error");
                 return TCL_ERROR;
             }
@@ -1547,7 +1545,6 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding
             Tcl_Obj *queryStringPtr = Tcl_NewStringObj(p2 + 1, query_string_length);
             Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), queryStringPtr);
             tws_ParseQueryStringParameters(interp, encoding, queryStringPtr, resultPtr);
-            Tcl_DecrRefCount(pathPtr);
             break;
         }
         p2++;
@@ -1880,7 +1877,7 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
     }
 }
 
-static int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsPtr, Tcl_Obj **resultPtr) {
+static int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsPtr, Tcl_Obj *dictPtr) {
 
 //    String version;
 //    String path;
@@ -1892,8 +1889,6 @@ static int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DStri
 //    Map<String, String> pathParameters;
 //    String body;
 //    Boolean isBase64Encoded;
-
-    Tcl_Obj *dictPtr = Tcl_NewDictObj();
 
     const char *request = Tcl_DStringValue(dsPtr);
     int length = Tcl_DStringLength(dsPtr);
@@ -1927,7 +1922,6 @@ static int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DStri
 
     tws_ParseBody(interp, curr, end, dictPtr, contentLengthPtr, contentTypePtr);
 
-    *resultPtr = dictPtr;
     return TCL_OK;
 }
 
@@ -1950,8 +1944,8 @@ static int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int ob
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
     Tcl_DStringAppend(&ds, request, length);
-    Tcl_Obj *resultPtr;
-    if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, &resultPtr)) {
+    Tcl_Obj *resultPtr = Tcl_NewDictObj();
+    if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, resultPtr)) {
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
@@ -2091,8 +2085,8 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
-    Tcl_Obj *resultPtr;
-    if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, &resultPtr)) {
+    Tcl_Obj *resultPtr = Tcl_NewDictObj();
+    if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, resultPtr)) {
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
@@ -2180,12 +2174,11 @@ static int tws_DecodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
         encoding = Tcl_GetEncoding(interp, "utf-8");
     }
 
-    Tcl_Obj *valuePtr;
-    if (TCL_OK != tws_UrlDecode(interp, encoding, encoded_text, length, &valuePtr)) {
+    Tcl_Obj *valuePtr = Tcl_NewStringObj("", 0);
+    if (TCL_OK != tws_UrlDecode(interp, encoding, encoded_text, length, valuePtr)) {
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
-    Tcl_DecrRefCount(valuePtr);
     return TCL_OK;
 }
 
