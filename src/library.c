@@ -540,13 +540,11 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
         Tcl_Obj *const portPtr = Tcl_NewIntObj(server->accept_ctx->port);
         Tcl_Obj *const cmdobjv[] = {server->cmdPtr, connPtr, addrPtr, portPtr, NULL};
 
-//        Tcl_IncrRefCount(cmdobjv[0]);
-//        Tcl_IncrRefCount(connPtr);
-//        Tcl_IncrRefCount(addrPtr);
-//        Tcl_IncrRefCount(portPtr);
+        Tcl_IncrRefCount(connPtr);
+        Tcl_IncrRefCount(addrPtr);
+        Tcl_IncrRefCount(portPtr);
 
         Tcl_MutexLock(&tws_Eval_Mutex);
-
         Tcl_ResetResult(server->accept_ctx->interp);
         if (TCL_OK != Tcl_EvalObjv(server->accept_ctx->interp, 4, cmdobjv, TCL_EVAL_GLOBAL)) {
             DBG(fprintf(stderr, "error evaluating script sock=%d\n", conn->client));
@@ -554,19 +552,16 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
             Tcl_MutexUnlock(&tws_Eval_Mutex);
             tws_CloseConn(conn, conn_handle, 1);
 
-//            Tcl_DecrRefCount(cmdobjv[0]);
-//            Tcl_DecrRefCount(connPtr);
-//            Tcl_DecrRefCount(addrPtr);
-//            Tcl_DecrRefCount(portPtr);
-
+            Tcl_DecrRefCount(connPtr);
+            Tcl_DecrRefCount(addrPtr);
+            Tcl_DecrRefCount(portPtr);
             return;
         }
-
         Tcl_MutexUnlock(&tws_Eval_Mutex);
-//        Tcl_DecrRefCount(cmdobjv[0]);
-//        Tcl_DecrRefCount(connPtr);
-//        Tcl_DecrRefCount(addrPtr);
-//        Tcl_DecrRefCount(portPtr);
+
+        Tcl_DecrRefCount(connPtr);
+        Tcl_DecrRefCount(addrPtr);
+        Tcl_DecrRefCount(portPtr);
     }
 }
 
@@ -1347,6 +1342,7 @@ tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, int 
     // no url decoding is needed
     if (p == NULL) {
         *valuePtrPtr = Tcl_NewStringObj(value, value_length);
+        Tcl_IncrRefCount(*valuePtrPtr);
         return TCL_OK;
     }
 
@@ -1414,6 +1410,7 @@ tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, int 
         return TCL_ERROR;
     }
     *valuePtrPtr = Tcl_NewStringObj(dst, dstWrote);
+    Tcl_IncrRefCount(*valuePtrPtr);
     Tcl_Free(dst);
     Tcl_Free(valuePtr);
     return TCL_OK;
@@ -1481,6 +1478,7 @@ static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Encoding encoding
         Tcl_DictObjPut(interp, multivalueQueryStringParametersPtr, keyPtr, multiValuePtr);
     }
     Tcl_DictObjPut(interp, queryStringParametersPtr, keyPtr, valuePtr);
+    Tcl_DecrRefCount(valuePtr);
     return TCL_OK;
 }
 
@@ -1864,6 +1862,7 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
         char *body = Tcl_Alloc(contentLength * 2);
         size_t bodyLength;
         if (base64_encode(curr, contentLength, body, &bodyLength)) {
+            Tcl_Free(body);
             SetResult("base64_encode failed");
             return TCL_ERROR;
         }
