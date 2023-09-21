@@ -19,6 +19,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <sys/time.h>
+#include <fcntl.h>
 
 #define XSTR(s) STR(s)
 #define STR(s) #s
@@ -301,6 +302,9 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
         return TCL_ERROR;
     }
 
+    // Set the close-on-exec flag so that the socket will not get inherited by child processes.
+    fcntl(fd, F_SETFD, FD_CLOEXEC);
+
     int reuseaddr = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *) &reuseaddr, sizeof(reuseaddr))) {
         DBG(fprintf(stderr, "setsockopt SO_REUSEADDR failed"));
@@ -414,7 +418,7 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     }
 
     if (conn->created_file_handler_p == 1) {
-        fprintf(stderr, "delete file handler client: %d\n", conn->client);
+        DBG(fprintf(stderr, "delete file handler client: %d\n", conn->client));
 //        Tcl_DeleteFileHandler(conn->client);
 
         // notify the event loop to delete the file handler for keepalive
