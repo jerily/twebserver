@@ -384,7 +384,6 @@ static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
 static void tws_KeepaliveConnHandler(void *data, int mask);
 
 static void tws_ShutdownConn(tws_conn_t *conn, int force) {
-
     int shutdown_client = 1;
     if (SSL_is_init_finished(conn->ssl)) {
         DBG(fprintf(stderr, "SSL_is_init_finished: true\n"));
@@ -427,8 +426,10 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
         Tcl_ThreadAlert(conn->server->thread_id);
     }
 
-//    SSL_free(conn->ssl);
-//    Tcl_Free((char *) conn);
+    if (!conn->keepalive) {
+        SSL_free(conn->ssl);
+        Tcl_Free((char *) conn);
+    }
     DBG(fprintf(stderr, "done shutdown\n"));
 }
 
@@ -1000,8 +1001,6 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
             if (total_read > max_request_read_bytes) {
                 goto failed_due_to_request_too_large;
             }
-            Tcl_Free(buf);
-            return TCL_OK;
         } else {
             int err = SSL_get_error(conn->ssl, rc);
             if (err == SSL_ERROR_WANT_READ) {
