@@ -95,8 +95,8 @@ typedef struct {
 } tws_conn_t;
 
 typedef struct {
-    Tcl_EventProc *proc;	/* Function to call to service this event. */
-    Tcl_Event *nextPtr;	/* Next in list of pending events, or NULL. */
+    Tcl_EventProc *proc;    /* Function to call to service this event. */
+    Tcl_Event *nextPtr;    /* Next in list of pending events, or NULL. */
     ClientData *clientData; // The pointer to the client data
 } tws_keepalive_event_t;
 
@@ -495,7 +495,8 @@ static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
 }
 
 int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
-    DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force, conn->keepalive, conn->created_file_handler_p));
+    DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force,
+                conn->keepalive, conn->created_file_handler_p));
     if (force) {
         tws_ShutdownConn(conn, force);
         if (!conn->keepalive) {
@@ -532,7 +533,7 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
         int rc = SSL_peek(conn->ssl, &c, 1);
         if (rc <= 0) {
             DBG(fprintf(stderr, "SSL_peek <= 0 client: %d sslerr: %s\n",
-                    conn->client, ssl_errors[SSL_get_error(conn->ssl, rc)]));
+                        conn->client, ssl_errors[SSL_get_error(conn->ssl, rc)]));
             tws_CloseConn(conn, conn_handle, 1);
             ERR_print_errors_fp(stderr);
             return;
@@ -572,7 +573,7 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
 }
 
 static void tws_KeepaliveConnHandler(void *data, int mask) {
-    DBG(fprintf(stderr, "tws_KeepaliveConnHandler mask=%d\n",mask));
+    DBG(fprintf(stderr, "tws_KeepaliveConnHandler mask=%d\n", mask));
     tws_conn_t *conn = (tws_conn_t *) data;
 
     // reuse conn
@@ -869,7 +870,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     Tcl_Obj *maxConnLifetimeMillisPtr;
     Tcl_Obj *maxConnLifetimeMillisKeyPtr = Tcl_NewStringObj("max_conn_lifetime_millis", -1);
     Tcl_IncrRefCount(maxConnLifetimeMillisKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, maxConnLifetimeMillisKeyPtr,&maxConnLifetimeMillisPtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, maxConnLifetimeMillisKeyPtr, &maxConnLifetimeMillisPtr)) {
         Tcl_DecrRefCount(maxConnLifetimeMillisKeyPtr);
         SetResult("error reading dict");
         return TCL_ERROR;
@@ -891,21 +892,24 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     Tcl_Obj *garbageCollectionIntervalMillisPtr;
     Tcl_Obj *garbageCollectionIntervalMillisKeyPtr = Tcl_NewStringObj("garbage_collection_interval_millis", -1);
     Tcl_IncrRefCount(garbageCollectionIntervalMillisKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, garbageCollectionIntervalMillisKeyPtr,&garbageCollectionIntervalMillisPtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, garbageCollectionIntervalMillisKeyPtr,
+                                 &garbageCollectionIntervalMillisPtr)) {
         Tcl_DecrRefCount(garbageCollectionIntervalMillisKeyPtr);
         SetResult("error reading dict");
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(garbageCollectionIntervalMillisKeyPtr);
     if (garbageCollectionIntervalMillisPtr) {
-        if (TCL_OK != Tcl_GetIntFromObj(interp, garbageCollectionIntervalMillisPtr, &server_ctx->garbage_collection_interval_millis)) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, garbageCollectionIntervalMillisPtr,
+                                        &server_ctx->garbage_collection_interval_millis)) {
             SetResult("garbage_collection_interval_millis must be an integer");
             return TCL_ERROR;
         }
     }
 
     // check that garbage_collection_interval_millis is between 1 and 1 hour
-    if (server_ctx->garbage_collection_interval_millis < 1 || server_ctx->garbage_collection_interval_millis > 60 * 60 * 1000) {
+    if (server_ctx->garbage_collection_interval_millis < 1 ||
+        server_ctx->garbage_collection_interval_millis > 60 * 60 * 1000) {
         SetResult("garbage_collection_interval_millis must be between 1 millisecond and 1 hour");
         return TCL_ERROR;
     }
@@ -1196,12 +1200,12 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     // write each "header" from the "headers" dictionary to the ssl connection
     Tcl_Obj *keyPtr;
     Tcl_Obj *valuePtr;
-    Tcl_DictSearch search;
+    Tcl_DictSearch headersSearch;
     int done;
     if (headersPtr) {
-        for (Tcl_DictObjFirst(interp, headersPtr, &search, &keyPtr, &valuePtr, &done);
+        for (Tcl_DictObjFirst(interp, headersPtr, &headersSearch, &keyPtr, &valuePtr, &done);
              !done;
-             Tcl_DictObjNext(&search, &keyPtr, &valuePtr, &done)) {
+             Tcl_DictObjNext(&headersSearch, &keyPtr, &valuePtr, &done)) {
             // skip if "keyPtr" in "multiValueHeadersPtr" dictionary
             Tcl_Obj *listPtr;
             if (multiValueHeadersPtr) {
@@ -1219,33 +1223,38 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
             const char *value = Tcl_GetStringFromObj(valuePtr, &value_length);
             Tcl_DStringAppend(&ds, value, value_length);
         }
-        Tcl_DictObjDone(&search);
+        Tcl_DictObjDone(&headersSearch);
     }
 
     if (multiValueHeadersPtr) {
         // write each "header" from the "multiValueHeaders" dictionary to the ssl connection
-        for (Tcl_DictObjFirst(interp, multiValueHeadersPtr, &search, &keyPtr, &valuePtr, &done);
+        Tcl_DictSearch mvHeadersSearch;
+        for (Tcl_DictObjFirst(interp, multiValueHeadersPtr, &mvHeadersSearch, &keyPtr, &valuePtr, &done);
              !done;
-             Tcl_DictObjNext(&search, &keyPtr, &valuePtr, &done)) {
-            Tcl_Obj *listKeyPtr;
-            Tcl_Obj *listValuePtr;
-            Tcl_DictSearch listSearch;
-            int listDone;
-            for (Tcl_DictObjFirst(interp, valuePtr, &listSearch, &listKeyPtr, &listValuePtr, &listDone);
-                 !listDone;
-                 Tcl_DictObjNext(&listSearch, &listKeyPtr, &listValuePtr, &listDone)) {
-                Tcl_DStringAppend(&ds, "\r\n", 2);
-                int key_length;
-                const char *key = Tcl_GetStringFromObj(keyPtr, &key_length);
-                Tcl_DStringAppend(&ds, key, key_length);
-                Tcl_DStringAppend(&ds, ": ", 2);
+             Tcl_DictObjNext(&mvHeadersSearch, &keyPtr, &valuePtr, &done)) {
+
+            Tcl_DStringAppend(&ds, "\r\n", 2);
+            int key_length;
+            const char *key = Tcl_GetStringFromObj(keyPtr, &key_length);
+            Tcl_DStringAppend(&ds, key, key_length);
+            Tcl_DStringAppend(&ds, ": ", 2);
+
+            // "valuePtr" is a list, iterate over its elements
+            int list_length;
+            Tcl_ListObjLength(interp, valuePtr, &list_length);
+            for (int i = 0; i < list_length; i++) {
+                Tcl_Obj *elemPtr;
+                Tcl_ListObjIndex(interp, valuePtr, i, &elemPtr);
                 int value_length;
-                const char *value = Tcl_GetStringFromObj(listValuePtr, &value_length);
+                const char *value = Tcl_GetStringFromObj(elemPtr, &value_length);
                 Tcl_DStringAppend(&ds, value, value_length);
+                if (i < value_length - 1) {
+                    Tcl_DStringAppend(&ds, ", ", 2);
+                }
             }
-            Tcl_DictObjDone(&listSearch);
+
         }
-        Tcl_DictObjDone(&search);
+        Tcl_DictObjDone(&mvHeadersSearch);
     }
 
     if (conn->compression == GZIP_COMPRESSION) {
@@ -1297,8 +1306,10 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     }
 
     Tcl_Obj *contentLengthPtr = Tcl_NewIntObj(body_length);
+    Tcl_IncrRefCount(contentLengthPtr);
     int content_length_str_len;
     const char *content_length_str = Tcl_GetStringFromObj(contentLengthPtr, &content_length_str_len);
+    Tcl_DecrRefCount(contentLengthPtr);
 
     Tcl_DStringAppend(&ds, "\r\n", 2);
     Tcl_DStringAppend(&ds, "Content-Length: ", 16);
@@ -1853,7 +1864,7 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
     return TCL_OK;
 
     done:
-    SetResult("headers parse error");
+SetResult("headers parse error");
     return TCL_ERROR;
 }
 
