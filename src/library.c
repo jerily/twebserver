@@ -1547,6 +1547,7 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding
             Tcl_Obj *queryStringPtr = Tcl_NewStringObj(p2 + 1, query_string_length);
             Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), queryStringPtr);
             tws_ParseQueryStringParameters(interp, encoding, queryStringPtr, resultPtr);
+            Tcl_DecrRefCount(pathPtr);
             break;
         }
         p2++;
@@ -2184,6 +2185,7 @@ static int tws_DecodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
+    Tcl_DecrRefCount(valuePtr);
     return TCL_OK;
 }
 
