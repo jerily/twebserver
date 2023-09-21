@@ -494,10 +494,12 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
     DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force, conn->keepalive, conn->created_file_handler_p));
     if (force) {
         tws_ShutdownConn(conn, force);
-//        if (!tws_UnregisterConnName(conn_handle)) {
-//            DBG(fprintf(stderr, "already unregistered conn_handle=%s\n", conn_handle));
-//            return TCL_ERROR;
-//        }
+        if (!conn->keepalive) {
+            if (!tws_UnregisterConnName(conn_handle)) {
+                DBG(fprintf(stderr, "already unregistered conn_handle=%s\n", conn_handle));
+                return TCL_ERROR;
+            }
+        }
     } else {
         if (!conn->keepalive) {
             tws_ShutdownConn(conn, 2);
@@ -551,8 +553,6 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
             DBG(fprintf(stderr, "error evaluating script sock=%d\n", conn->client));
             DBG(fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(server->accept_ctx->interp))));
             Tcl_MutexUnlock(&tws_Eval_Mutex);
-            tws_CloseConn(conn, conn_handle, 1);
-
             Tcl_DecrRefCount(connPtr);
             Tcl_DecrRefCount(addrPtr);
             Tcl_DecrRefCount(portPtr);
@@ -1692,6 +1692,7 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         }
         key[curr - p - 1] = '\0';
         Tcl_Obj *keyPtr = Tcl_NewStringObj(key, keylen);
+        free(key);
 
         // skip spaces
         while (curr < end && CHARTYPE(space, *curr) != 0) {
@@ -1710,6 +1711,7 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         char *value = strndup(p, curr - p);
         value[curr - p - 1] = '\0';
         Tcl_Obj *valuePtr = Tcl_NewStringObj(value, valuelen);
+        free(value);
 
 //        DBG(fprintf(stderr, "key=%s value=%s\n", key, value));
 
@@ -1721,12 +1723,8 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         // check if we reached the end
         if (curr == end) {
             if (TCL_OK != tws_AddHeader(interp, headersPtr, multiValueHeadersPtr, keyPtr, valuePtr)) {
-                free(key);
-                free(value);
                 goto done;
             }
-            free(value);
-            free(key);
             break;
         }
 
@@ -1742,12 +1740,8 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         // check if we reached the end
         if (curr == end) {
             if (TCL_OK != tws_AddHeader(interp, headersPtr, multiValueHeadersPtr, keyPtr, valuePtr)) {
-                free(key);
-                free(value);
                 goto done;
             }
-            free(value);
-            free(key);
             break;
         }
 
@@ -1788,12 +1782,8 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         }
 
         if (TCL_OK != tws_AddHeader(interp, headersPtr, multiValueHeadersPtr, keyPtr, valuePtr)) {
-            free(key);
-            free(value);
             goto done;
         }
-        free(key);
-        free(value);
 
         // check if we reached a blank line
         if (curr + 1 < end && *curr == '\r' && *(curr + 1) == '\n') {
@@ -1811,7 +1801,7 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
     return TCL_OK;
 
     done:
-SetResult("headers parse error");
+    SetResult("headers parse error");
     return TCL_ERROR;
 }
 
