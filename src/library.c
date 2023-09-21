@@ -801,8 +801,14 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
 
 static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server_ctx, Tcl_Obj *const configDictPtr) {
     Tcl_Obj *maxRequestReadBytesPtr;
-    Tcl_DictObjGet(interp, configDictPtr, Tcl_NewStringObj("max_request_read_bytes", -1),
-                   &maxRequestReadBytesPtr);
+    Tcl_Obj *maxRequestReadBytesKeyPtr = Tcl_NewStringObj("max_request_read_bytes", -1);
+    Tcl_IncrRefCount(maxRequestReadBytesKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, maxRequestReadBytesKeyPtr, &maxRequestReadBytesPtr)) {
+        Tcl_DecrRefCount(maxRequestReadBytesKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(maxRequestReadBytesKeyPtr);
     if (maxRequestReadBytesPtr) {
         if (TCL_OK != Tcl_GetIntFromObj(interp, maxRequestReadBytesPtr, &server_ctx->max_request_read_bytes)) {
             SetResult("max_request_read_bytes must be an integer");
@@ -817,8 +823,14 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
 
     Tcl_Obj *maxReadBufferSizePtr;
-    Tcl_DictObjGet(interp, configDictPtr, Tcl_NewStringObj("max_read_buffer_size", -1),
-                   &maxReadBufferSizePtr);
+    Tcl_Obj *maxReadBufferSizeKeyPtr = Tcl_NewStringObj("max_read_buffer_size", -1);
+    Tcl_IncrRefCount(maxReadBufferSizeKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, maxReadBufferSizeKeyPtr, &maxReadBufferSizePtr)) {
+        Tcl_DecrRefCount(maxReadBufferSizeKeyPtr);
+        SetResult("error reading dict");
+        return TCL_OK;
+    }
+    Tcl_DecrRefCount(maxReadBufferSizeKeyPtr);
     if (maxReadBufferSizePtr) {
         if (TCL_OK != Tcl_GetIntFromObj(interp, maxReadBufferSizePtr, &server_ctx->max_read_buffer_size)) {
             SetResult("max_read_buffer_size must be an integer");
@@ -833,7 +845,14 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
 
     Tcl_Obj *backlogPtr;
-    Tcl_DictObjGet(interp, configDictPtr, Tcl_NewStringObj("backlog", -1), &backlogPtr);
+    Tcl_Obj *backlogKeyPtr = Tcl_NewStringObj("backlog", -1);
+    Tcl_IncrRefCount(backlogKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, backlogKeyPtr, &backlogPtr)) {
+        Tcl_DecrRefCount(backlogKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(backlogKeyPtr);
     if (backlogPtr) {
         if (TCL_OK != Tcl_GetIntFromObj(interp, backlogPtr, &server_ctx->backlog)) {
             SetResult("backlog must be an integer");
@@ -848,8 +867,14 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
 
     Tcl_Obj *maxConnLifetimeMillisPtr;
-    Tcl_DictObjGet(interp, configDictPtr, Tcl_NewStringObj("max_conn_lifetime_millis", -1),
-                   &maxConnLifetimeMillisPtr);
+    Tcl_Obj *maxConnLifetimeMillisKeyPtr = Tcl_NewStringObj("max_conn_lifetime_millis", -1);
+    Tcl_IncrRefCount(maxConnLifetimeMillisKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, maxConnLifetimeMillisKeyPtr,&maxConnLifetimeMillisPtr)) {
+        Tcl_DecrRefCount(maxConnLifetimeMillisKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(maxConnLifetimeMillisKeyPtr);
     if (maxConnLifetimeMillisPtr) {
         if (TCL_OK != Tcl_GetIntFromObj(interp, maxConnLifetimeMillisPtr, &server_ctx->max_conn_lifetime_millis)) {
             SetResult("max_conn_lifetime_millis must be an integer");
@@ -864,8 +889,14 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
 
     Tcl_Obj *garbageCollectionIntervalMillisPtr;
-    Tcl_DictObjGet(interp, configDictPtr, Tcl_NewStringObj("garbage_collection_interval_millis", -1),
-                   &garbageCollectionIntervalMillisPtr);
+    Tcl_Obj *garbageCollectionIntervalMillisKeyPtr = Tcl_NewStringObj("garbage_collection_interval_millis", -1);
+    Tcl_IncrRefCount(garbageCollectionIntervalMillisKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, garbageCollectionIntervalMillisKeyPtr,&garbageCollectionIntervalMillisPtr)) {
+        Tcl_DecrRefCount(garbageCollectionIntervalMillisKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(garbageCollectionIntervalMillisKeyPtr);
     if (garbageCollectionIntervalMillisPtr) {
         if (TCL_OK != Tcl_GetIntFromObj(interp, garbageCollectionIntervalMillisPtr, &server_ctx->garbage_collection_interval_millis)) {
             SetResult("garbage_collection_interval_millis must be an integer");
@@ -1102,37 +1133,57 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     //    Boolean isBase64Encoded;
 
     Tcl_Obj *statusCodePtr;
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("statusCode", -1), &statusCodePtr)) {
+    Tcl_Obj *statusCodeKeyPtr = Tcl_NewStringObj("statusCode", -1);
+    Tcl_IncrRefCount(statusCodeKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], statusCodeKeyPtr, &statusCodePtr)) {
+        Tcl_DecrRefCount(statusCodeKeyPtr);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
+    Tcl_DecrRefCount(statusCodeKeyPtr);
     if (!statusCodePtr) {
         SetResult("statusCode not found");
         return TCL_ERROR;
     }
     Tcl_Obj *headersPtr;
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("headers", -1), &headersPtr)) {
+    Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
+    Tcl_IncrRefCount(headersKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], headersKeyPtr, &headersPtr)) {
+        Tcl_DecrRefCount(headersKeyPtr);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
+    Tcl_DecrRefCount(headersKeyPtr);
 
     Tcl_Obj *multiValueHeadersPtr;
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("multiValueHeaders", -1), &multiValueHeadersPtr)) {
+    Tcl_Obj *multiValueHeadersKeyPtr = Tcl_NewStringObj("multiValueHeaders", -1);
+    Tcl_IncrRefCount(multiValueHeadersKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], multiValueHeadersKeyPtr, &multiValueHeadersPtr)) {
+        Tcl_DecrRefCount(multiValueHeadersKeyPtr);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
+    Tcl_DecrRefCount(multiValueHeadersKeyPtr);
 
     Tcl_Obj *bodyPtr;
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("body", -1), &bodyPtr)) {
+    Tcl_Obj *bodyKeyPtr = Tcl_NewStringObj("body", -1);
+    Tcl_IncrRefCount(bodyKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], bodyKeyPtr, &bodyPtr)) {
+        Tcl_DecrRefCount(bodyKeyPtr);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
+    Tcl_DecrRefCount(bodyKeyPtr);
 
     Tcl_Obj *isBase64EncodedPtr;
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], Tcl_NewStringObj("isBase64Encoded", -1), &isBase64EncodedPtr)) {
+    Tcl_Obj *isBase64EncodedKeyPtr = Tcl_NewStringObj("isBase64Encoded", -1);
+    Tcl_IncrRefCount(isBase64EncodedKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], isBase64EncodedKeyPtr, &isBase64EncodedPtr)) {
+        Tcl_DecrRefCount(isBase64EncodedKeyPtr);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
+    Tcl_DecrRefCount(isBase64EncodedKeyPtr);
 
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
@@ -1176,13 +1227,11 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         for (Tcl_DictObjFirst(interp, multiValueHeadersPtr, &search, &keyPtr, &valuePtr, &done);
              !done;
              Tcl_DictObjNext(&search, &keyPtr, &valuePtr, &done)) {
-            Tcl_Obj *listPtr;
-            Tcl_DictObjGet(interp, valuePtr, Tcl_NewStringObj("list", -1), &listPtr);
             Tcl_Obj *listKeyPtr;
             Tcl_Obj *listValuePtr;
             Tcl_DictSearch listSearch;
             int listDone;
-            for (Tcl_DictObjFirst(interp, listPtr, &listSearch, &listKeyPtr, &listValuePtr, &listDone);
+            for (Tcl_DictObjFirst(interp, valuePtr, &listSearch, &listKeyPtr, &listValuePtr, &listDone);
                  !listDone;
                  Tcl_DictObjNext(&listSearch, &listKeyPtr, &listValuePtr, &listDone)) {
                 Tcl_DStringAppend(&ds, "\r\n", 2);
@@ -1903,14 +1952,22 @@ static int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DStri
 
     // get "Content-Length" header
     Tcl_Obj *contentLengthPtr;
-    if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, Tcl_NewStringObj("content-length", -1), &contentLengthPtr)) {
+    Tcl_Obj *contentLengthKeyPtr = Tcl_NewStringObj("content-length", -1);
+    Tcl_IncrRefCount(contentLengthKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentLengthKeyPtr, &contentLengthPtr)) {
+        Tcl_DecrRefCount(contentLengthKeyPtr);
         return TCL_ERROR;
     }
+    Tcl_DecrRefCount(contentLengthKeyPtr);
 
     Tcl_Obj *contentTypePtr;
-    if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, Tcl_NewStringObj("content-type", -1), &contentTypePtr)) {
+    Tcl_Obj *contentTypeKeyPtr = Tcl_NewStringObj("content-type", -1);
+    Tcl_IncrRefCount(contentTypeKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentTypeKeyPtr, &contentTypePtr)) {
+        Tcl_DecrRefCount(contentTypeKeyPtr);
         return TCL_ERROR;
     }
+    Tcl_DecrRefCount(contentTypeKeyPtr);
 
     tws_ParseBody(interp, curr, end, dictPtr, contentLengthPtr, contentTypePtr);
 
@@ -2003,7 +2060,14 @@ static int tws_GzipAcceptEncoding(const char *accept_encoding, int accept_encodi
 
 static int tws_ParseConnectionKeepalive(Tcl_Interp *interp, Tcl_Obj *headersPtr, int *keepalive) {
     Tcl_Obj *connectionPtr;
-    Tcl_DictObjGet(interp, headersPtr, Tcl_NewStringObj("connection", -1), &connectionPtr);
+    Tcl_Obj *connectionKeyPtr = Tcl_NewStringObj("connection", -1);
+    Tcl_IncrRefCount(connectionKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, connectionKeyPtr, &connectionPtr)) {
+        Tcl_DecrRefCount(connectionKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(connectionKeyPtr);
     if (!connectionPtr) {
         return TCL_OK;
     }
@@ -2020,7 +2084,14 @@ static int tws_ParseAcceptEncoding(Tcl_Interp *interp, Tcl_Obj *headersPtr, tws_
     // parse "Accept-Encoding" header and set "compression" accordingly
 
     Tcl_Obj *acceptEncodingPtr;
-    Tcl_DictObjGet(interp, headersPtr, Tcl_NewStringObj("accept-encoding", -1), &acceptEncodingPtr);
+    Tcl_Obj *acceptEncodingKeyPtr = Tcl_NewStringObj("accept-encoding", -1);
+    Tcl_IncrRefCount(acceptEncodingKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, acceptEncodingKeyPtr, &acceptEncodingPtr)) {
+        Tcl_DecrRefCount(acceptEncodingKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(acceptEncodingKeyPtr);
     if (!acceptEncodingPtr) {
         *compression = NO_COMPRESSION;
         return TCL_OK;
@@ -2084,10 +2155,14 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     }
 
     Tcl_Obj *headersPtr;
-    if (TCL_OK != Tcl_DictObjGet(interp, resultPtr, Tcl_NewStringObj("headers", -1), &headersPtr)) {
+    Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
+    Tcl_IncrRefCount(headersKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, resultPtr, headersKeyPtr, &headersPtr)) {
+        Tcl_DecrRefCount(headersKeyPtr);
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
+    Tcl_DecrRefCount(headersKeyPtr);
 
     if (headersPtr) {
         if (TCL_OK != tws_ParseConnectionKeepalive(interp, headersPtr, &conn->keepalive)) {
