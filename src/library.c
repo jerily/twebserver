@@ -892,7 +892,10 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
         return TCL_ERROR;
     }
 
-    SSL_CTX_set_client_hello_cb(ctx, tws_ClientHelloCallback, NULL);
+    if (TCL_OK != configure_context(interp, ctx, "../certs/host1/key.pem", "../certs/host1/cert.pem")) {
+        return TCL_ERROR;
+    }
+    // SSL_CTX_set_client_hello_cb(ctx, tws_ClientHelloCallback, NULL);
     tws_server_t *server_ctx = (tws_server_t *) Tcl_Alloc(sizeof(tws_server_t));
     server_ctx->sslCtx = ctx;
     server_ctx->cmdPtr = Tcl_DuplicateObj(objv[2]);
