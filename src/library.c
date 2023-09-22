@@ -348,6 +348,15 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
     return TCL_OK;
 }
 
+long long current_time_in_millis() {
+    // get current tv
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    // convert tv to milliseconds
+    long long milliseconds = (tv.tv_sec * 1000LL) + (tv.tv_usec / 1000LL);
+    return milliseconds;
+}
+
 tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     SSL *ssl = SSL_new(server->sslCtx);
     if (ssl == NULL) {
@@ -365,12 +374,7 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     conn->created_file_handler_p = 0;
     conn->todelete = 0;
 
-    // get current tv
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    // convert tv to milliseconds
-    long long milliseconds = (tv.tv_sec * 1000LL) + (tv.tv_usec / 1000LL);
-    conn->latest_millis = milliseconds;
+    conn->latest_millis = current_time_in_millis();
 
     return conn;
 }
@@ -440,11 +444,7 @@ static void tws_CleanupConnections(ClientData clientData) {
     tws_server_t *server = (tws_server_t *) clientData;
     DBG(fprintf(stderr, "tws_CleanupConnections\n"));
 
-    // get time tv
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    // convert tv to milliseconds
-    long long milliseconds = (tv.tv_sec * 1000LL) + (tv.tv_usec / 1000LL);
+    long long milliseconds = current_time_in_millis();
 
     Tcl_HashEntry *entryPtr;
     Tcl_HashSearch search;
@@ -580,10 +580,7 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     DBG(fprintf(stderr, "tws_KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn_handle));
 
     // populate "conn->latest_millis"
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    long long milliseconds = (tv.tv_sec * 1000LL) + (tv.tv_usec / 1000LL);
-    conn->latest_millis = milliseconds;
+    conn->latest_millis = current_time_in_millis();
 
     tws_HandleConn(conn, conn_handle);
 }
