@@ -1287,6 +1287,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         body = Tcl_GetStringFromObj(bodyPtr, &body_length);
     }
 
+    Tcl_Obj *compressed = NULL;
     if (body_length > 0 && conn->compression == GZIP_COMPRESSION) {
         Tcl_Obj *baObj = Tcl_NewByteArrayObj(body, body_length);
         Tcl_IncrRefCount(baObj);
@@ -1301,13 +1302,12 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
             return TCL_ERROR;
         }
         Tcl_DecrRefCount(baObj);
-        Tcl_Obj *compressed = Tcl_GetObjResult(interp);
+        compressed = Tcl_GetObjResult(interp);
         Tcl_IncrRefCount(compressed);
         if (body_alloc) {
             Tcl_Free(body);
         }
         body = (char *) Tcl_GetByteArrayFromObj(compressed, &body_length);
-        Tcl_DecrRefCount(compressed);
         Tcl_ResetResult(interp);
     }
 
@@ -1326,9 +1326,14 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         Tcl_DStringAppend(&ds, body, body_length);
     }
 
-    if (body_alloc) {
+    if (compressed != NULL) {
+        Tcl_DecrRefCount(compressed);
+    } else if (body_alloc) {
+        // if "body" was allocated, free it
+        // if we used compression, "body" was freed above
         Tcl_Free((char *) body);
     }
+
 
     int reply_length = Tcl_DStringLength(&ds);
     const char *reply = Tcl_DStringValue(&ds);
