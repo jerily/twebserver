@@ -1331,7 +1331,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     Tcl_DStringFree(&ds);
 
     if (rc <= 0) {
-        DBG(fprintf(stderr, "SSL_write error (reply)\n"));
+        DBG(fprintf(stderr, "return_conn: SSL_write error (reply): %s\n", ssl_errors[SSL_get_error(conn->ssl, rc)]));
         tws_CloseConn(conn, conn_handle, 1);
         SetResult("return_conn: SSL_write error (reply)");
         return TCL_ERROR;
