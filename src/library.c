@@ -485,7 +485,6 @@ static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     tws_keepalive_event_t *keepaliveEvPtr = (tws_keepalive_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
     DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn conn=%p client=%d\n", conn, conn->client));
-    conn->created_file_handler_p = 1;
     Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
     return 1;
 }
@@ -507,6 +506,17 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
             if (!tws_UnregisterConnName(conn_handle)) {
                 DBG(fprintf(stderr, "already unregistered conn_handle=%s\n", conn_handle));
                 return TCL_ERROR;
+            }
+        } else {
+            if (!conn->created_file_handler_p) {
+                conn->created_file_handler_p = 1;
+                // notify the event loop to keep the connection alive
+                tws_keepalive_event_t *evPtr = (tws_keepalive_event_t *) Tcl_Alloc(sizeof(tws_keepalive_event_t));
+                evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
+                evPtr->nextPtr = NULL;
+                evPtr->clientData = (ClientData *) conn;
+                Tcl_ThreadQueueEvent(conn->server->thread_id, (Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+                Tcl_ThreadAlert(conn->server->thread_id);
             }
         }
     }
@@ -2207,16 +2217,6 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
             Tcl_DecrRefCount(resultPtr);
             Tcl_DStringFree(&ds);
             return TCL_ERROR;
-        }
-
-        if (conn->keepalive && !conn->created_file_handler_p) {
-            // notify the event loop to keep the connection alive
-            tws_keepalive_event_t *evPtr = (tws_keepalive_event_t *) Tcl_Alloc(sizeof(tws_keepalive_event_t));
-            evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
-            evPtr->nextPtr = NULL;
-            evPtr->clientData = (ClientData *) conn;
-            Tcl_ThreadQueueEvent(conn->server->thread_id, (Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-            Tcl_ThreadAlert(conn->server->thread_id);
         }
 
         if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
