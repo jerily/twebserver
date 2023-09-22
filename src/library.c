@@ -380,6 +380,7 @@ static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     tws_keepalive_event_t *keepaliveEvPtr = (tws_keepalive_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
     Tcl_DeleteFileHandler(conn->client);
+    conn->todelete = 1;
 //    SSL_free(conn->ssl);
 //    Tcl_Free((char *) conn);
     return 1;
