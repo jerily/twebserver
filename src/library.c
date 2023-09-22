@@ -2298,6 +2298,7 @@ static int tws_Base64EncodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
     char *output = Tcl_Alloc(input_length * 2);
     size_t output_length;
     if (base64_encode(input, input_length, output, &output_length)) {
+        Tcl_Free(output);
         SetResult("base64_encode failed");
         return TCL_ERROR;
     }
@@ -2307,7 +2308,7 @@ static int tws_Base64EncodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
 }
 
 static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "Base64EncodeCmd\n"));
+    DBG(fprintf(stderr, "Base64DecodeCmd\n"));
     CheckArgs(2, 2, 1, "base64_encoded_string");
 
     int input_length;
@@ -2316,6 +2317,7 @@ static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
     char *output = Tcl_Alloc(3 * input_length / 4 + 2);
     size_t output_length;
     if (base64_decode(input, input_length, output, &output_length)) {
+        Tcl_Free(output);
         SetResult("base64_decode failed");
         return TCL_ERROR;
     }
