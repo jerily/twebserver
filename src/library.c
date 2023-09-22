@@ -381,8 +381,6 @@ static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
     Tcl_DeleteFileHandler(conn->client);
     conn->todelete = 1;
-//    SSL_free(conn->ssl);
-//    Tcl_Free((char *) conn);
     return 1;
 }
 
@@ -945,11 +943,6 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     char handle[80];
     CMD_SERVER_NAME(handle, server_ctx);
     tws_RegisterServerName(handle, server_ctx);
-
-//    Tcl_CreateObjCommand(interp, handle,
-//                         (Tcl_ObjCmdProc *)  tws_ClientObjCmd,
-//                         NULL,
-//                         NULL);
 
     SetResult(handle);
     return TCL_OK;
