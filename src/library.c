@@ -72,7 +72,7 @@ typedef struct {
     int max_request_read_bytes;
     int max_read_buffer_size;
     int backlog;
-    int max_conn_lifetime_millis;
+    int conn_timeout_millis;
     int garbage_collection_interval_millis;
 } tws_server_t;
 
@@ -439,7 +439,7 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
 
 static void tws_CleanupConnections(ClientData clientData) {
     tws_server_t *server = (tws_server_t *) clientData;
-    fprintf(stderr, "tws_CleanupConnections\n");
+    DBG(fprintf(stderr, "tws_CleanupConnections\n"));
 
     // get time tv
     struct timeval tv;
@@ -456,20 +456,17 @@ static void tws_CleanupConnections(ClientData clientData) {
          entryPtr = Tcl_NextHashEntry(&search)) {
         tws_conn_t *conn = (tws_conn_t *) Tcl_GetHashValue(entryPtr);
         if (conn->todelete) {
-            fprintf(stderr, "tws_CleanupConnections - deleting conn - client: %d\n", conn->client);
+            DBG(fprintf(stderr, "tws_CleanupConnections - deleting conn - client: %d\n", conn->client));
 
-            char conn_handle[80];
-            CMD_CONN_NAME(conn_handle, conn);
-            tws_UnregisterConnName(conn_handle);
             SSL_free(conn->ssl);
             Tcl_Free((char *) conn);
             Tcl_DeleteHashEntry(entryPtr);
 
-            fprintf(stderr, "tws_CleanupConnections - deleted conn - client: %d\n", conn->client);
+            DBG(fprintf(stderr, "tws_CleanupConnections - deleted conn - client: %d\n", conn->client));
         } else {
             long long elapsed = milliseconds - conn->latest_millis;
-            if (elapsed > conn->server->max_conn_lifetime_millis) {
-                fprintf(stderr, "tws_CleanupConnections - mark connection for deletion\n");
+            if (elapsed > conn->server->conn_timeout_millis) {
+                DBG(fprintf(stderr, "tws_CleanupConnections - mark connection for deletion\n"));
 //                tws_ShutdownConn(conn, 2);
                 shutdown(conn->client, SHUT_RDWR);
                 close(conn->client);
@@ -479,7 +476,7 @@ static void tws_CleanupConnections(ClientData clientData) {
         }
         count++;
     }
-    fprintf(stderr, "reviewed count: %d marked_for_deletion: %d\n", count, count_mark_for_deletion);
+    DBG(fprintf(stderr, "reviewed count: %d marked_for_deletion: %d\n", count, count_mark_for_deletion));
     Tcl_MutexUnlock(&tws_ConnNameToInternal_HT_Mutex);
     Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, clientData);
 }
@@ -651,7 +648,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
     accept_ctx->interp = interp;
     server->accept_ctx = accept_ctx;
     Tcl_CreateFileHandler(sock, TCL_READABLE, tws_AcceptConn, server);
-    //Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, server);
+    Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, server);
     return TCL_OK;
 }
 
@@ -867,25 +864,25 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         return TCL_ERROR;
     }
 
-    Tcl_Obj *maxConnLifetimeMillisPtr;
-    Tcl_Obj *maxConnLifetimeMillisKeyPtr = Tcl_NewStringObj("max_conn_lifetime_millis", -1);
-    Tcl_IncrRefCount(maxConnLifetimeMillisKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, maxConnLifetimeMillisKeyPtr, &maxConnLifetimeMillisPtr)) {
-        Tcl_DecrRefCount(maxConnLifetimeMillisKeyPtr);
+    Tcl_Obj *connTimeoutMillisPtr;
+    Tcl_Obj *connTimeoutMillisKeyPtr = Tcl_NewStringObj("conn_timeout_millis", -1);
+    Tcl_IncrRefCount(connTimeoutMillisKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, connTimeoutMillisKeyPtr, &connTimeoutMillisPtr)) {
+        Tcl_DecrRefCount(connTimeoutMillisKeyPtr);
         SetResult("error reading dict");
         return TCL_ERROR;
     }
-    Tcl_DecrRefCount(maxConnLifetimeMillisKeyPtr);
-    if (maxConnLifetimeMillisPtr) {
-        if (TCL_OK != Tcl_GetIntFromObj(interp, maxConnLifetimeMillisPtr, &server_ctx->max_conn_lifetime_millis)) {
+    Tcl_DecrRefCount(connTimeoutMillisKeyPtr);
+    if (connTimeoutMillisPtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, connTimeoutMillisPtr, &server_ctx->conn_timeout_millis)) {
             SetResult("max_conn_lifetime_millis must be an integer");
             return TCL_ERROR;
         }
     }
 
     // check that max_conn_lifetime_millis is between 1 and 1 hour
-    if (server_ctx->max_conn_lifetime_millis < 1 || server_ctx->max_conn_lifetime_millis > 60 * 60 * 1000) {
-        SetResult("max_conn_lifetime_millis must be between 1 millisecond and 1 hour");
+    if (server_ctx->conn_timeout_millis < 1 || server_ctx->conn_timeout_millis > 60 * 60 * 1000) {
+        SetResult("conn_timeout_millis must be between 1 millisecond and 1 hour");
         return TCL_ERROR;
     }
 
@@ -934,9 +931,8 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->max_request_read_bytes = 10 * 1024 * 1024;
     server_ctx->max_read_buffer_size = 1024 * 1024;
     server_ctx->backlog = 1024;
-//    server_ctx->max_conn_timeout = 10 * 1000;  // 10 seconds
-    server_ctx->max_conn_lifetime_millis = 30 * 1000;  // 30 seconds
-    server_ctx->garbage_collection_interval_millis = 10 * 1000;  // 10 seconds
+    server_ctx->conn_timeout_millis = 15 * 60 * 1000;  // 15 minutes
+    server_ctx->garbage_collection_interval_millis = 60 * 1000;  // 60 seconds
     server_ctx->accept_ctx = NULL;
     server_ctx->thread_id = Tcl_GetCurrentThread();
 
@@ -1546,7 +1542,9 @@ static int
 tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Obj *queryStringPtr, Tcl_Obj *resultPtr) {
     // parse "query_string" into "queryStringParameters" given that it is of the form "key1=value1&key2=value2&..."
     Tcl_Obj *queryStringParametersPtr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(queryStringParametersPtr);
     Tcl_Obj *multiValueQueryStringParametersPtr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(multiValueQueryStringParametersPtr);
     int query_string_length;
     const char *query_string = Tcl_GetStringFromObj(queryStringPtr, &query_string_length);
     const char *p = query_string;
@@ -1558,6 +1556,8 @@ tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Ob
             p++;
         }
         if (p == end) {
+            Tcl_DecrRefCount(multiValueQueryStringParametersPtr);
+            Tcl_DecrRefCount(queryStringParametersPtr);
             SetResult("query string parse error");
             return TCL_ERROR;
         }
@@ -1570,6 +1570,8 @@ tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Ob
                 tws_AddQueryStringParameter(interp, encoding, queryStringParametersPtr,
                                             multiValueQueryStringParametersPtr, key,
                                             value, p - value)) {
+                Tcl_DecrRefCount(multiValueQueryStringParametersPtr);
+                Tcl_DecrRefCount(queryStringParametersPtr);
                 SetResult("query string parse error");
                 return TCL_ERROR;
             }
@@ -1579,6 +1581,8 @@ tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Ob
             tws_AddQueryStringParameter(interp, encoding, queryStringParametersPtr, multiValueQueryStringParametersPtr,
                                         key,
                                         value, p - value)) {
+            Tcl_DecrRefCount(multiValueQueryStringParametersPtr);
+            Tcl_DecrRefCount(queryStringParametersPtr);
             SetResult("query string parse error");
             return TCL_ERROR;
         }
@@ -1587,6 +1591,8 @@ tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Ob
     Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryStringParameters", -1), queryStringParametersPtr);
     Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("multiValueQueryStringParameters", -1),
                    multiValueQueryStringParametersPtr);
+    Tcl_DecrRefCount(multiValueQueryStringParametersPtr);
+    Tcl_DecrRefCount(queryStringParametersPtr);
     return TCL_OK;
 }
 
@@ -1954,8 +1960,12 @@ static int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DStri
     }
 
     Tcl_Obj *headersPtr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(headersPtr);
     Tcl_Obj *multiValueHeadersPtr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(multiValueHeadersPtr);
     if (TCL_OK != tws_ParseHeaders(interp, &curr, end, headersPtr, multiValueHeadersPtr)) {
+        Tcl_DecrRefCount(multiValueHeadersPtr);
+        Tcl_DecrRefCount(headersPtr);
         return TCL_ERROR;
     }
     Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("headers", -1), headersPtr);
@@ -1966,6 +1976,8 @@ static int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DStri
     Tcl_Obj *contentLengthKeyPtr = Tcl_NewStringObj("content-length", -1);
     Tcl_IncrRefCount(contentLengthKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentLengthKeyPtr, &contentLengthPtr)) {
+        Tcl_DecrRefCount(multiValueHeadersPtr);
+        Tcl_DecrRefCount(headersPtr);
         Tcl_DecrRefCount(contentLengthKeyPtr);
         return TCL_ERROR;
     }
@@ -1975,10 +1987,15 @@ static int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DStri
     Tcl_Obj *contentTypeKeyPtr = Tcl_NewStringObj("content-type", -1);
     Tcl_IncrRefCount(contentTypeKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentTypeKeyPtr, &contentTypePtr)) {
+        Tcl_DecrRefCount(multiValueHeadersPtr);
+        Tcl_DecrRefCount(headersPtr);
         Tcl_DecrRefCount(contentTypeKeyPtr);
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(contentTypeKeyPtr);
+
+    Tcl_DecrRefCount(multiValueHeadersPtr);
+    Tcl_DecrRefCount(headersPtr);
 
     tws_ParseBody(interp, curr, end, dictPtr, contentLengthPtr, contentTypePtr);
 
@@ -2005,12 +2022,14 @@ static int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int ob
     Tcl_DStringInit(&ds);
     Tcl_DStringAppend(&ds, request, length);
     Tcl_Obj *resultPtr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(resultPtr);
     if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, resultPtr)) {
+        Tcl_DecrRefCount(resultPtr);
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
-
     Tcl_SetObjResult(interp, resultPtr);
+    Tcl_DecrRefCount(resultPtr);
     Tcl_DStringFree(&ds);
     return TCL_OK;
 
@@ -2160,7 +2179,9 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
         return TCL_ERROR;
     }
     Tcl_Obj *resultPtr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(resultPtr);
     if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, resultPtr)) {
+        Tcl_DecrRefCount(resultPtr);
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
@@ -2170,6 +2191,7 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     Tcl_IncrRefCount(headersKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, resultPtr, headersKeyPtr, &headersPtr)) {
         Tcl_DecrRefCount(headersKeyPtr);
+        Tcl_DecrRefCount(resultPtr);
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
@@ -2177,6 +2199,7 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
 
     if (headersPtr) {
         if (TCL_OK != tws_ParseConnectionKeepalive(interp, headersPtr, &conn->keepalive)) {
+            Tcl_DecrRefCount(resultPtr);
             Tcl_DStringFree(&ds);
             return TCL_ERROR;
         }
@@ -2192,12 +2215,14 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
         }
 
         if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
+            Tcl_DecrRefCount(resultPtr);
             Tcl_DStringFree(&ds);
             return TCL_ERROR;
         }
     }
 
     Tcl_SetObjResult(interp, resultPtr);
+    Tcl_DecrRefCount(resultPtr);
     Tcl_DStringFree(&ds);
     return TCL_OK;
 }
