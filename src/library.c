@@ -1288,8 +1288,11 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     }
 
     if (body_length > 0 && conn->compression == GZIP_COMPRESSION) {
-        if (Tcl_ZlibDeflate(interp, TCL_ZLIB_FORMAT_GZIP, Tcl_NewByteArrayObj(body, body_length),
+        Tcl_Obj *baObj = Tcl_NewByteArrayObj(body, body_length);
+        Tcl_IncrRefCount(baObj);
+        if (Tcl_ZlibDeflate(interp, TCL_ZLIB_FORMAT_GZIP, baObj,
                             TCL_ZLIB_COMPRESS_FAST, NULL)) {
+            Tcl_DecrRefCount(baObj);
             Tcl_DStringFree(&ds);
             if (body_alloc) {
                 Tcl_Free(body);
@@ -1297,8 +1300,15 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
             SetResult("gzip compression error");
             return TCL_ERROR;
         }
+        Tcl_DecrRefCount(baObj);
         Tcl_Obj *compressed = Tcl_GetObjResult(interp);
+        Tcl_IncrRefCount(compressed);
+        if (body_alloc) {
+            Tcl_Free(body);
+        }
         body = (char *) Tcl_GetByteArrayFromObj(compressed, &body_length);
+        Tcl_DecrRefCount(compressed);
+        Tcl_ResetResult(interp);
     }
 
     Tcl_Obj *contentLengthPtr = Tcl_NewIntObj(body_length);
