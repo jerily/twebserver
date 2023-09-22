@@ -18,13 +18,15 @@ proc process_request {request_dict} {
 }
 
 proc process_conn {conn addr port} {
-    if { [catch {
-        set request_dict [::twebserver::parse_conn $conn]
+    #::twebserver::read_conn $conn
+    set request_dict [::twebserver::parse_conn $conn]
+    if { 0 && [catch {
         set response_dict [process_request $request_dict]
         ::twebserver::return_conn $conn $response_dict
     } errmsg] } {
         puts "error: $errmsg"
     }
+    ::twebserver::write_conn $conn "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
     ::twebserver::close_conn $conn
 }
 
