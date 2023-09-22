@@ -1315,12 +1315,11 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     Tcl_IncrRefCount(contentLengthPtr);
     int content_length_str_len;
     const char *content_length_str = Tcl_GetStringFromObj(contentLengthPtr, &content_length_str_len);
-    Tcl_DecrRefCount(contentLengthPtr);
-
     Tcl_DStringAppend(&ds, "\r\n", 2);
     Tcl_DStringAppend(&ds, "Content-Length: ", 16);
     Tcl_DStringAppend(&ds, content_length_str, content_length_str_len);
     Tcl_DStringAppend(&ds, "\r\n\r\n", 4);
+    Tcl_DecrRefCount(contentLengthPtr);
 
     if (body_length > 0) {
         Tcl_DStringAppend(&ds, body, body_length);
