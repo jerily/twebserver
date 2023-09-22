@@ -83,9 +83,17 @@ typedef enum tws_CompressionMethod {
 } tws_compression_method_t;
 
 typedef struct {
+    Tcl_EventProc *proc;    /* Function to call to service this event. */
+    Tcl_Event *nextPtr;    /* Next in list of pending events, or NULL. */
+    ClientData *clientData; // The pointer to the client data
+} tws_keepalive_event_t;
+
+typedef struct {
     tws_server_t *server;
     SSL *ssl;
     int client;
+    tws_keepalive_event_t *createHandlerEvPtr;
+    tws_keepalive_event_t *deleteHandlerEvPtr;
     long long latest_millis;
     // refactor the following into a flags field
     tws_compression_method_t compression;
@@ -93,12 +101,6 @@ typedef struct {
     int created_file_handler_p;
     int todelete;
 } tws_conn_t;
-
-typedef struct {
-    Tcl_EventProc *proc;    /* Function to call to service this event. */
-    Tcl_Event *nextPtr;    /* Next in list of pending events, or NULL. */
-    ClientData *clientData; // The pointer to the client data
-} tws_keepalive_event_t;
 
 static const char *ssl_errors[] = {
         "SSL_ERROR_NONE",
@@ -357,6 +359,27 @@ long long current_time_in_millis() {
     return milliseconds;
 }
 
+static void tws_KeepaliveConnHandler(void *data, int mask);
+
+static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
+    DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn\n"));
+    tws_keepalive_event_t *keepaliveEvPtr = (tws_keepalive_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
+    DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn conn=%p client=%d\n", conn, conn->client));
+    conn->created_file_handler_p = 1;
+    Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
+    return 1;
+}
+
+static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
+    DBG(fprintf(stderr, "tws_DeleteFileHandlerForKeepaliveConn\n"));
+    tws_keepalive_event_t *keepaliveEvPtr = (tws_keepalive_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
+    Tcl_DeleteFileHandler(conn->client);
+    conn->todelete = 1;
+    return 1;
+}
+
 tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     SSL *ssl = SSL_new(server->sslCtx);
     if (ssl == NULL) {
@@ -374,21 +397,22 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     conn->created_file_handler_p = 0;
     conn->todelete = 0;
 
+    tws_keepalive_event_t *createHandlerEvPtr = (tws_keepalive_event_t *) Tcl_Alloc(sizeof(tws_keepalive_event_t));
+    createHandlerEvPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
+    createHandlerEvPtr->nextPtr = NULL;
+    createHandlerEvPtr->clientData = (ClientData *) conn;
+    conn->createHandlerEvPtr = createHandlerEvPtr;
+
+    tws_keepalive_event_t *deleteHandlerEvPtr = (tws_keepalive_event_t *) Tcl_Alloc(sizeof(tws_keepalive_event_t));
+    deleteHandlerEvPtr->proc = tws_DeleteFileHandlerForKeepaliveConn;
+    deleteHandlerEvPtr->nextPtr = NULL;
+    deleteHandlerEvPtr->clientData = (ClientData *) conn;
+    conn->deleteHandlerEvPtr = deleteHandlerEvPtr;
+
     conn->latest_millis = current_time_in_millis();
 
     return conn;
 }
-
-static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
-    DBG(fprintf(stderr, "tws_DeleteFileHandlerForKeepaliveConn\n"));
-    tws_keepalive_event_t *keepaliveEvPtr = (tws_keepalive_event_t *) evPtr;
-    tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
-    Tcl_DeleteFileHandler(conn->client);
-    conn->todelete = 1;
-    return 1;
-}
-
-static void tws_KeepaliveConnHandler(void *data, int mask);
 
 static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     int shutdown_client = 1;
@@ -425,15 +449,15 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
 //        Tcl_DeleteFileHandler(conn->client);
 
         // notify the event loop to delete the file handler for keepalive
-        tws_keepalive_event_t *evPtr = (tws_keepalive_event_t *) Tcl_Alloc(sizeof(tws_keepalive_event_t));
-        evPtr->proc = tws_DeleteFileHandlerForKeepaliveConn;
-        evPtr->nextPtr = NULL;
-        evPtr->clientData = (ClientData *) conn;
-        Tcl_ThreadQueueEvent(conn->server->thread_id, (Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+        Tcl_ThreadQueueEvent(conn->server->thread_id, (Tcl_Event *) conn->deleteHandlerEvPtr, TCL_QUEUE_TAIL);
         Tcl_ThreadAlert(conn->server->thread_id);
     }
 
     if (!conn->keepalive) {
+        Tcl_Free((char *) conn->createHandlerEvPtr);
+        conn->createHandlerEvPtr = NULL;
+        Tcl_Free((char *) conn->deleteHandlerEvPtr);
+        conn->deleteHandlerEvPtr = NULL;
         SSL_free(conn->ssl);
         Tcl_Free((char *) conn);
     }
@@ -480,16 +504,6 @@ static void tws_CleanupConnections(ClientData clientData) {
     Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, clientData);
 }
 
-static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
-    DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn\n"));
-    tws_keepalive_event_t *keepaliveEvPtr = (tws_keepalive_event_t *) evPtr;
-    tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
-    DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn conn=%p client=%d\n", conn, conn->client));
-    conn->created_file_handler_p = 1;
-    Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
-    return 1;
-}
-
 int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
     DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force,
                 conn->keepalive, conn->created_file_handler_p));
@@ -507,6 +521,12 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
             if (!tws_UnregisterConnName(conn_handle)) {
                 DBG(fprintf(stderr, "already unregistered conn_handle=%s\n", conn_handle));
                 return TCL_ERROR;
+            }
+        } else {
+            if (conn->keepalive && !conn->created_file_handler_p) {
+                // notify the event loop to keep the connection alive
+                Tcl_ThreadQueueEvent(conn->server->thread_id, (Tcl_Event *) conn->createHandlerEvPtr, TCL_QUEUE_TAIL);
+                Tcl_ThreadAlert(conn->server->thread_id);
             }
         }
     }
@@ -2207,16 +2227,6 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
             Tcl_DecrRefCount(resultPtr);
             Tcl_DStringFree(&ds);
             return TCL_ERROR;
-        }
-
-        if (conn->keepalive && !conn->created_file_handler_p) {
-            // notify the event loop to keep the connection alive
-            tws_keepalive_event_t *evPtr = (tws_keepalive_event_t *) Tcl_Alloc(sizeof(tws_keepalive_event_t));
-            evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
-            evPtr->nextPtr = NULL;
-            evPtr->clientData = (ClientData *) conn;
-            Tcl_ThreadQueueEvent(conn->server->thread_id, (Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-            Tcl_ThreadAlert(conn->server->thread_id);
         }
 
         if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
