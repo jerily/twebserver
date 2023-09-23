@@ -1428,6 +1428,21 @@ static int tws_CloseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     return TCL_OK;
 }
 
+static int tws_KeepaliveConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "KeepaliveConnCmd\n"));
+    CheckArgs(2, 2, 1, "handle");
+
+    const char *conn_handle = Tcl_GetString(objv[1]);
+    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
+    if (!conn) {
+        DBG(fprintf(stderr, "conn handle not found\n"));
+        SetResult("close_conn: conn handle not found");
+        return TCL_ERROR;
+    }
+    conn->keepalive = 1;
+    return TCL_OK;
+}
+
 static int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "InfoConnCmd\n"));
     CheckArgs(2, 2, 1, "conn_handle");
@@ -2439,6 +2454,7 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::write_conn", tws_WriteConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::return_conn", tws_ReturnConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::close_conn", tws_CloseConnCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::keepalive_conn", tws_KeepaliveConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::info_conn", tws_InfoConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::parse_request", tws_ParseRequestCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::parse_conn", tws_ParseConnCmd, NULL, NULL);
