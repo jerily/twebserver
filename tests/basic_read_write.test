@@ -1,0 +1,74 @@
+package require tcltest
+package require twebserver
+
+namespace import -force ::tcltest::test
+
+::tcltest::configure {*}$argv
+
+set server_file "setup_server_echo.tcl"
+set server_port 12345
+set client_port 54321
+set control_port 11111
+set dir [file dirname [info script]]
+
+proc setup {} {
+    global server_pid
+    global dir
+    global server_file
+    set server_pid [exec -ignorestderr -- tclsh [file join $dir ${server_file}] &]
+}
+
+proc cleanup {} {
+    global control_port
+    set sock [socket localhost $control_port]
+    close $sock
+}
+
+proc escape {str} {
+    return [string map {\r {\r} \n {\n}} $str]
+}
+
+proc sleep {ms} {
+    after $ms [list set ::sleep 1]
+    vwait ::sleep
+    unset ::sleep
+}
+
+test basic-1 {simple tls1_3 openssl s_client request} -setup setup -cleanup cleanup -body {
+    global cmd
+    set request "GET / HTTP/1.1\n\n"
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
+    escape $response
+} -result {GET / HTTP/1.1\n\n}
+
+sleep 100
+
+test basic-2 {simple tls1_2 openssl s_client request} -setup setup -cleanup cleanup -body {
+    global cmd
+    set request "GET /example HTTP/1.1\n\n"
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_2 << $request 2> /dev/null]
+    escape $response
+} -result {GET /example HTTP/1.1\n\n}
+
+sleep 100
+
+test basic-3 {whatever request} -setup setup -cleanup cleanup -body {
+    global cmd
+    set request "whatever"
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_2 << $request 2> /dev/null]
+    escape $response
+} -result {whatever}
+
+sleep 100
+
+# Reconnects to the same server 5 times using the same session ID, this can be used as a test that session caching is working.
+test basic-4 {reconnect} -setup setup -cleanup cleanup -body {
+    global cmd
+    set request "whatever"
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -reconnect << $request 2> /dev/null]
+    escape $response
+} -result {whatever}
