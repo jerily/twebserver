@@ -157,6 +157,11 @@ gohttpbench -v 10 -n 100000 -c 10 -t 10 "https://localhost:4433/example?a=1&b=2"
   ```tcl
   ::twebserver::write_conn $conn $response
   ```
+* **::twebserver::keepalive_conn** *conn*
+  - marks the connection as keep-alive, low-level command, can be used when **::twebserver::parse_conn** is not used
+  ```tcl
+  ::twebserver::keepalive_conn $conn
+  ```
 * **::twebserver::close_conn** *conn* *?force_shutdown?*
     - closes a connection unless it is marked as keep-alive,
       force_shutdown will force the connection to close no matter what
