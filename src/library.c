@@ -401,19 +401,16 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
             shutdown_client = 0;
             rc = SSL_shutdown(conn->ssl);
             DBG(fprintf(stderr, "second SSL_shutdown rc: %d\n", rc));
-        } else if (rc < 0) {
-            int sslerr = SSL_get_error(conn->ssl, rc);
-            DBG(fprintf(stderr, "SSL_get_error after first SSL_shutdown: %s\n", ssl_errors[sslerr]));
         }
     }
     DBG(fprintf(stderr, "shutdown_client: %d\n", shutdown_client));
     if (shutdown_client) {
-//        shutdown(conn->client, SHUT_WR);
-//        shutdown(conn->client, SHUT_RD);
         if (shutdown(conn->client, SHUT_RDWR)) {
-            int error;
-            getsockopt(conn->client, SOL_SOCKET, SO_ERROR, &error, &(socklen_t) {sizeof(error)});
-            DBG(fprintf(stderr, "failed to shutdown client: %d error=%d\n", conn->client, error));
+            DBG(
+                int error;
+                getsockopt(conn->client, SOL_SOCKET, SO_ERROR, &error, &(socklen_t) {sizeof(error)});
+                fprintf(stderr, "failed to shutdown client: %d error=%d\n", conn->client, error)
+                );
         }
     }
     if (close(conn->client)) {
