@@ -11,27 +11,30 @@ set client_port 54321
 set control_port 11111
 set dir [file dirname [info script]]
 
+proc sleep {ms} {
+    after $ms [list set ::sleep 1]
+    vwait ::sleep
+    unset ::sleep
+}
+
 proc setup {} {
     global server_pid
     global dir
     global server_file
     set server_pid [exec -ignorestderr -- tclsh [file join $dir ${server_file}] &]
+    sleep 100
 }
 
 proc cleanup {} {
-    global control_port
-    set sock [socket localhost $control_port]
-    close $sock
+    global server_pid
+    exec -ignorestderr -- kill $server_pid 2> /dev/null
+    #global control_port
+    #set sock [socket localhost $control_port]
+    #close $sock
 }
 
 proc escape {str} {
     return [string map {\r {\r} \n {\n}} $str]
-}
-
-proc sleep {ms} {
-    after $ms [list set ::sleep 1]
-    vwait ::sleep
-    unset ::sleep
 }
 
 test basic-1 {simple tls1_3 openssl s_client request} -setup setup -cleanup cleanup -body {
@@ -65,10 +68,32 @@ test basic-3 {whatever request} -setup setup -cleanup cleanup -body {
 sleep 100
 
 # Reconnects to the same server 5 times using the same session ID, this can be used as a test that session caching is working.
-test basic-4 {reconnect} -setup setup -cleanup cleanup -body {
+test session-resumption-tls1_2 {reconnect with tls1.2} -setup setup -cleanup cleanup -body {
     global cmd
     set request "whatever"
-    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
-    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -reconnect << $request 2> /dev/null]
-    escape $response
-} -result {whatever}
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -tls1_2 -reconnect"
+    set msg [exec -ignorestderr -keepnewline -- {*}${cmd} << $request 2> /dev/null]
+    set index [string first "Reused, TLSv1.2" $msg]
+    return [expr { $index != -1 }]
+} -result {1}
+
+sleep 100
+
+test session-resumption-tls1_3 {session resumption with tls1.3} -setup setup -cleanup cleanup -body {
+    global cmd
+    set request "whatever"
+
+    file delete -force /tmp/sess.pem
+
+    # openssl s_client -connect localhost:4433 -servername localhost -sess_out sess.pem -tls1_3
+    set cmd1 "openssl s_client -connect localhost:${server_port} -servername localhost -tls1_3 -quiet -sess_out /tmp/sess.pem"
+    set msg1 [exec -ignorestderr -keepnewline -- {*}${cmd1} << $request 2> /dev/null]
+
+    # openssl s_client -connect localhost:4433 -servername localhost -tls1_3 -sess_in sess.pem
+    set cmd2 "openssl s_client -connect localhost:${server_port} -servername localhost -tls1_3 -sess_in /tmp/sess.pem"
+    set msg2 [exec -ignorestderr -keepnewline -- {*}${cmd2} << $request 2> /dev/null]
+    file delete -force /tmp/sess.pem
+
+    set index [string first "Reused, TLSv1.3" $msg2]
+    return [expr { $index != -1 }]
+} -result {1}

@@ -24,14 +24,5 @@ set server_handle [::twebserver::create_server $config_dict process_conn]
 #after 100 [list puts "event loop works fine"]
 ::twebserver::listen_server $server_handle $server_port
 
-proc accept {chan addr port} {
-    global forever
-    set forever 1
-    close $chan
-}
-
-set sock [socket -server accept 11111]
-
 vwait forever
-::twebserver::destroy_server $server_handle
-close $sock
+#::twebserver::destroy_server $server_handle
