@@ -74,6 +74,9 @@ typedef struct {
     int backlog;
     int conn_timeout_millis;
     int garbage_collection_interval_millis;
+    int keepalive;  // whether keepalive is on or off
+    int keepidle;   // the time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes
+    int keepintvl;  // the time (in seconds) between individual keepalive probes
 } tws_server_t;
 
 typedef enum tws_CompressionMethod {
@@ -310,21 +313,20 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
         DBG(fprintf(stderr, "setsockopt SO_REUSEADDR failed"));
     }
 
-    int keepalive = 1;
-    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive))) {
-        DBG(fprintf(stderr, "setsockopt SO_KEEPALIVE failed"));
-    }
+    if (server->keepalive) {
+        if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &server->keepalive, sizeof(int))) {
+            DBG(fprintf(stderr, "setsockopt SO_KEEPALIVE failed"));
+        }
 
-    // Set the TCP_KEEPIDLE option on the socket
-    int idle = 10;  // The time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes
-    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(int)) == -1) {
-        DBG(fprintf(stderr, "setsockopt TCP_KEEPIDLE failed"));
-    }
+        // Set the TCP_KEEPIDLE option on the socket
+        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &server->keepidle, sizeof(int)) == -1) {
+            DBG(fprintf(stderr, "setsockopt TCP_KEEPIDLE failed"));
+        }
 
-    // Set the TCP_KEEPINTVL option on the socket
-    int interval = 5;  // The time (in seconds) between individual keepalive probes
-    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(int)) == -1) {
-        DBG(fprintf(stderr, "setsockopt TCP_KEEPINTVL failed"));
+        // Set the TCP_KEEPINTVL option on the socket
+        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &server->keepintvl, sizeof(int)) == -1) {
+            DBG(fprintf(stderr, "setsockopt TCP_KEEPINTVL failed"));
+        }
     }
 
     // Set the TCP_KEEPCNT option on the socket
@@ -914,6 +916,58 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         return TCL_ERROR;
     }
 
+    // read keepalive flag
+    Tcl_Obj *keepalivePtr;
+    Tcl_Obj *keepaliveKeyPtr = Tcl_NewStringObj("keepalive", -1);
+    Tcl_IncrRefCount(keepaliveKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, keepaliveKeyPtr,
+                                 &keepalivePtr)) {
+        Tcl_DecrRefCount(keepaliveKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(keepaliveKeyPtr);
+    if (keepalivePtr) {
+        if (TCL_OK != Tcl_GetBooleanFromObj(interp, keepalivePtr,&server_ctx->keepalive)) {
+            SetResult("keepalive must be a boolean");
+            return TCL_ERROR;
+        }
+    }
+
+    // read "keepidle" int option
+    Tcl_Obj *keepidlePtr;
+    Tcl_Obj *keepidleKeyPtr = Tcl_NewStringObj("keepidle", -1);
+    Tcl_IncrRefCount(keepidleKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, keepidleKeyPtr,&keepidlePtr)) {
+        Tcl_DecrRefCount(keepidleKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(keepidleKeyPtr);
+    if (keepidlePtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, keepidlePtr,&server_ctx->keepidle)) {
+            SetResult("keepidle must be an integer");
+            return TCL_ERROR;
+        }
+    }
+
+    // read "keepintvl" int option
+    Tcl_Obj *keepintvlPtr;
+    Tcl_Obj *keepintvlKeyPtr = Tcl_NewStringObj("keepintvl", -1);
+    Tcl_IncrRefCount(keepintvlKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, keepintvlKeyPtr,&keepintvlPtr)) {
+        Tcl_DecrRefCount(keepintvlKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(keepintvlKeyPtr);
+    if (keepintvlPtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, keepintvlPtr,&server_ctx->keepintvl)) {
+            SetResult("keepintvl must be an integer");
+            return TCL_ERROR;
+        }
+    }
+
     return TCL_OK;
 }
 
@@ -931,13 +985,18 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->sslCtx = ctx;
     server_ctx->cmdPtr = Tcl_DuplicateObj(objv[2]);
     Tcl_IncrRefCount(server_ctx->cmdPtr);
+    server_ctx->accept_ctx = NULL;
+    server_ctx->thread_id = Tcl_GetCurrentThread();
+
+    // configuration
     server_ctx->max_request_read_bytes = 10 * 1024 * 1024;
     server_ctx->max_read_buffer_size = 1024 * 1024;
     server_ctx->backlog = 1024;
     server_ctx->conn_timeout_millis = 15 * 60 * 1000;  // 15 minutes
     server_ctx->garbage_collection_interval_millis = 60 * 1000;  // 60 seconds
-    server_ctx->accept_ctx = NULL;
-    server_ctx->thread_id = Tcl_GetCurrentThread();
+    server_ctx->keepalive = 1;
+    server_ctx->keepidle = 10;
+    server_ctx->keepintvl = 5;
 
     if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ctx, objv[1])) {
         Tcl_Free((char *) server_ctx);
