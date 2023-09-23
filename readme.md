@@ -104,7 +104,7 @@ gohttpbench -v 10 -n 100000 -c 10 -t 10 "https://localhost:4433/example?a=1&b=2"
 ## TCL Commands
 
 * **::twebserver::create_server** *config_dict* *request_processor_proc*
-    - returns a handle to a server
+    - returns a handle to a server, see [docs/config.md](docs/config.md) for configuration parameters
   ```tcl
   set server_handle [::twebserver::create_server [dict create] process_conn]
   ```

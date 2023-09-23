@@ -77,6 +77,7 @@ typedef struct {
     int keepalive;  // whether keepalive is on or off
     int keepidle;   // the time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes
     int keepintvl;  // the time (in seconds) between individual keepalive probes
+    int keepcnt;    // The maximum number of keepalive probes TCP should send before dropping the connection
 } tws_server_t;
 
 typedef enum tws_CompressionMethod {
@@ -327,12 +328,11 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
         if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &server->keepintvl, sizeof(int)) == -1) {
             DBG(fprintf(stderr, "setsockopt TCP_KEEPINTVL failed"));
         }
-    }
 
-    // Set the TCP_KEEPCNT option on the socket
-    int maxpkt = 3;  // The maximum number of keepalive probes TCP should send before dropping the connection
-    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &maxpkt, sizeof(int)) == -1) {
-        DBG(fprintf(stderr, "setsockopt TCP_KEEPCNT failed"));
+        // Set the TCP_KEEPCNT option on the socket
+        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &server->keepcnt, sizeof(int)) == -1) {
+            DBG(fprintf(stderr, "setsockopt TCP_KEEPCNT failed"));
+        }
     }
 
     if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
@@ -968,6 +968,23 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         }
     }
 
+    // read "keepcnt" int option
+    Tcl_Obj *keepcntPtr;
+    Tcl_Obj *keepcntKeyPtr = Tcl_NewStringObj("keepcnt", -1);
+    Tcl_IncrRefCount(keepcntKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, keepcntKeyPtr,&keepcntPtr)) {
+        Tcl_DecrRefCount(keepcntKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(keepcntKeyPtr);
+    if (keepcntPtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, keepcntPtr,&server_ctx->keepcnt)) {
+            SetResult("keepcnt must be an integer");
+            return TCL_ERROR;
+        }
+    }
+
     return TCL_OK;
 }
 
@@ -997,6 +1014,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->keepalive = 1;
     server_ctx->keepidle = 10;
     server_ctx->keepintvl = 5;
+    server_ctx->keepcnt = 3;
 
     if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ctx, objv[1])) {
         Tcl_Free((char *) server_ctx);
