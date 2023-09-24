@@ -70,7 +70,7 @@ typedef struct {
     Tcl_Obj *scriptPtr;
     tws_accept_ctx_t *accept_ctx;
     Tcl_ThreadId thread_id;
-    Tcl_ThreadId conn_thread_ids[10];
+    Tcl_ThreadId **conn_thread_ids;
     int max_request_read_bytes;
     int max_read_buffer_size;
     int backlog;
@@ -80,6 +80,7 @@ typedef struct {
     int keepidle;   // the time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes
     int keepintvl;  // the time (in seconds) between individual keepalive probes
     int keepcnt;    // The maximum number of keepalive probes TCP should send before dropping the connection
+    int num_threads; // number of threads to handle connections
 } tws_server_t;
 
 typedef enum tws_CompressionMethod {
@@ -293,6 +294,9 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     if (server->accept_ctx != NULL) {
         Tcl_DeleteFileHandler(server->accept_ctx->sock);
         Tcl_Free((char *) server->accept_ctx);
+    }
+    if (server->conn_thread_ids != NULL) {
+        Tcl_Free((char *) server->conn_thread_ids);
     }
     Tcl_DecrRefCount(server->cmdPtr);
     Tcl_DecrRefCount(server->scriptPtr);
@@ -642,7 +646,7 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
 }
 
 static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
-    Tcl_ThreadId threadId = conn->server->conn_thread_ids[conn->client % 10];
+    Tcl_ThreadId threadId = conn->server->conn_thread_ids[conn->client % conn->server->num_threads];
     DBG(fprintf(stderr, "tws_HandleConn - threadId: %p\n", threadId));
     tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleConnEventInThread;
@@ -728,8 +732,8 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
     accept_ctx->port = port;
     accept_ctx->interp = interp;
     server->accept_ctx = accept_ctx;
-
-    for (int i = 0; i < 10; i++) {
+    server->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(sizeof(Tcl_ThreadId) * server->num_threads);
+    for (int i = 0; i < server->num_threads; i++) {
         Tcl_ThreadId id;
 
         if (TCL_OK !=
@@ -737,11 +741,6 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
             SetResult("Unable to create thread");
             return TCL_ERROR;
         }
-
-//        char interp_name[80];
-//        CMD_INTERP_NAME(interp_name, id);
-//        fprintf(stderr, "tws_Listen: slave interp name=%s\n", interp_name);
-//        Tcl_Interp *slaveInterp = Tcl_CreateSlave(server->accept_ctx->interp, interp_name, 0);
 
         server->conn_thread_ids[i] = id;
         DBG(fprintf(stderr, "tws_Listen - created thread: %p\n", id));
@@ -1080,6 +1079,22 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         }
     }
 
+    Tcl_Obj *numThreadsPtr;
+    Tcl_Obj *numThreadsKeyPtr = Tcl_NewStringObj("num_threads", -1);
+    Tcl_IncrRefCount(numThreadsKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, numThreadsKeyPtr, &numThreadsPtr)) {
+        Tcl_DecrRefCount(numThreadsKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(numThreadsKeyPtr);
+    if (numThreadsPtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, numThreadsPtr, &server_ctx->num_threads)) {
+            SetResult("max_request_read_bytes must be an integer");
+            return TCL_ERROR;
+        }
+    }
+
     return TCL_OK;
 }
 
@@ -1112,6 +1127,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->keepidle = 10;
     server_ctx->keepintvl = 5;
     server_ctx->keepcnt = 3;
+    server_ctx->num_threads = 10;
 
     if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ctx, objv[1])) {
         Tcl_Free((char *) server_ctx);
