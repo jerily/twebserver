@@ -590,7 +590,7 @@ tws_HandleConnThread(
 
     Tcl_FinalizeThread();
     Tcl_ExitThread(TCL_OK);
-    return TCL_THREAD_CREATE_RETURN;
+    TCL_THREAD_CREATE_RETURN;
 }
 
 static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
