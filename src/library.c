@@ -1358,7 +1358,7 @@ static int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     const char *reply = Tcl_GetStringFromObj(objv[2], &length);
     int rc = SSL_write(conn->ssl, reply, length);
     if (rc <= 0) {
-        int err = SSL_get_error(conn->ssl, rc);
+//        int err = SSL_get_error(conn->ssl, rc);
         tws_CloseConn(conn, conn_handle, 1);
         SetResult("write_conn: SSL_write error");
         return TCL_ERROR;
