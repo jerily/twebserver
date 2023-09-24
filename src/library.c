@@ -45,6 +45,7 @@
 
 static int tws_ModuleInitialized;
 
+static Tcl_Mutex tws_Thread_Mutex;
 static Tcl_Mutex tws_Eval_Mutex;
 
 static Tcl_HashTable tws_ServerNameToInternal_HT;
@@ -71,6 +72,7 @@ typedef struct {
     tws_accept_ctx_t *accept_ctx;
     Tcl_ThreadId thread_id;
     Tcl_ThreadId **conn_thread_ids;
+    Tcl_Condition cond_wait;
     int max_request_read_bytes;
     int max_read_buffer_size;
     int backlog;
@@ -109,7 +111,6 @@ typedef struct {
 
 typedef struct {
     Tcl_Interp *interp;
-    Tcl_Mutex mutex;
 } tws_thread_data_t;
 
 static Tcl_ThreadDataKey dataKey;
@@ -567,7 +568,7 @@ static void tws_HandleConnHelper(tws_conn_t *conn, char *conn_handle) {
         unsigned int len = sizeof(addr);
         getpeername(conn->client, (struct sockaddr *) &addr, &len);
 
-        Tcl_MutexLock(&dataPtr->mutex);
+//        Tcl_MutexLock(&dataPtr->mutex);
         Tcl_Obj *const connPtr = Tcl_NewStringObj(conn_handle, -1);
         Tcl_Obj *const addrPtr = Tcl_NewStringObj(inet_ntoa(addr.sin_addr), -1);
         Tcl_Obj *const portPtr = Tcl_NewIntObj(server->accept_ctx->port);
@@ -585,14 +586,14 @@ static void tws_HandleConnHelper(tws_conn_t *conn, char *conn_handle) {
             Tcl_DecrRefCount(connPtr);
             Tcl_DecrRefCount(addrPtr);
             Tcl_DecrRefCount(portPtr);
-            Tcl_MutexUnlock(&dataPtr->mutex);
+//            Tcl_MutexUnlock(&dataPtr->mutex);
             return;
         }
         Tcl_DecrRefCount(cmdobjv[0]);
         Tcl_DecrRefCount(connPtr);
         Tcl_DecrRefCount(addrPtr);
         Tcl_DecrRefCount(portPtr);
-        Tcl_MutexUnlock(&dataPtr->mutex);
+//        Tcl_MutexUnlock(&dataPtr->mutex);
 
     }
 }
@@ -625,6 +626,7 @@ tws_HandleConnThread(
         Tcl_ExitThread(TCL_ERROR);
         return TCL_THREAD_CREATE_RETURN;
     }
+    Tcl_ConditionNotify(&server->cond_wait);
     DBG(fprintf(stderr, "tws_HandleConnThread: in (%p)\n", threadId));
     while (1) {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
@@ -734,16 +736,24 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
     server->accept_ctx = accept_ctx;
     server->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(sizeof(Tcl_ThreadId) * server->num_threads);
     for (int i = 0; i < server->num_threads; i++) {
+        Tcl_MutexLock(&tws_Thread_Mutex);
         Tcl_ThreadId id;
 
         if (TCL_OK !=
             Tcl_CreateThread(&id, tws_HandleConnThread, server, TCL_THREAD_STACK_DEFAULT, TCL_THREAD_NOFLAGS)) {
+            Tcl_MutexUnlock(&tws_Thread_Mutex);
             SetResult("Unable to create thread");
             return TCL_ERROR;
         }
-
         server->conn_thread_ids[i] = id;
         DBG(fprintf(stderr, "tws_Listen - created thread: %p\n", id));
+
+        // Wait for the thread to start because it is using something on our stack!
+
+        Tcl_ConditionWait(&server->cond_wait, &tws_Thread_Mutex, NULL);
+        Tcl_MutexUnlock(&tws_Thread_Mutex);
+        Tcl_ConditionFinalize(&server->cond_wait);
+
     }
 
     Tcl_CreateFileHandler(sock, TCL_READABLE, tws_AcceptConn, server);
