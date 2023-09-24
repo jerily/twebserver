@@ -523,8 +523,15 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
     return TCL_OK;
 }
 
-static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
+static Tcl_ThreadCreateType
+tws_HandleConnThread(
+        ClientData clientData)
+{
+    tws_conn_t *conn = (tws_conn_t *) clientData;
     tws_server_t *server = conn->server;
+
+    char conn_handle[80];
+    CMD_CONN_NAME(conn_handle, conn);
 
     ERR_clear_error();
     if (SSL_accept(conn->ssl) <= 0) {
@@ -575,6 +582,15 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
         Tcl_DecrRefCount(portPtr);
 
     }
+
+    Tcl_FinalizeThread();
+    Tcl_ExitThread(TCL_OK);
+    return TCL_THREAD_CREATE_RETURN;
+}
+
+static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
+    Tcl_ThreadId id;
+    Tcl_CreateThread(&id, tws_HandleConnThread, conn, TCL_THREAD_STACK_DEFAULT, TCL_THREAD_NOFLAGS);
 }
 
 static void tws_KeepaliveConnHandler(void *data, int mask) {
