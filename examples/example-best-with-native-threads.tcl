@@ -3,28 +3,16 @@ package require twebserver
 set init_script {
     package require twebserver
 
-    proc process_request {request_dict} {
-        set headers {}
-        if { [dict exists $request_dict headers content-type] } {
-            set content_type [dict get $request_dict headers content-type]
-            set headers [dict create Content-Type $content_type]
-        }
-        set is_base64_encoded [dict get $request_dict isBase64Encoded]
-        set body [dict get $request_dict body]
-        set response [dict create \
-            statusCode 200 \
-            headers $headers \
-            multiValueHeaders {} \
-            isBase64Encoded $is_base64_encoded \
-            body $body]
-        return $response
+    proc thread_process_request {request_dict} {
+        set content "test message request_dict=$request_dict"
+        return [dict create statusCode 200 headers {content-type text/plain} body $content isBase64Encoded false]
     }
 
     proc process_conn {conn addr port} {
         #puts "connection from $addr:$port on $conn"
         if { [catch {
             set request_dict [::twebserver::parse_conn $conn]
-            set response_dict [process_request $request_dict]
+            set response_dict [thread_process_request $request_dict]
             ::twebserver::return_conn $conn $response_dict
         } errmsg] } {
             puts "error: $errmsg"
