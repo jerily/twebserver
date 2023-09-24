@@ -67,6 +67,7 @@ typedef struct {
 typedef struct {
     SSL_CTX *sslCtx;
     Tcl_Obj *cmdPtr;
+    Tcl_Obj *scriptPtr;
     tws_accept_ctx_t *accept_ctx;
     Tcl_ThreadId thread_id;
     Tcl_ThreadId conn_thread_ids[10];
@@ -104,6 +105,13 @@ typedef struct {
     Tcl_Event *nextPtr;    /* Next in list of pending events, or NULL. */
     ClientData *clientData; // The pointer to the client data
 } tws_event_t;
+
+typedef struct {
+    Tcl_Interp *interp;
+    Tcl_Mutex mutex;
+} tws_thread_data_t;
+
+static Tcl_ThreadDataKey dataKey;
 
 static const char *ssl_errors[] = {
         "SSL_ERROR_NONE",
@@ -287,6 +295,7 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
         Tcl_Free((char *) server->accept_ctx);
     }
     Tcl_DecrRefCount(server->cmdPtr);
+    Tcl_DecrRefCount(server->scriptPtr);
     SSL_CTX_free(server->sslCtx);
     Tcl_DeleteCommand(interp, handle);
     Tcl_Free((char *) server);
@@ -410,10 +419,10 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     if (shutdown_client) {
         if (shutdown(conn->client, SHUT_RDWR)) {
             DBG(
-                int error;
-                getsockopt(conn->client, SOL_SOCKET, SO_ERROR, &error, &(socklen_t) {sizeof(error)});
-                fprintf(stderr, "failed to shutdown client: %d error=%d\n", conn->client, error)
-                );
+                    int error;
+                    getsockopt(conn->client, SOL_SOCKET, SO_ERROR, &error, &(socklen_t) {sizeof(error)});
+                    fprintf(stderr, "failed to shutdown client: %d error=%d\n", conn->client, error)
+            );
         }
     }
     if (close(conn->client)) {
@@ -545,59 +554,84 @@ static void tws_HandleConnHelper(tws_conn_t *conn, char *conn_handle) {
             return;
         }
 
+        // Get a pointer to the thread data for the current thread
+        tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+        // Get the interp from the thread data
+        Tcl_Interp *interp = dataPtr->interp;
+
         struct sockaddr_in addr;
         unsigned int len = sizeof(addr);
         getpeername(conn->client, (struct sockaddr *) &addr, &len);
 
+        Tcl_MutexLock(&dataPtr->mutex);
         Tcl_Obj *const connPtr = Tcl_NewStringObj(conn_handle, -1);
         Tcl_Obj *const addrPtr = Tcl_NewStringObj(inet_ntoa(addr.sin_addr), -1);
         Tcl_Obj *const portPtr = Tcl_NewIntObj(server->accept_ctx->port);
-        Tcl_Obj *const cmdobjv[] = {server->cmdPtr, connPtr, addrPtr, portPtr, NULL};
+        Tcl_Obj *const cmdobjv[] = {Tcl_DuplicateObj(server->cmdPtr), connPtr, addrPtr, portPtr, NULL};
 
+        Tcl_IncrRefCount(cmdobjv[0]);
         Tcl_IncrRefCount(connPtr);
         Tcl_IncrRefCount(addrPtr);
         Tcl_IncrRefCount(portPtr);
-
-        Tcl_MutexLock(&tws_Eval_Mutex);
-        Tcl_ResetResult(server->accept_ctx->interp);
-        if (TCL_OK != Tcl_EvalObjv(server->accept_ctx->interp, 4, cmdobjv, TCL_EVAL_INVOKE)) {
-            DBG(fprintf(stderr, "error evaluating script sock=%d\n", conn->client));
-            DBG(fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(server->accept_ctx->interp))));
-            Tcl_MutexUnlock(&tws_Eval_Mutex);
+        Tcl_ResetResult(interp);
+        if (TCL_OK != Tcl_EvalObjv(interp, 4, cmdobjv, TCL_EVAL_INVOKE)) {
+            fprintf(stderr, "error evaluating script sock=%d\n", conn->client);
+            fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(interp)));
+            Tcl_DecrRefCount(cmdobjv[0]);
             Tcl_DecrRefCount(connPtr);
             Tcl_DecrRefCount(addrPtr);
             Tcl_DecrRefCount(portPtr);
+            Tcl_MutexUnlock(&dataPtr->mutex);
             return;
         }
-        Tcl_MutexUnlock(&tws_Eval_Mutex);
-
+        Tcl_DecrRefCount(cmdobjv[0]);
         Tcl_DecrRefCount(connPtr);
         Tcl_DecrRefCount(addrPtr);
         Tcl_DecrRefCount(portPtr);
+        Tcl_MutexUnlock(&dataPtr->mutex);
 
     }
 }
 
 static Tcl_ThreadCreateType
 tws_HandleConnThread(
-        ClientData clientData)
-{
-    Tcl_Interp *interp = Tcl_CreateInterp();
-    ClientData notifierClientData = Tcl_InitNotifier();
-    Tcl_ThreadId threadId = Tcl_GetCurrentThread();
+        ClientData clientData) {
+
+    tws_server_t *server = (tws_server_t *) clientData;
+
+    DBG(Tcl_ThreadId threadId = Tcl_GetCurrentThread());
+
+    // Get a pointer to the thread data for the current thread
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *)Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+    // Create a new interp for this thread and store it in the thread data
+    dataPtr->interp = Tcl_CreateInterp();
+
+    DBG(fprintf(stderr, "created interp=%p\n", dataPtr->interp));
+
+    Tcl_InitMemory(dataPtr->interp);
+    if (TCL_OK != Tcl_Init(dataPtr->interp)) {
+        DBG(fprintf(stderr, "error initializing Tcl\n"));
+        Tcl_FinalizeThread();
+        Tcl_ExitThread(TCL_ERROR);
+        return TCL_THREAD_CREATE_RETURN;
+    }
+    if (TCL_OK != Tcl_EvalObj(dataPtr->interp, server->scriptPtr)) {
+        DBG(fprintf(stderr, "error evaluating init script\n"));
+        Tcl_FinalizeThread();
+        Tcl_ExitThread(TCL_ERROR);
+        return TCL_THREAD_CREATE_RETURN;
+    }
     DBG(fprintf(stderr, "tws_HandleConnThread: in (%p)\n", threadId));
-    while(1) {
+    while (1) {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
     }
-    Tcl_FinalizeNotifier(notifierClientData);
-    Tcl_DeleteInterp(interp);
     Tcl_FinalizeThread();
     Tcl_ExitThread(TCL_OK);
     DBG(fprintf(stderr, "tws_HandleConnThread: out (%p)\n", threadId));
     TCL_THREAD_CREATE_RETURN;
 }
 
-static int tws_HandleConnEventInThread(Tcl_Event * evPtr, int flags) {
+static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "tws_HandleConnEventInThread\n"));
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
@@ -633,7 +667,7 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     // populate "conn->latest_millis"
     conn->latest_millis = current_time_in_millis();
 
-    tws_HandleConnHelper(conn, conn_handle);
+    tws_HandleConn(conn, conn_handle);
 }
 
 static void tws_AcceptConn(void *data, int mask) {
@@ -697,10 +731,18 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
 
     for (int i = 0; i < 10; i++) {
         Tcl_ThreadId id;
-        if (TCL_OK != Tcl_CreateThread(&id, tws_HandleConnThread, NULL, TCL_THREAD_STACK_DEFAULT, TCL_THREAD_NOFLAGS)) {
+
+        if (TCL_OK !=
+            Tcl_CreateThread(&id, tws_HandleConnThread, server, TCL_THREAD_STACK_DEFAULT, TCL_THREAD_NOFLAGS)) {
             SetResult("Unable to create thread");
             return TCL_ERROR;
         }
+
+//        char interp_name[80];
+//        CMD_INTERP_NAME(interp_name, id);
+//        fprintf(stderr, "tws_Listen: slave interp name=%s\n", interp_name);
+//        Tcl_Interp *slaveInterp = Tcl_CreateSlave(server->accept_ctx->interp, interp_name, 0);
+
         server->conn_thread_ids[i] = id;
         DBG(fprintf(stderr, "tws_Listen - created thread: %p\n", id));
     }
@@ -981,7 +1023,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
     Tcl_DecrRefCount(keepaliveKeyPtr);
     if (keepalivePtr) {
-        if (TCL_OK != Tcl_GetBooleanFromObj(interp, keepalivePtr,&server_ctx->keepalive)) {
+        if (TCL_OK != Tcl_GetBooleanFromObj(interp, keepalivePtr, &server_ctx->keepalive)) {
             SetResult("keepalive must be a boolean");
             return TCL_ERROR;
         }
@@ -991,14 +1033,14 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     Tcl_Obj *keepidlePtr;
     Tcl_Obj *keepidleKeyPtr = Tcl_NewStringObj("keepidle", -1);
     Tcl_IncrRefCount(keepidleKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, keepidleKeyPtr,&keepidlePtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, keepidleKeyPtr, &keepidlePtr)) {
         Tcl_DecrRefCount(keepidleKeyPtr);
         SetResult("error reading dict");
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(keepidleKeyPtr);
     if (keepidlePtr) {
-        if (TCL_OK != Tcl_GetIntFromObj(interp, keepidlePtr,&server_ctx->keepidle)) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, keepidlePtr, &server_ctx->keepidle)) {
             SetResult("keepidle must be an integer");
             return TCL_ERROR;
         }
@@ -1008,14 +1050,14 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     Tcl_Obj *keepintvlPtr;
     Tcl_Obj *keepintvlKeyPtr = Tcl_NewStringObj("keepintvl", -1);
     Tcl_IncrRefCount(keepintvlKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, keepintvlKeyPtr,&keepintvlPtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, keepintvlKeyPtr, &keepintvlPtr)) {
         Tcl_DecrRefCount(keepintvlKeyPtr);
         SetResult("error reading dict");
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(keepintvlKeyPtr);
     if (keepintvlPtr) {
-        if (TCL_OK != Tcl_GetIntFromObj(interp, keepintvlPtr,&server_ctx->keepintvl)) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, keepintvlPtr, &server_ctx->keepintvl)) {
             SetResult("keepintvl must be an integer");
             return TCL_ERROR;
         }
@@ -1025,14 +1067,14 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     Tcl_Obj *keepcntPtr;
     Tcl_Obj *keepcntKeyPtr = Tcl_NewStringObj("keepcnt", -1);
     Tcl_IncrRefCount(keepcntKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, keepcntKeyPtr,&keepcntPtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, keepcntKeyPtr, &keepcntPtr)) {
         Tcl_DecrRefCount(keepcntKeyPtr);
         SetResult("error reading dict");
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(keepcntKeyPtr);
     if (keepcntPtr) {
-        if (TCL_OK != Tcl_GetIntFromObj(interp, keepcntPtr,&server_ctx->keepcnt)) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, keepcntPtr, &server_ctx->keepcnt)) {
             SetResult("keepcnt must be an integer");
             return TCL_ERROR;
         }
@@ -1043,7 +1085,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
 
 static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "CreateCmd\n"));
-    CheckArgs(3, 3, 1, "config_dict cmd_name");
+    CheckArgs(4, 4, 1, "config_dict cmd_name init_script");
 
     SSL_CTX *ctx;
     if (TCL_OK != create_context(interp, &ctx)) {
@@ -1055,6 +1097,8 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->sslCtx = ctx;
     server_ctx->cmdPtr = Tcl_DuplicateObj(objv[2]);
     Tcl_IncrRefCount(server_ctx->cmdPtr);
+    server_ctx->scriptPtr = Tcl_DuplicateObj(objv[3]);
+    Tcl_IncrRefCount(server_ctx->scriptPtr);
     server_ctx->accept_ctx = NULL;
     server_ctx->thread_id = Tcl_GetCurrentThread();
 
