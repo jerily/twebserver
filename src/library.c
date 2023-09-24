@@ -69,6 +69,7 @@ typedef struct {
     Tcl_Obj *cmdPtr;
     tws_accept_ctx_t *accept_ctx;
     Tcl_ThreadId thread_id;
+    Tcl_ThreadId conn_thread_ids[10];
     int max_request_read_bytes;
     int max_read_buffer_size;
     int backlog;
@@ -102,7 +103,7 @@ typedef struct {
     Tcl_EventProc *proc;    /* Function to call to service this event. */
     Tcl_Event *nextPtr;    /* Next in list of pending events, or NULL. */
     ClientData *clientData; // The pointer to the client data
-} tws_keepalive_event_t;
+} tws_event_t;
 
 static const char *ssl_errors[] = {
         "SSL_ERROR_NONE",
@@ -383,7 +384,7 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
 
 static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "tws_DeleteFileHandlerForKeepaliveConn\n"));
-    tws_keepalive_event_t *keepaliveEvPtr = (tws_keepalive_event_t *) evPtr;
+    tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
     Tcl_DeleteFileHandler(conn->client);
     conn->todelete = 1;
@@ -424,7 +425,7 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
 //        Tcl_DeleteFileHandler(conn->client);
 
         // notify the event loop to delete the file handler for keepalive
-        tws_keepalive_event_t *evPtr = (tws_keepalive_event_t *) Tcl_Alloc(sizeof(tws_keepalive_event_t));
+        tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
         evPtr->proc = tws_DeleteFileHandlerForKeepaliveConn;
         evPtr->nextPtr = NULL;
         evPtr->clientData = (ClientData *) conn;
@@ -481,7 +482,7 @@ static void tws_CleanupConnections(ClientData clientData) {
 
 static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn\n"));
-    tws_keepalive_event_t *keepaliveEvPtr = (tws_keepalive_event_t *) evPtr;
+    tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
     DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn conn=%p client=%d\n", conn, conn->client));
     Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
@@ -510,7 +511,7 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
             if (!conn->created_file_handler_p) {
                 conn->created_file_handler_p = 1;
                 // notify the event loop to keep the connection alive
-                tws_keepalive_event_t *evPtr = (tws_keepalive_event_t *) Tcl_Alloc(sizeof(tws_keepalive_event_t));
+                tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
                 evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
                 evPtr->nextPtr = NULL;
                 evPtr->clientData = (ClientData *) conn;
@@ -581,21 +582,41 @@ static Tcl_ThreadCreateType
 tws_HandleConnThread(
         ClientData clientData)
 {
-    tws_conn_t *conn = (tws_conn_t *) clientData;
-
-    char conn_handle[80];
-    CMD_CONN_NAME(conn_handle, conn);
-
-    tws_HandleConnHelper(conn, conn_handle);
-
+    Tcl_Interp *interp = Tcl_CreateInterp();
+    ClientData notifierClientData = Tcl_InitNotifier();
+    Tcl_ThreadId threadId = Tcl_GetCurrentThread();
+    DBG(fprintf(stderr, "tws_HandleConnThread: in (%p)\n", threadId));
+    while(1) {
+        Tcl_DoOneEvent(TCL_ALL_EVENTS);
+    }
+    Tcl_FinalizeNotifier(notifierClientData);
+    Tcl_DeleteInterp(interp);
     Tcl_FinalizeThread();
     Tcl_ExitThread(TCL_OK);
+    DBG(fprintf(stderr, "tws_HandleConnThread: out (%p)\n", threadId));
     TCL_THREAD_CREATE_RETURN;
 }
 
+static int tws_HandleConnEventInThread(Tcl_Event * evPtr, int flags) {
+    DBG(fprintf(stderr, "tws_HandleConnEventInThread\n"));
+    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
+    char conn_handle[80];
+    CMD_CONN_NAME(conn_handle, conn);
+    tws_HandleConnHelper(conn, conn_handle);
+    return 1;
+}
+
 static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
-    Tcl_ThreadId id;
-    Tcl_CreateThread(&id, tws_HandleConnThread, conn, TCL_THREAD_STACK_DEFAULT, TCL_THREAD_NOFLAGS);
+    Tcl_ThreadId threadId = conn->server->conn_thread_ids[conn->client % 10];
+    DBG(fprintf(stderr, "tws_HandleConn - threadId: %p\n", threadId));
+    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    connEvPtr->proc = tws_HandleConnEventInThread;
+    connEvPtr->nextPtr = NULL;
+    connEvPtr->clientData = (ClientData *) conn;
+    Tcl_ThreadQueueEvent(threadId, (Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(threadId);
+    DBG(fprintf(stderr, "tws_HandleConn - ThreadQueueEvent & ThreadAlert done - threadId: %p\n", threadId));
 }
 
 static void tws_KeepaliveConnHandler(void *data, int mask) {
@@ -673,6 +694,17 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
     accept_ctx->port = port;
     accept_ctx->interp = interp;
     server->accept_ctx = accept_ctx;
+
+    for (int i = 0; i < 10; i++) {
+        Tcl_ThreadId id;
+        if (TCL_OK != Tcl_CreateThread(&id, tws_HandleConnThread, NULL, TCL_THREAD_STACK_DEFAULT, TCL_THREAD_NOFLAGS)) {
+            SetResult("Unable to create thread");
+            return TCL_ERROR;
+        }
+        server->conn_thread_ids[i] = id;
+        DBG(fprintf(stderr, "tws_Listen - created thread: %p\n", id));
+    }
+
     Tcl_CreateFileHandler(sock, TCL_READABLE, tws_AcceptConn, server);
     Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, server);
     return TCL_OK;
