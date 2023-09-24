@@ -79,7 +79,7 @@ e?a=1&b=2&c=this+is+a+test&c=blah+blah'
 
 Run the example:
 ```bash
-tclsh ../examples/example-with-threads.tcl
+tclsh ../examples/example-best-with-native-threads.tcl
 ```
 
 ## Benchmark
