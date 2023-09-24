@@ -69,10 +69,10 @@ typedef struct {
     SSL_CTX *sslCtx;
     Tcl_Obj *cmdPtr;
     Tcl_Obj *scriptPtr;
+    Tcl_Condition condWait;
     tws_accept_ctx_t *accept_ctx;
     Tcl_ThreadId thread_id;
-    Tcl_ThreadId **conn_thread_ids;
-    Tcl_Condition cond_wait;
+    Tcl_ThreadId *conn_thread_ids;
     int max_request_read_bytes;
     int max_read_buffer_size;
     int backlog;
@@ -111,7 +111,14 @@ typedef struct {
 
 typedef struct {
     Tcl_Interp *interp;
+    Tcl_Obj *cmdPtr;
 } tws_thread_data_t;
+
+typedef struct {
+    Tcl_Obj *scriptPtr;
+    Tcl_Obj *cmdPtr;
+    Tcl_Condition condWait;
+} tws_thread_ctrl_t;
 
 static Tcl_ThreadDataKey dataKey;
 
@@ -300,7 +307,9 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
         Tcl_Free((char *) server->conn_thread_ids);
     }
     Tcl_DecrRefCount(server->cmdPtr);
-    Tcl_DecrRefCount(server->scriptPtr);
+    if (server->scriptPtr != NULL) {
+        Tcl_DecrRefCount(server->scriptPtr);
+    }
     SSL_CTX_free(server->sslCtx);
     Tcl_DeleteCommand(interp, handle);
     Tcl_Free((char *) server);
@@ -538,7 +547,7 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
     return TCL_OK;
 }
 
-static void tws_HandleConnHelper(tws_conn_t *conn, char *conn_handle) {
+static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
     tws_server_t *server = conn->server;
 
     ERR_clear_error();
@@ -559,22 +568,32 @@ static void tws_HandleConnHelper(tws_conn_t *conn, char *conn_handle) {
             return;
         }
 
-        // Get a pointer to the thread data for the current thread
-        tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
-        // Get the interp from the thread data
-        Tcl_Interp *interp = dataPtr->interp;
+        Tcl_Interp *interp;
+        Tcl_Obj *cmdPtr;
+        if (server->num_threads > 0) {
+            // Get a pointer to the thread data for the current thread
+            tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+            // Get the interp from the thread data
+            interp = dataPtr->interp;
+            cmdPtr = dataPtr->cmdPtr;
+        } else {
+            // Get the interp from the main thread
+            interp = server->accept_ctx->interp;
+            cmdPtr = server->cmdPtr;
+        }
 
         struct sockaddr_in addr;
         unsigned int len = sizeof(addr);
         getpeername(conn->client, (struct sockaddr *) &addr, &len);
 
-//        Tcl_MutexLock(&dataPtr->mutex);
+        if (server->num_threads == 0) {
+            Tcl_MutexLock(&tws_Eval_Mutex);
+        }
         Tcl_Obj *const connPtr = Tcl_NewStringObj(conn_handle, -1);
         Tcl_Obj *const addrPtr = Tcl_NewStringObj(inet_ntoa(addr.sin_addr), -1);
         Tcl_Obj *const portPtr = Tcl_NewIntObj(server->accept_ctx->port);
-        Tcl_Obj *const cmdobjv[] = {Tcl_DuplicateObj(server->cmdPtr), connPtr, addrPtr, portPtr, NULL};
+        Tcl_Obj *const cmdobjv[] = {cmdPtr, connPtr, addrPtr, portPtr, NULL};
 
-        Tcl_IncrRefCount(cmdobjv[0]);
         Tcl_IncrRefCount(connPtr);
         Tcl_IncrRefCount(addrPtr);
         Tcl_IncrRefCount(portPtr);
@@ -582,18 +601,23 @@ static void tws_HandleConnHelper(tws_conn_t *conn, char *conn_handle) {
         if (TCL_OK != Tcl_EvalObjv(interp, 4, cmdobjv, TCL_EVAL_INVOKE)) {
             fprintf(stderr, "error evaluating script sock=%d\n", conn->client);
             fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(interp)));
-            Tcl_DecrRefCount(cmdobjv[0]);
             Tcl_DecrRefCount(connPtr);
             Tcl_DecrRefCount(addrPtr);
             Tcl_DecrRefCount(portPtr);
-//            Tcl_MutexUnlock(&dataPtr->mutex);
+
+            if (server->num_threads == 0) {
+                Tcl_MutexUnlock(&tws_Eval_Mutex);
+            }
+
             return;
         }
-        Tcl_DecrRefCount(cmdobjv[0]);
         Tcl_DecrRefCount(connPtr);
         Tcl_DecrRefCount(addrPtr);
         Tcl_DecrRefCount(portPtr);
-//        Tcl_MutexUnlock(&dataPtr->mutex);
+
+        if (server->num_threads == 0) {
+            Tcl_MutexUnlock(&tws_Eval_Mutex);
+        }
 
     }
 }
@@ -602,7 +626,7 @@ static Tcl_ThreadCreateType
 tws_HandleConnThread(
         ClientData clientData) {
 
-    tws_server_t *server = (tws_server_t *) clientData;
+    tws_thread_ctrl_t *ctrl = (tws_thread_ctrl_t *) clientData;
 
     DBG(Tcl_ThreadId threadId = Tcl_GetCurrentThread());
 
@@ -610,6 +634,8 @@ tws_HandleConnThread(
     tws_thread_data_t *dataPtr = (tws_thread_data_t *)Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
     // Create a new interp for this thread and store it in the thread data
     dataPtr->interp = Tcl_CreateInterp();
+    dataPtr->cmdPtr = Tcl_DuplicateObj(ctrl->cmdPtr);
+    Tcl_IncrRefCount(dataPtr->cmdPtr);
 
     DBG(fprintf(stderr, "created interp=%p\n", dataPtr->interp));
 
@@ -620,13 +646,13 @@ tws_HandleConnThread(
         Tcl_ExitThread(TCL_ERROR);
         return TCL_THREAD_CREATE_RETURN;
     }
-    if (TCL_OK != Tcl_EvalObj(dataPtr->interp, server->scriptPtr)) {
+    if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->scriptPtr)) {
         DBG(fprintf(stderr, "error evaluating init script\n"));
         Tcl_FinalizeThread();
         Tcl_ExitThread(TCL_ERROR);
         return TCL_THREAD_CREATE_RETURN;
     }
-    Tcl_ConditionNotify(&server->cond_wait);
+    Tcl_ConditionNotify(&ctrl->condWait);
     DBG(fprintf(stderr, "tws_HandleConnThread: in (%p)\n", threadId));
     while (1) {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
@@ -643,11 +669,11 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
     char conn_handle[80];
     CMD_CONN_NAME(conn_handle, conn);
-    tws_HandleConnHelper(conn, conn_handle);
+    tws_HandleConn(conn, conn_handle);
     return 1;
 }
 
-static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
+static void tws_ThreadQueueConnEvent(tws_conn_t *conn, char *conn_handle) {
     Tcl_ThreadId threadId = conn->server->conn_thread_ids[conn->client % conn->server->num_threads];
     DBG(fprintf(stderr, "tws_HandleConn - threadId: %p\n", threadId));
     tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
@@ -656,7 +682,7 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
     connEvPtr->clientData = (ClientData *) conn;
     Tcl_ThreadQueueEvent(threadId, (Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(threadId);
-    DBG(fprintf(stderr, "tws_HandleConn - ThreadQueueEvent & ThreadAlert done - threadId: %p\n", threadId));
+    DBG(fprintf(stderr, "tws_ThreadQueueConnEvent done - threadId: %p\n", threadId));
 }
 
 static void tws_KeepaliveConnHandler(void *data, int mask) {
@@ -673,7 +699,11 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     // populate "conn->latest_millis"
     conn->latest_millis = current_time_in_millis();
 
-    tws_HandleConn(conn, conn_handle);
+    if (conn->server->num_threads == 0) {
+        tws_HandleConn(conn, conn_handle);
+    } else {
+        tws_ThreadQueueConnEvent(conn, conn_handle);
+    }
 }
 
 static void tws_AcceptConn(void *data, int mask) {
@@ -703,7 +733,11 @@ static void tws_AcceptConn(void *data, int mask) {
     CMD_CONN_NAME(conn_handle, conn);
     tws_RegisterConnName(conn_handle, conn);
 
-    tws_HandleConn(conn, conn_handle);
+    if (server->num_threads > 0) {
+        tws_ThreadQueueConnEvent(conn, conn_handle);
+    } else {
+        tws_HandleConn(conn, conn_handle);
+    }
 }
 
 int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
@@ -734,28 +768,36 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
     accept_ctx->port = port;
     accept_ctx->interp = interp;
     server->accept_ctx = accept_ctx;
-    server->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(sizeof(Tcl_ThreadId) * server->num_threads);
-    for (int i = 0; i < server->num_threads; i++) {
-        Tcl_MutexLock(&tws_Thread_Mutex);
-        Tcl_ThreadId id;
+    if (server->num_threads == 0) {
+        server->conn_thread_ids = NULL;
+    } else {
+        server->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(sizeof(Tcl_ThreadId) * server->num_threads);
+        for (int i = 0; i < server->num_threads; i++) {
+            Tcl_MutexLock(&tws_Thread_Mutex);
+            Tcl_ThreadId id;
+            tws_thread_ctrl_t ctrl;
+            ctrl.condWait = NULL;
+            ctrl.scriptPtr = server->scriptPtr;
+            ctrl.cmdPtr = server->cmdPtr;
+            Tcl_IncrRefCount(ctrl.scriptPtr);
+            Tcl_IncrRefCount(ctrl.cmdPtr);
+            if (TCL_OK !=
+                Tcl_CreateThread(&id, tws_HandleConnThread, &ctrl, TCL_THREAD_STACK_DEFAULT, TCL_THREAD_NOFLAGS)) {
+                Tcl_MutexUnlock(&tws_Thread_Mutex);
+                SetResult("Unable to create thread");
+                return TCL_ERROR;
+            }
+            server->conn_thread_ids[i] = id;
 
-        if (TCL_OK !=
-            Tcl_CreateThread(&id, tws_HandleConnThread, server, TCL_THREAD_STACK_DEFAULT, TCL_THREAD_NOFLAGS)) {
+            // Wait for the thread to start because it is using something on our stack!
+            Tcl_ConditionWait(&ctrl.condWait, &tws_Thread_Mutex, NULL);
             Tcl_MutexUnlock(&tws_Thread_Mutex);
-            SetResult("Unable to create thread");
-            return TCL_ERROR;
+            Tcl_ConditionFinalize(&ctrl.condWait);
+            Tcl_DecrRefCount(ctrl.cmdPtr);
+            Tcl_DecrRefCount(ctrl.scriptPtr);
+            DBG(fprintf(stderr, "tws_Listen - created thread: %p\n", id));
         }
-        server->conn_thread_ids[i] = id;
-        DBG(fprintf(stderr, "tws_Listen - created thread: %p\n", id));
-
-        // Wait for the thread to start because it is using something on our stack!
-
-        Tcl_ConditionWait(&server->cond_wait, &tws_Thread_Mutex, NULL);
-        Tcl_MutexUnlock(&tws_Thread_Mutex);
-        Tcl_ConditionFinalize(&server->cond_wait);
-
     }
-
     Tcl_CreateFileHandler(sock, TCL_READABLE, tws_AcceptConn, server);
     Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, server);
     return TCL_OK;
@@ -1100,9 +1142,21 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     Tcl_DecrRefCount(numThreadsKeyPtr);
     if (numThreadsPtr) {
         if (TCL_OK != Tcl_GetIntFromObj(interp, numThreadsPtr, &server_ctx->num_threads)) {
-            SetResult("max_request_read_bytes must be an integer");
+            SetResult("num_threads must be an integer");
             return TCL_ERROR;
         }
+    }
+    if (server_ctx->num_threads < 0) {
+        SetResult("num_threads must be >= 0");
+        return TCL_ERROR;
+    }
+    if (server_ctx->num_threads > 0 && !server_ctx->scriptPtr) {
+        SetResult("num_threads must be 0 if no thread_init_script is provided");
+        return TCL_ERROR;
+    }
+    if (server_ctx->num_threads == 0 && server_ctx->scriptPtr != NULL) {
+        SetResult("num_threads must be > 0 if a thread_init_script is provided");
+        return TCL_ERROR;
     }
 
     return TCL_OK;
@@ -1110,7 +1164,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
 
 static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "CreateCmd\n"));
-    CheckArgs(4, 4, 1, "config_dict cmd_name init_script");
+    CheckArgs(3, 4, 1, "config_dict cmd_name ?init_script?");
 
     SSL_CTX *ctx;
     if (TCL_OK != create_context(interp, &ctx)) {
@@ -1122,8 +1176,12 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->sslCtx = ctx;
     server_ctx->cmdPtr = Tcl_DuplicateObj(objv[2]);
     Tcl_IncrRefCount(server_ctx->cmdPtr);
-    server_ctx->scriptPtr = Tcl_DuplicateObj(objv[3]);
-    Tcl_IncrRefCount(server_ctx->scriptPtr);
+    if (objc == 4) {
+        server_ctx->scriptPtr = Tcl_DuplicateObj(objv[3]);
+        Tcl_IncrRefCount(server_ctx->scriptPtr);
+    } else {
+        server_ctx->scriptPtr = NULL;
+    }
     server_ctx->accept_ctx = NULL;
     server_ctx->thread_id = Tcl_GetCurrentThread();
 
@@ -1137,7 +1195,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->keepidle = 10;
     server_ctx->keepintvl = 5;
     server_ctx->keepcnt = 3;
-    server_ctx->num_threads = 10;
+    server_ctx->num_threads = 0;
 
     if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ctx, objv[1])) {
         Tcl_Free((char *) server_ctx);
