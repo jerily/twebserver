@@ -77,16 +77,6 @@ e?a=1&b=2&c=this+is+a+test&c=blah+blah'
 
 ## Try it out with threads
 
-Install TCL "Thread" package:
-```bash
-wget -O thread2.8.8.tar.gz https://sourceforge.net/projects/tcl/files/Thread%20Extension/2.8.8/thread2.8.8.tar.gz/download
-tar -xzvf thread2.8.8.tar.gz
-cd thread2.8.8/unix
-../configure --enable-threads
-make
-make install
-```
-
 Run the example:
 ```bash
 tclsh ../examples/example-with-threads.tcl
