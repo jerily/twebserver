@@ -9,3 +9,4 @@
 * **keepidle** - the time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes (Default: 10)
 * **keepintvl** - the time (in seconds) between individual keepalive probes (Default: 5)
 * **keepcnt** - The maximum number of keepalive probes TCP should send before dropping the connection (Default: 3)
+* **num_threads** - the number of threads to use (Default: 10)
