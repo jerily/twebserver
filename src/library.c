@@ -2183,20 +2183,20 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
 
     DBG(fprintf(stderr, "contentLength=%d\n", contentLength));
 
-    int base64_encoded = 0;
+    int base64_encode_it = 0;
     if (contentTypePtr) {
         int contentTypeLength;
         const char *content_type = Tcl_GetStringFromObj(contentTypePtr, &contentTypeLength);
         // check if binary mime type: image/* and application/octet
         if (contentTypeLength >= 16 && strncmp(content_type, "application/octet", 16) == 0) {
-            base64_encoded = 1;
+            base64_encode_it = 1;
         } else if (contentTypeLength >= 6 && strncmp(content_type, "image/", 6) == 0) {
-            base64_encoded = 1;
+            base64_encode_it = 1;
         }
     }
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(base64_encoded));
+    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(base64_encode_it));
 
-    if (base64_encoded) {
+    if (base64_encode_it) {
         // base64 encode the body and remember as "body"
         char *body = Tcl_Alloc(contentLength * 2);
         size_t bodyLength;
