@@ -410,18 +410,27 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     return conn;
 }
 
+static void tws_FreeConn(tws_conn_t *conn) {
+    SSL_free(conn->ssl);
+    Tcl_Free((char *) conn);
+}
+
 static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "tws_DeleteFileHandlerForKeepaliveConn\n"));
     tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
     Tcl_DeleteFileHandler(conn->client);
-    conn->todelete = 1;
+    tws_FreeConn(conn);
     return 1;
 }
 
 static void tws_KeepaliveConnHandler(void *data, int mask);
 
 static void tws_ShutdownConn(tws_conn_t *conn, int force) {
+    if (conn->todelete) {
+        DBG(fprintf(stderr, "tws_ShutdownConn - already marked for deletion\n"));
+        return;
+    }
     int shutdown_client = 1;
     if (SSL_is_init_finished(conn->ssl)) {
         DBG(fprintf(stderr, "SSL_is_init_finished: true\n"));
@@ -461,11 +470,6 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
         Tcl_ThreadAlert(conn->threadId);
     }
     DBG(fprintf(stderr, "done shutdown\n"));
-}
-
-static void tws_FreeConn(tws_conn_t *conn) {
-    SSL_free(conn->ssl);
-    Tcl_Free((char *) conn);
 }
 
 static void tws_CleanupConnections(ClientData clientData) {
@@ -521,11 +525,11 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
                 conn->keepalive, conn->created_file_handler_p));
     if (force) {
         tws_ShutdownConn(conn, force);
+        if (!tws_UnregisterConnName(conn_handle)) {
+            DBG(fprintf(stderr, "already unregistered conn_handle=%s\n", conn_handle));
+            return TCL_ERROR;
+        }
         if (!conn->keepalive) {
-            if (!tws_UnregisterConnName(conn_handle)) {
-                DBG(fprintf(stderr, "already unregistered conn_handle=%s\n", conn_handle));
-                return TCL_ERROR;
-            }
             tws_FreeConn(conn);
         }
     } else {
