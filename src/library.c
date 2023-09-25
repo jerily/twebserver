@@ -69,9 +69,8 @@ typedef struct {
     SSL_CTX *sslCtx;
     Tcl_Obj *cmdPtr;
     Tcl_Obj *scriptPtr;
-    Tcl_Condition condWait;
+    Tcl_ThreadId threadId;
     tws_accept_ctx_t *accept_ctx;
-    Tcl_ThreadId thread_id;
     Tcl_ThreadId *conn_thread_ids;
     int max_request_read_bytes;
     int max_read_buffer_size;
@@ -95,6 +94,7 @@ typedef struct {
     tws_server_t *server;
     SSL *ssl;
     int client;
+    Tcl_ThreadId threadId;
     long long latest_millis;
     // refactor the following into a flags field
     tws_compression_method_t compression;
@@ -399,6 +399,11 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     conn->keepalive = 0;
     conn->created_file_handler_p = 0;
     conn->todelete = 0;
+    if (server->num_threads > 0) {
+        conn->threadId = conn->server->conn_thread_ids[conn->client % conn->server->num_threads];
+    } else {
+        conn->threadId = server->threadId;
+    }
 
     conn->latest_millis = current_time_in_millis();
 
@@ -452,15 +457,15 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
         evPtr->proc = tws_DeleteFileHandlerForKeepaliveConn;
         evPtr->nextPtr = NULL;
         evPtr->clientData = (ClientData *) conn;
-        Tcl_ThreadQueueEvent(conn->server->thread_id, (Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-        Tcl_ThreadAlert(conn->server->thread_id);
-    }
-
-    if (!conn->keepalive) {
-        SSL_free(conn->ssl);
-        Tcl_Free((char *) conn);
+        Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+        Tcl_ThreadAlert(conn->threadId);
     }
     DBG(fprintf(stderr, "done shutdown\n"));
+}
+
+static void tws_FreeConn(tws_conn_t *conn) {
+    SSL_free(conn->ssl);
+    Tcl_Free((char *) conn);
 }
 
 static void tws_CleanupConnections(ClientData clientData) {
@@ -480,8 +485,7 @@ static void tws_CleanupConnections(ClientData clientData) {
         if (conn->todelete) {
             DBG(fprintf(stderr, "tws_CleanupConnections - deleting conn - client: %d\n", conn->client));
 
-            SSL_free(conn->ssl);
-            Tcl_Free((char *) conn);
+            tws_FreeConn(conn);
             Tcl_DeleteHashEntry(entryPtr);
 
             DBG(fprintf(stderr, "tws_CleanupConnections - deleted conn - client: %d\n", conn->client));
@@ -489,9 +493,9 @@ static void tws_CleanupConnections(ClientData clientData) {
             long long elapsed = milliseconds - conn->latest_millis;
             if (elapsed > conn->server->conn_timeout_millis) {
                 DBG(fprintf(stderr, "tws_CleanupConnections - mark connection for deletion\n"));
-//                tws_ShutdownConn(conn, 2);
-                shutdown(conn->client, SHUT_RDWR);
-                close(conn->client);
+                tws_ShutdownConn(conn, 2);
+//                shutdown(conn->client, SHUT_RDWR);
+//                close(conn->client);
                 conn->todelete = 1;
                 count_mark_for_deletion++;
             }
@@ -522,6 +526,7 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
                 DBG(fprintf(stderr, "already unregistered conn_handle=%s\n", conn_handle));
                 return TCL_ERROR;
             }
+            tws_FreeConn(conn);
         }
     } else {
         if (!conn->keepalive) {
@@ -530,6 +535,7 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
                 DBG(fprintf(stderr, "already unregistered conn_handle=%s\n", conn_handle));
                 return TCL_ERROR;
             }
+            tws_FreeConn(conn);
         } else {
             if (!conn->created_file_handler_p) {
                 conn->created_file_handler_p = 1;
@@ -538,8 +544,8 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
                 evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
                 evPtr->nextPtr = NULL;
                 evPtr->clientData = (ClientData *) conn;
-                Tcl_ThreadQueueEvent(conn->server->thread_id, (Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-                Tcl_ThreadAlert(conn->server->thread_id);
+                Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+                Tcl_ThreadAlert(conn->threadId);
             }
         }
     }
@@ -674,15 +680,14 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
 }
 
 static void tws_ThreadQueueConnEvent(tws_conn_t *conn, char *conn_handle) {
-    Tcl_ThreadId threadId = conn->server->conn_thread_ids[conn->client % conn->server->num_threads];
-    DBG(fprintf(stderr, "tws_HandleConn - threadId: %p\n", threadId));
+    DBG(fprintf(stderr, "tws_HandleConn - threadId: %p\n", conn->threadId));
     tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleConnEventInThread;
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
-    Tcl_ThreadQueueEvent(threadId, (Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
-    Tcl_ThreadAlert(threadId);
-    DBG(fprintf(stderr, "tws_ThreadQueueConnEvent done - threadId: %p\n", threadId));
+    Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(conn->threadId);
+    DBG(fprintf(stderr, "tws_ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
 }
 
 static void tws_KeepaliveConnHandler(void *data, int mask) {
@@ -699,11 +704,7 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     // populate "conn->latest_millis"
     conn->latest_millis = current_time_in_millis();
 
-    if (conn->server->num_threads == 0) {
-        tws_HandleConn(conn, conn_handle);
-    } else {
-        tws_ThreadQueueConnEvent(conn, conn_handle);
-    }
+    tws_HandleConn(conn, conn_handle);
 }
 
 static void tws_AcceptConn(void *data, int mask) {
@@ -1183,7 +1184,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
         server_ctx->scriptPtr = NULL;
     }
     server_ctx->accept_ctx = NULL;
-    server_ctx->thread_id = Tcl_GetCurrentThread();
+    server_ctx->threadId = Tcl_GetCurrentThread();
 
     // configuration
     server_ctx->max_request_read_bytes = 10 * 1024 * 1024;
