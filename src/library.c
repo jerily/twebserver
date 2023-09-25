@@ -420,10 +420,7 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     return conn;
 }
 
-static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *dataPtr, const char *conn_handle) {
-    if (!tws_UnregisterConnName(conn_handle)) {
-        return;
-    }
+static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *dataPtr) {
 
     if (conn->prevPtr == NULL) {
         // the node to delete is the first node
@@ -449,10 +446,10 @@ static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *data
     Tcl_Free((char *) conn);
 }
 
-static void tws_FreeConn(tws_conn_t *conn, const char *conn_handle) {
+static void tws_FreeConn(tws_conn_t *conn) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
     Tcl_MutexLock(dataPtr->mutex);
-    tws_FreeConnWithThreadData(conn, dataPtr, conn_handle);
+    tws_FreeConnWithThreadData(conn, dataPtr);
     Tcl_MutexUnlock(dataPtr->mutex);
 }
 
@@ -462,9 +459,7 @@ static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
     Tcl_DeleteFileHandler(conn->client);
 //    conn->todelete = 1;
-    const char conn_handle[80];
-    CMD_CONN_NAME(conn_handle, conn);
-    tws_FreeConn(conn, conn_handle);
+    tws_FreeConn(conn);
     return 1;
 }
 
@@ -541,20 +536,24 @@ static void tws_CleanupConnections(ClientData clientData) {
         if (curr_conn->todelete) {
             DBG(fprintf(stderr, "tws_CleanupConnections - deleting conn - client: %d\n", curr_conn->client));
 
-            char conn_handle[80];
-            CMD_CONN_NAME(conn_handle, curr_conn);
-            tws_FreeConnWithThreadData(curr_conn, dataPtr, conn_handle);
+            tws_FreeConnWithThreadData(curr_conn, dataPtr);
 
             DBG(fprintf(stderr, "tws_CleanupConnections - deleted conn - client: %d\n", curr_conn->client));
         } else {
             long long elapsed = milliseconds - curr_conn->latest_millis;
             if (elapsed > curr_conn->server->conn_timeout_millis) {
-                DBG(fprintf(stderr, "tws_CleanupConnections - mark connection for deletion\n"));
-                tws_ShutdownConn(curr_conn, 2);  // used to trigger tws_DeleteFileHandlerForKeepaliveConn
-//                shutdown(conn->client, SHUT_RDWR);
-//                close(conn->client);
-                curr_conn->todelete = 1;
-                count_mark_for_deletion++;
+                char conn_handle[80];
+                CMD_CONN_NAME(conn_handle, curr_conn);
+                if (tws_UnregisterConnName(conn_handle)) {
+                    fprintf(stderr, "tws_CleanupConnections - mark connection for deletion\n");
+                    // ShutdownConn needed to trigger tws_DeleteFileHandlerForKeepaliveConn
+                    tws_ShutdownConn(curr_conn, 2);
+                    // if keepalive, tws_DeleteFileHandlerForKeepaliveConn will free the connection
+                    if (!curr_conn->keepalive) {
+                        curr_conn->todelete = 1;
+                        count_mark_for_deletion++;
+                    }
+                }
             }
         }
         count++;
@@ -580,14 +579,20 @@ int tws_CloseConn(tws_conn_t *conn, const char *conn_handle, int force) {
     DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force,
                 conn->keepalive, conn->created_file_handler_p));
     if (force) {
-        tws_ShutdownConn(conn, force);
-        if (!conn->keepalive) {
-            tws_FreeConn(conn, conn_handle);
+        if (tws_UnregisterConnName(conn_handle)) {
+            tws_ShutdownConn(conn, force);
+            // if keepalive, then we need to delete the file handler
+            // so, we free the connection there as well
+            if (!conn->keepalive) {
+                tws_FreeConn(conn);
+            }
         }
     } else {
         if (!conn->keepalive) {
-            tws_ShutdownConn(conn, 2);
-            tws_FreeConn(conn, conn_handle);
+            if (tws_UnregisterConnName(conn_handle)) {
+                tws_ShutdownConn(conn, 2);
+                tws_FreeConn(conn);
+            }
         } else {
             if (!conn->created_file_handler_p) {
                 conn->created_file_handler_p = 1;
