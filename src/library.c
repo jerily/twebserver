@@ -1190,8 +1190,8 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->max_request_read_bytes = 10 * 1024 * 1024;
     server_ctx->max_read_buffer_size = 1024 * 1024;
     server_ctx->backlog = 1024;
-    server_ctx->conn_timeout_millis = 15 * 60 * 1000;  // 15 minutes
-    server_ctx->garbage_collection_interval_millis = 60 * 1000;  // 60 seconds
+    server_ctx->conn_timeout_millis = 2 * 60 * 1000;  // 2 minutes
+    server_ctx->garbage_collection_interval_millis = 30 * 1000;  // 30 seconds
     server_ctx->keepalive = 1;
     server_ctx->keepidle = 10;
     server_ctx->keepintvl = 5;
