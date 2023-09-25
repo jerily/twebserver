@@ -545,7 +545,7 @@ static void tws_CleanupConnections(ClientData clientData) {
                 char conn_handle[80];
                 CMD_CONN_NAME(conn_handle, curr_conn);
                 if (tws_UnregisterConnName(conn_handle)) {
-                    fprintf(stderr, "tws_CleanupConnections - mark connection for deletion\n");
+                    DBG(fprintf(stderr, "tws_CleanupConnections - mark connection for deletion\n"));
                     // ShutdownConn needed to trigger tws_DeleteFileHandlerForKeepaliveConn
                     tws_ShutdownConn(curr_conn, 2);
                     // if keepalive, tws_DeleteFileHandlerForKeepaliveConn will free the connection
