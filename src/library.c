@@ -541,7 +541,7 @@ static void tws_CleanupConnections(ClientData clientData) {
         if (curr_conn->todelete) {
             DBG(fprintf(stderr, "tws_CleanupConnections - deleting conn - client: %d\n", curr_conn->client));
 
-            const char conn_handle[80];
+            char conn_handle[80];
             CMD_CONN_NAME(conn_handle, curr_conn);
             tws_FreeConnWithThreadData(curr_conn, dataPtr, conn_handle);
 
