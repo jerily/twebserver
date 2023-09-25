@@ -1204,7 +1204,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
             if (newEntry) {
                 Tcl_SetHashValue(entryPtr, (ClientData) NULL);
             }
-            fprintf(stderr, "gzip_types: %s\n", gzip_type);
+            DBG(fprintf(stderr, "gzip_types: %s\n", gzip_type));
         }
     }
 
