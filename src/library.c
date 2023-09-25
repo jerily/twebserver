@@ -82,6 +82,8 @@ typedef struct {
     int keepintvl;  // the time (in seconds) between individual keepalive probes
     int keepcnt;    // The maximum number of keepalive probes TCP should send before dropping the connection
     int num_threads; // number of threads to handle connections
+    int gzip; // whether gzip compression is on or off
+    int gzip_min_length; // the minimum length of the response body to apply gzip compression
 } tws_server_t;
 
 typedef enum tws_CompressionMethod {
@@ -641,7 +643,7 @@ tws_HandleConnThread(
     DBG(Tcl_ThreadId threadId = Tcl_GetCurrentThread());
 
     // Get a pointer to the thread data for the current thread
-    tws_thread_data_t *dataPtr = (tws_thread_data_t *)Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
     // Create a new interp for this thread and store it in the thread data
     dataPtr->interp = Tcl_CreateInterp();
     dataPtr->cmdPtr = Tcl_DuplicateObj(ctrl->cmdPtr);
@@ -1136,6 +1138,45 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         }
     }
 
+    // read "gzip" boolean option
+    Tcl_Obj *gzipPtr;
+    Tcl_Obj *gzipKeyPtr = Tcl_NewStringObj("gzip", -1);
+    Tcl_IncrRefCount(gzipKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, gzipKeyPtr, &gzipPtr)) {
+        Tcl_DecrRefCount(gzipKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(gzipKeyPtr);
+    if (gzipPtr) {
+        if (TCL_OK != Tcl_GetBooleanFromObj(interp, gzipPtr, &server_ctx->gzip)) {
+            SetResult("gzip must be a boolean");
+            return TCL_ERROR;
+        }
+    }
+
+    // read "gzip_min_length" int option
+    Tcl_Obj *gzipMinLengthPtr;
+    Tcl_Obj *gzipMinLengthKeyPtr = Tcl_NewStringObj("gzipMinLength", -1);
+    Tcl_IncrRefCount(gzipMinLengthKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, gzipMinLengthKeyPtr, &gzipMinLengthPtr)) {
+        Tcl_DecrRefCount(gzipMinLengthKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(gzipMinLengthKeyPtr);
+    if (gzipMinLengthPtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, gzipMinLengthPtr, &server_ctx->gzip_min_length)) {
+            SetResult("gzip_min_length must be an integer");
+            return TCL_ERROR;
+        }
+    }
+    // check that "gzip_min_length" is a positive integer
+    if (server_ctx->gzip_min_length < 0) {
+        SetResult("gzip_min_length must be a positive integer");
+        return TCL_ERROR;
+    }
+
     Tcl_Obj *numThreadsPtr;
     Tcl_Obj *numThreadsKeyPtr = Tcl_NewStringObj("num_threads", -1);
     Tcl_IncrRefCount(numThreadsKeyPtr);
@@ -1200,6 +1241,8 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->keepidle = 10;
     server_ctx->keepintvl = 5;
     server_ctx->keepcnt = 3;
+    server_ctx->gzip = 1;
+    server_ctx->gzip_min_length = 8192;
     server_ctx->num_threads = 0;
 
     if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ctx, objv[1])) {
@@ -1512,7 +1555,7 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         Tcl_DictObjDone(&mvHeadersSearch);
     }
 
-    if (conn->compression == GZIP_COMPRESSION) {
+    if (conn->server->gzip && conn->compression == GZIP_COMPRESSION) {
         // set the Content-Encoding header to "gzip"
         Tcl_DStringAppend(&ds, "\r\n", 2);
         Tcl_DStringAppend(&ds, "Content-Encoding: gzip", 22);
@@ -1547,7 +1590,11 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     }
 
     Tcl_Obj *compressed = NULL;
-    if (body_length > 0 && conn->compression == GZIP_COMPRESSION) {
+    if (conn->server->gzip
+        && conn->compression == GZIP_COMPRESSION
+        && body_length > 0
+        && body_length >= conn->server->gzip_min_length) {
+
         Tcl_Obj *baObj = Tcl_NewByteArrayObj(body, body_length);
         Tcl_IncrRefCount(baObj);
         if (Tcl_ZlibDeflate(interp, TCL_ZLIB_FORMAT_GZIP, baObj,
@@ -2488,16 +2535,20 @@ static int tws_ParseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     Tcl_DecrRefCount(headersKeyPtr);
 
     if (headersPtr) {
-        if (TCL_OK != tws_ParseConnectionKeepalive(interp, headersPtr, &conn->keepalive)) {
-            Tcl_DecrRefCount(resultPtr);
-            Tcl_DStringFree(&ds);
-            return TCL_ERROR;
+        if (conn->server->keepalive) {
+            if (TCL_OK != tws_ParseConnectionKeepalive(interp, headersPtr, &conn->keepalive)) {
+                Tcl_DecrRefCount(resultPtr);
+                Tcl_DStringFree(&ds);
+                return TCL_ERROR;
+            }
         }
 
-        if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
-            Tcl_DecrRefCount(resultPtr);
-            Tcl_DStringFree(&ds);
-            return TCL_ERROR;
+        if (conn->server->gzip) {
+            if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
+                Tcl_DecrRefCount(resultPtr);
+                Tcl_DStringFree(&ds);
+                return TCL_ERROR;
+            }
         }
     }
 
