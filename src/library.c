@@ -93,7 +93,7 @@ typedef enum tws_CompressionMethod {
     BROTLI_COMPRESSION
 } tws_compression_method_t;
 
-typedef struct {
+typedef struct tws_conn_t_ {
     tws_server_t *server;
     SSL *ssl;
     int client;
@@ -104,6 +104,8 @@ typedef struct {
     int keepalive;
     int created_file_handler_p;
     int todelete;
+    struct tws_conn_t_ *prevPtr;
+    struct tws_conn_t_ *nextPtr;
 } tws_conn_t;
 
 typedef struct {
@@ -115,12 +117,14 @@ typedef struct {
 typedef struct {
     Tcl_Interp *interp;
     Tcl_Obj *cmdPtr;
+    Tcl_Mutex *mutex;
+    tws_conn_t *firstConnPtr;
+    tws_conn_t *lastConnPtr;
 } tws_thread_data_t;
 
 typedef struct {
-    Tcl_Obj *scriptPtr;
-    Tcl_Obj *cmdPtr;
     Tcl_Condition condWait;
+    tws_server_t *server;
 } tws_thread_ctrl_t;
 
 static Tcl_ThreadDataKey dataKey;
@@ -402,6 +406,9 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     conn->keepalive = 0;
     conn->created_file_handler_p = 0;
     conn->todelete = 0;
+    conn->prevPtr = NULL;
+    conn->nextPtr = NULL;
+
     if (server->num_threads > 0) {
         conn->threadId = conn->server->conn_thread_ids[conn->client % conn->server->num_threads];
     } else {
@@ -413,9 +420,37 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     return conn;
 }
 
-static void tws_FreeConn(tws_conn_t *conn) {
+static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *dataPtr) {
+
+    if (conn->prevPtr == NULL) {
+        // the node to delete is the first node
+        dataPtr->firstConnPtr = conn->nextPtr;
+        if (dataPtr->firstConnPtr == NULL) {
+            // only one node in the list
+            dataPtr->lastConnPtr = NULL;
+        } else {
+            // update the previous pointer of the new first node
+            dataPtr->firstConnPtr->prevPtr = NULL;
+        }
+    } else if (conn->nextPtr == NULL) {
+        // the node to delete is the last node
+        dataPtr->lastConnPtr = conn->prevPtr;
+        dataPtr->lastConnPtr->nextPtr = NULL;
+    } else {
+        // the node to delete is neither first or last
+        conn->prevPtr->nextPtr = conn->nextPtr;
+        conn->nextPtr->prevPtr = conn->prevPtr;
+    }
+
     SSL_free(conn->ssl);
     Tcl_Free((char *) conn);
+}
+
+static void tws_FreeConn(tws_conn_t *conn) {
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+    Tcl_MutexLock(dataPtr->mutex);
+    tws_FreeConnWithThreadData(conn, dataPtr);
+    Tcl_MutexUnlock(dataPtr->mutex);
 }
 
 static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
@@ -423,7 +458,7 @@ static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
     Tcl_DeleteFileHandler(conn->client);
-    tws_FreeConn(conn);
+    conn->todelete = 1;
     return 1;
 }
 
@@ -477,40 +512,53 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
 
 static void tws_CleanupConnections(ClientData clientData) {
     tws_server_t *server = (tws_server_t *) clientData;
-    DBG(fprintf(stderr, "tws_CleanupConnections\n"));
+
+    Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
+    DBG(fprintf(stderr, "tws_CleanupConnections currentThreadId=%p\n", currentThreadId));
 
     long long milliseconds = current_time_in_millis();
 
-    Tcl_HashEntry *entryPtr;
-    Tcl_HashSearch search;
-    Tcl_MutexLock(&tws_ConnNameToInternal_HT_Mutex);
     int count = 0;
     int count_mark_for_deletion = 0;
-    for (entryPtr = Tcl_FirstHashEntry(&tws_ConnNameToInternal_HT, &search); entryPtr != NULL;
-         entryPtr = Tcl_NextHashEntry(&search)) {
-        tws_conn_t *conn = (tws_conn_t *) Tcl_GetHashValue(entryPtr);
-        if (conn->todelete) {
-            DBG(fprintf(stderr, "tws_CleanupConnections - deleting conn - client: %d\n", conn->client));
 
-            tws_FreeConn(conn);
-            Tcl_DeleteHashEntry(entryPtr);
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+    Tcl_MutexLock(dataPtr->mutex);
+    tws_conn_t *curr_conn = dataPtr->firstConnPtr;
+    while (curr_conn != NULL) {
+        // shouldn't be the case but we check anyway
+        if (curr_conn->threadId != currentThreadId) {
+            fprintf(stderr, "wrong thread cleanup conn->threadId=%p currentThreadId=%p\n", curr_conn->threadId,
+                    currentThreadId);
+            continue;
+        }
 
-            DBG(fprintf(stderr, "tws_CleanupConnections - deleted conn - client: %d\n", conn->client));
+        if (curr_conn->todelete) {
+            DBG(fprintf(stderr, "tws_CleanupConnections - deleting conn - client: %d\n", curr_conn->client));
+
+            const char conn_handle[80];
+            CMD_CONN_NAME(conn_handle, curr_conn);
+            tws_UnregisterConnName(conn_handle);
+            tws_FreeConnWithThreadData(curr_conn, dataPtr);
+
+            DBG(fprintf(stderr, "tws_CleanupConnections - deleted conn - client: %d\n", curr_conn->client));
         } else {
-            long long elapsed = milliseconds - conn->latest_millis;
-            if (elapsed > conn->server->conn_timeout_millis) {
+            long long elapsed = milliseconds - curr_conn->latest_millis;
+            if (elapsed > curr_conn->server->conn_timeout_millis) {
                 DBG(fprintf(stderr, "tws_CleanupConnections - mark connection for deletion\n"));
-                tws_ShutdownConn(conn, 2);
+                tws_ShutdownConn(curr_conn, 2);  // used to trigger tws_DeleteFileHandlerForKeepaliveConn
 //                shutdown(conn->client, SHUT_RDWR);
 //                close(conn->client);
-                conn->todelete = 1;
+                curr_conn->todelete = 1;
                 count_mark_for_deletion++;
             }
         }
         count++;
+
+        curr_conn = curr_conn->nextPtr;
     }
+    Tcl_MutexUnlock(dataPtr->mutex);
+
     DBG(fprintf(stderr, "reviewed count: %d marked_for_deletion: %d\n", count, count_mark_for_deletion));
-    Tcl_MutexUnlock(&tws_ConnNameToInternal_HT_Mutex);
     Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, clientData);
 }
 
@@ -642,12 +690,15 @@ tws_HandleConnThread(
     tws_thread_ctrl_t *ctrl = (tws_thread_ctrl_t *) clientData;
 
     DBG(Tcl_ThreadId threadId = Tcl_GetCurrentThread());
-
+    Tcl_Mutex mutex;
     // Get a pointer to the thread data for the current thread
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
     // Create a new interp for this thread and store it in the thread data
     dataPtr->interp = Tcl_CreateInterp();
-    dataPtr->cmdPtr = Tcl_DuplicateObj(ctrl->cmdPtr);
+    dataPtr->cmdPtr = Tcl_DuplicateObj(ctrl->server->cmdPtr);
+    dataPtr->mutex = &mutex;
+    dataPtr->firstConnPtr = NULL;
+    dataPtr->lastConnPtr = NULL;
     Tcl_IncrRefCount(dataPtr->cmdPtr);
 
     DBG(fprintf(stderr, "created interp=%p\n", dataPtr->interp));
@@ -659,12 +710,13 @@ tws_HandleConnThread(
         Tcl_ExitThread(TCL_ERROR);
         return TCL_THREAD_CREATE_RETURN;
     }
-    if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->scriptPtr)) {
+    if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->server->scriptPtr)) {
         DBG(fprintf(stderr, "error evaluating init script\n"));
         Tcl_FinalizeThread();
         Tcl_ExitThread(TCL_ERROR);
         return TCL_THREAD_CREATE_RETURN;
     }
+    Tcl_CreateTimerHandler(ctrl->server->garbage_collection_interval_millis, tws_CleanupConnections, ctrl->server);
     Tcl_ConditionNotify(&ctrl->condWait);
     DBG(fprintf(stderr, "tws_HandleConnThread: in (%p)\n", threadId));
     while (1) {
@@ -680,6 +732,19 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "tws_HandleConnEventInThread\n"));
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
+
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+    Tcl_MutexLock(dataPtr->mutex);
+    if (dataPtr->firstConnPtr == NULL) {
+        dataPtr->firstConnPtr = conn;
+        dataPtr->lastConnPtr = conn;
+    } else {
+        dataPtr->lastConnPtr->nextPtr = conn;
+        conn->prevPtr = dataPtr->lastConnPtr;
+        dataPtr->lastConnPtr = conn;
+    }
+    Tcl_MutexUnlock(dataPtr->mutex);
+
     char conn_handle[80];
     CMD_CONN_NAME(conn_handle, conn);
     tws_HandleConn(conn, conn_handle);
@@ -785,10 +850,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
             Tcl_ThreadId id;
             tws_thread_ctrl_t ctrl;
             ctrl.condWait = NULL;
-            ctrl.scriptPtr = server->scriptPtr;
-            ctrl.cmdPtr = server->cmdPtr;
-            Tcl_IncrRefCount(ctrl.scriptPtr);
-            Tcl_IncrRefCount(ctrl.cmdPtr);
+            ctrl.server = server;
             if (TCL_OK !=
                 Tcl_CreateThread(&id, tws_HandleConnThread, &ctrl, TCL_THREAD_STACK_DEFAULT, TCL_THREAD_NOFLAGS)) {
                 Tcl_MutexUnlock(&tws_Thread_Mutex);
@@ -801,13 +863,13 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
             Tcl_ConditionWait(&ctrl.condWait, &tws_Thread_Mutex, NULL);
             Tcl_MutexUnlock(&tws_Thread_Mutex);
             Tcl_ConditionFinalize(&ctrl.condWait);
-            Tcl_DecrRefCount(ctrl.cmdPtr);
-            Tcl_DecrRefCount(ctrl.scriptPtr);
             DBG(fprintf(stderr, "tws_Listen - created thread: %p\n", id));
         }
     }
     Tcl_CreateFileHandler(sock, TCL_READABLE, tws_AcceptConn, server);
-    Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, server);
+    if (server->num_threads == 0) {
+        Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, server);
+    }
     return TCL_OK;
 }
 
