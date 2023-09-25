@@ -21,7 +21,11 @@ set init_script {
     }
 }
 
-set config_dict [dict create num_threads 10]
+set config_dict [dict create \
+    num_threads 10 \
+    gzip on \
+    gzip_types [list text/plain application/json] \
+    gzip_min_length 20]
 set server_handle [::twebserver::create_server $config_dict process_conn $init_script]
 ::twebserver::add_context $server_handle localhost "../certs/host1/key.pem" "../certs/host1/cert.pem"
 ::twebserver::add_context $server_handle www.example.com "../certs/host2/key.pem" "../certs/host2/cert.pem"

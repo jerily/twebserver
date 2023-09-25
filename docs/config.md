@@ -10,3 +10,6 @@
 * **keepintvl** - the time (in seconds) between individual keepalive probes (Default: 5)
 * **keepcnt** - The maximum number of keepalive probes TCP should send before dropping the connection (Default: 3)
 * **num_threads** - the number of threads to use (Default: 10)
+* **gzip** - whether gzip is on or off (Default: 1)
+* **gzip_min_length** - the minimum length of a response to gzip (Default: 8192)
+* **gzip_types** - compresses responses only with MIME type text/html, to compress responses with other MIME types, list the additional types of content to gzip (Default: text/html)

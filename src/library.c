@@ -84,6 +84,7 @@ typedef struct {
     int num_threads; // number of threads to handle connections
     int gzip; // whether gzip compression is on or off
     int gzip_min_length; // the minimum length of the response body to apply gzip compression
+    Tcl_HashTable gzip_types_HT; // the list of mime types to apply gzip compression
 } tws_server_t;
 
 typedef enum tws_CompressionMethod {
@@ -1157,7 +1158,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
 
     // read "gzip_min_length" int option
     Tcl_Obj *gzipMinLengthPtr;
-    Tcl_Obj *gzipMinLengthKeyPtr = Tcl_NewStringObj("gzipMinLength", -1);
+    Tcl_Obj *gzipMinLengthKeyPtr = Tcl_NewStringObj("gzip_min_length", -1);
     Tcl_IncrRefCount(gzipMinLengthKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, gzipMinLengthKeyPtr, &gzipMinLengthPtr)) {
         Tcl_DecrRefCount(gzipMinLengthKeyPtr);
@@ -1176,6 +1177,37 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         SetResult("gzip_min_length must be a positive integer");
         return TCL_ERROR;
     }
+
+    // read "gzip_min_length" int option
+    Tcl_Obj *gzipTypesPtr;
+    Tcl_Obj *gzipTypesKeyPtr = Tcl_NewStringObj("gzip_types", -1);
+    Tcl_IncrRefCount(gzipTypesKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, gzipTypesKeyPtr, &gzipTypesPtr)) {
+        Tcl_DecrRefCount(gzipTypesKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(gzipTypesKeyPtr);
+    if (gzipTypesPtr) {
+        int gzip_types_count;
+        Tcl_Obj **gzip_types;
+        if (TCL_OK != Tcl_ListObjGetElements(interp, gzipTypesPtr, &gzip_types_count,
+                                              &gzip_types)) {
+            SetResult("gzip_types must be a list");
+            return TCL_ERROR;
+        }
+        for (int i = 0; i < gzip_types_count; i++) {
+            char *gzip_type = Tcl_GetString(gzip_types[i]);
+            Tcl_HashEntry *entryPtr;
+            int newEntry;
+            entryPtr = Tcl_CreateHashEntry(&server_ctx->gzip_types_HT, gzip_type, &newEntry);
+            if (newEntry) {
+                Tcl_SetHashValue(entryPtr, (ClientData) NULL);
+            }
+            fprintf(stderr, "gzip_types: %s\n", gzip_type);
+        }
+    }
+
 
     Tcl_Obj *numThreadsPtr;
     Tcl_Obj *numThreadsKeyPtr = Tcl_NewStringObj("num_threads", -1);
@@ -1243,6 +1275,15 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     server_ctx->keepcnt = 3;
     server_ctx->gzip = 1;
     server_ctx->gzip_min_length = 8192;
+    Tcl_InitHashTable(&server_ctx->gzip_types_HT, TCL_STRING_KEYS);
+
+    Tcl_HashEntry *entryPtr;
+    int newEntry;
+    entryPtr = Tcl_CreateHashEntry(&server_ctx->gzip_types_HT, "text/html", &newEntry);
+    if (newEntry) {
+        Tcl_SetHashValue(entryPtr, (ClientData) NULL);
+    }
+
     server_ctx->num_threads = 0;
 
     if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ctx, objv[1])) {
@@ -1555,12 +1596,6 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         Tcl_DictObjDone(&mvHeadersSearch);
     }
 
-    if (conn->server->gzip && conn->compression == GZIP_COMPRESSION) {
-        // set the Content-Encoding header to "gzip"
-        Tcl_DStringAppend(&ds, "\r\n", 2);
-        Tcl_DStringAppend(&ds, "Content-Encoding: gzip", 22);
-    }
-
     // write the body to the ssl connection
     int isBase64Encoded = 0;
     if (isBase64EncodedPtr) {
@@ -1589,11 +1624,58 @@ static int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
         body = Tcl_GetStringFromObj(bodyPtr, &body_length);
     }
 
+    int gzip_p = conn->server->gzip
+                 && conn->compression == GZIP_COMPRESSION
+                 && body_length > 0
+                 && body_length >= conn->server->gzip_min_length;
+
+    if (gzip_p) {
+        // get Content-Type header
+        Tcl_Obj *contentTypePtr;
+        Tcl_Obj *contentTypeKeyPtr = Tcl_NewStringObj("Content-Type", -1);
+        Tcl_IncrRefCount(contentTypeKeyPtr);
+        if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentTypeKeyPtr, &contentTypePtr)) {
+            Tcl_DecrRefCount(contentTypeKeyPtr);
+            Tcl_DStringFree(&ds);
+            if (body_alloc) {
+                Tcl_Free(body);
+            }
+            SetResult("error reading from dict");
+            return TCL_ERROR;
+        }
+        Tcl_DecrRefCount(contentTypeKeyPtr);
+
+        // check if content type is in gzip_types_HT
+        if (contentTypePtr) {
+            int contentTypeLength;
+            const char *contentType = Tcl_GetStringFromObj(contentTypePtr, &contentTypeLength);
+            if (contentTypeLength > 0) {
+                // find the first ";" in contentType
+                char *p = memchr(contentType, ';', contentTypeLength);
+                if (p) {
+                    contentType = strndup(contentType, p - contentType);
+                }
+                DBG(fprintf(stderr, "contentType: %s\n", contentType));
+                Tcl_HashEntry *entry = Tcl_FindHashEntry(&conn->server->gzip_types_HT, contentType);
+                if (!entry) {
+                    fprintf(stderr, "not found contentType: %s\n", contentType);
+                    gzip_p = 0;
+                }
+                if (p) {
+                    free((void *) contentType);
+                }
+            }
+        }
+    }
+
+    if (gzip_p) {
+        // set the Content-Encoding header to "gzip"
+        Tcl_DStringAppend(&ds, "\r\n", 2);
+        Tcl_DStringAppend(&ds, "Content-Encoding: gzip", 22);
+    }
+
     Tcl_Obj *compressed = NULL;
-    if (conn->server->gzip
-        && conn->compression == GZIP_COMPRESSION
-        && body_length > 0
-        && body_length >= conn->server->gzip_min_length) {
+    if (gzip_p) {
 
         Tcl_Obj *baObj = Tcl_NewByteArrayObj(body, body_length);
         Tcl_IncrRefCount(baObj);
