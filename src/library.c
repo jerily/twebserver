@@ -617,7 +617,7 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
     if (SSL_accept(conn->ssl) <= 0) {
         DBG(fprintf(stderr, "SSL_accept <= 0 client: %d\n", conn->client));
         tws_CloseConn(conn, conn_handle, 1);
-        ERR_print_errors_fp(stderr);
+        DBG(ERR_print_errors_fp(stderr));
         return;
     } else {
 
@@ -627,7 +627,7 @@ static void tws_HandleConn(tws_conn_t *conn, char *conn_handle) {
             DBG(fprintf(stderr, "SSL_peek <= 0 client: %d sslerr: %s\n",
                         conn->client, ssl_errors[SSL_get_error(conn->ssl, rc)]));
             tws_CloseConn(conn, conn_handle, 1);
-            ERR_print_errors_fp(stderr);
+            DBG(ERR_print_errors_fp(stderr));
             return;
         }
 
@@ -1447,6 +1447,7 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
         } else {
             int err = SSL_get_error(conn->ssl, rc);
             if (err == SSL_ERROR_WANT_READ) {
+                fprintf(stderr, "SSL_ERROR_WANT_READ\n");
                 bytes_read = rc;
                 Tcl_DStringAppend(dsPtr, buf, bytes_read);
                 total_read += bytes_read;
