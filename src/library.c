@@ -792,7 +792,7 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
     // prefer to refuse connection if we are over the limit
     // this is to cap memory usage
     int thread_limit = conn->server->thread_max_concurrent_conns;
-    if (dataPtr->numConns >= thread_limit) {
+    if (thread_limit > 0 && dataPtr->numConns >= thread_limit) {
         shutdown(conn->client, SHUT_RDWR);
         close(conn->client);
         SSL_free(conn->ssl);
