@@ -87,6 +87,7 @@ typedef struct {
     int keepcnt;    // The maximum number of keepalive probes TCP should send before dropping the connection
     int num_threads; // number of threads to handle connections
     int thread_stacksize; // the stack size for each thread in bytes
+    int thread_max_concurrent_conns; // the maximum number of concurrent connections per thread
     int gzip; // whether gzip compression is on or off
     int gzip_min_length; // the minimum length of the response body to apply gzip compression
     Tcl_HashTable gzip_types_HT; // the list of mime types to apply gzip compression
@@ -789,16 +790,16 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
     Tcl_MutexLock(dataPtr->mutex);
 
     // prefer to refuse connection if we are over the limit
-    // otherwise, buffer overflow may happen
-//    int thread_limit = FD_SETSIZE / (2 + conn->server->num_threads);
-//    if (dataPtr->numConns >= thread_limit) {
-//        shutdown(conn->client, SHUT_RDWR);
-//        close(conn->client);
-//        SSL_free(conn->ssl);
-//        Tcl_Free((char *) conn);
-//        Tcl_MutexUnlock(dataPtr->mutex);
-//        return 1;
-//    }
+    // this is to cap memory usage
+    int thread_limit = conn->server->thread_max_concurrent_conns;
+    if (dataPtr->numConns >= thread_limit) {
+        shutdown(conn->client, SHUT_RDWR);
+        close(conn->client);
+        SSL_free(conn->ssl);
+        Tcl_Free((char *) conn);
+        Tcl_MutexUnlock(dataPtr->mutex);
+        return 1;
+    }
 
     if (dataPtr->firstConnPtr == NULL) {
         dataPtr->firstConnPtr = conn;
@@ -1438,6 +1439,26 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
     if (server_ctx->thread_stacksize < 0) {
         SetResult("thread_stacksize must be >= 0");
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *threadMaxConcurrentConnsPtr;
+    Tcl_Obj *threadMaxConcurrentConnsKeyPtr = Tcl_NewStringObj("thread_max_concurrent_conns", -1);
+    Tcl_IncrRefCount(threadMaxConcurrentConnsKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, threadMaxConcurrentConnsKeyPtr, &threadMaxConcurrentConnsPtr)) {
+        Tcl_DecrRefCount(threadMaxConcurrentConnsKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(threadMaxConcurrentConnsKeyPtr);
+    if (threadMaxConcurrentConnsPtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, threadMaxConcurrentConnsPtr, &server_ctx->thread_max_concurrent_conns)) {
+            SetResult("thread_max_concurrent_conns must be an integer");
+            return TCL_ERROR;
+        }
+    }
+    if (server_ctx->thread_max_concurrent_conns < 0) {
+        SetResult("thread_max_concurrent_conns must be >= 0");
         return TCL_ERROR;
     }
 
