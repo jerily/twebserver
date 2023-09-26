@@ -125,6 +125,7 @@ typedef struct {
     Tcl_Mutex *mutex;
     tws_conn_t *firstConnPtr;
     tws_conn_t *lastConnPtr;
+    int numConns;
 } tws_thread_data_t;
 
 typedef struct {
@@ -450,6 +451,8 @@ static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *data
 
     SSL_free(conn->ssl);
     Tcl_Free((char *) conn);
+
+    dataPtr->numConns--;
 }
 
 static void tws_FreeConn(tws_conn_t *conn) {
@@ -744,6 +747,16 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
 
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
     Tcl_MutexLock(dataPtr->mutex);
+
+    // prefer to refuse connection if we are over the limit
+    // otherwise, buffer overflow may happen
+    if (dataPtr->numConns > FD_SETSIZE / conn->server->num_threads - conn->server->num_threads ) {
+        shutdown(conn->client, SHUT_RDWR);
+        close(conn->client);
+        Tcl_MutexUnlock(dataPtr->mutex);
+        return 1;
+    }
+
     if (dataPtr->firstConnPtr == NULL) {
         dataPtr->firstConnPtr = conn;
         dataPtr->lastConnPtr = conn;
@@ -752,10 +765,9 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
         conn->prevPtr = dataPtr->lastConnPtr;
         dataPtr->lastConnPtr = conn;
     }
+    dataPtr->numConns++;
     Tcl_MutexUnlock(dataPtr->mutex);
 
-//    char conn_handle[80];
-//    CMD_CONN_NAME(conn_handle, conn);
     tws_HandleConn(conn);
     return 1;
 }
