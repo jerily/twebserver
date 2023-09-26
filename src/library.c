@@ -19,6 +19,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <sys/time.h>
+#include <sys/epoll.h>
 #include <fcntl.h>
 
 #define XSTR(s) STR(s)
@@ -43,6 +44,8 @@
 #define CMD_CONN_NAME(s, internal) sprintf((s), "_TWS_CONN_%p", (internal))
 #define CHARTYPE(what, c) (is ## what ((int)((unsigned char)(c))))
 
+#define MAX_EVENTS 10
+
 static int tws_ModuleInitialized;
 
 static Tcl_Mutex tws_Thread_Mutex;
@@ -60,7 +63,8 @@ static Tcl_Mutex tws_HostNameToInternal_HT_Mutex;
 static int tws_ModuleInitialized;
 
 typedef struct {
-    int sock;
+    int server_fd;
+    int epoll_fd;
     int port;
     Tcl_Interp *interp;
 } tws_accept_ctx_t;
@@ -126,6 +130,7 @@ typedef struct {
     tws_conn_t *firstConnPtr;
     tws_conn_t *lastConnPtr;
     int numConns;
+    int epoll_fd;
 } tws_thread_data_t;
 
 typedef struct {
@@ -314,7 +319,7 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     }
 
     if (server->accept_ctx != NULL) {
-        Tcl_DeleteFileHandler(server->accept_ctx->sock);
+        Tcl_DeleteFileHandler(server->accept_ctx->server_fd);
         Tcl_Free((char *) server->accept_ctx);
     }
     if (server->conn_thread_ids != NULL) {
@@ -331,60 +336,60 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
 }
 
 static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int *sock) {
-    int fd;
+    int server_fd;
     struct sockaddr_in addr;
 
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) {
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0) {
         SetResult("Unable to create socket");
         return TCL_ERROR;
     }
 
     // Set the close-on-exec flag so that the socket will not get inherited by child processes.
-    fcntl(fd, F_SETFD, FD_CLOEXEC);
+    fcntl(server_fd, F_SETFD, FD_CLOEXEC);
 
     int reuseaddr = 1;
-    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *) &reuseaddr, sizeof(reuseaddr))) {
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (char *) &reuseaddr, sizeof(reuseaddr))) {
         DBG(fprintf(stderr, "setsockopt SO_REUSEADDR failed"));
     }
 
     if (server->keepalive) {
-        if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &server->keepalive, sizeof(int))) {
+        if (setsockopt(server_fd, SOL_SOCKET, SO_KEEPALIVE, &server->keepalive, sizeof(int))) {
             DBG(fprintf(stderr, "setsockopt SO_KEEPALIVE failed"));
         }
 
         // Set the TCP_KEEPIDLE option on the socket
-        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &server->keepidle, sizeof(int)) == -1) {
+        if (setsockopt(server_fd, IPPROTO_TCP, TCP_KEEPIDLE, &server->keepidle, sizeof(int)) == -1) {
             DBG(fprintf(stderr, "setsockopt TCP_KEEPIDLE failed"));
         }
 
         // Set the TCP_KEEPINTVL option on the socket
-        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &server->keepintvl, sizeof(int)) == -1) {
+        if (setsockopt(server_fd, IPPROTO_TCP, TCP_KEEPINTVL, &server->keepintvl, sizeof(int)) == -1) {
             DBG(fprintf(stderr, "setsockopt TCP_KEEPINTVL failed"));
         }
 
         // Set the TCP_KEEPCNT option on the socket
-        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &server->keepcnt, sizeof(int)) == -1) {
+        if (setsockopt(server_fd, IPPROTO_TCP, TCP_KEEPCNT, &server->keepcnt, sizeof(int)) == -1) {
             DBG(fprintf(stderr, "setsockopt TCP_KEEPCNT failed"));
         }
     }
 
-    if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
+    if (bind(server_fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
         SetResult("Unable to bind");
         return TCL_ERROR;
     }
 
     int backlog = server->backlog; // the maximum length to which the  queue  of pending  connections  for sockfd may grow
-    if (listen(fd, backlog) < 0) {
+    if (listen(server_fd, backlog) < 0) {
         SetResult("Unable to listen");
         return TCL_ERROR;
     }
 
-    *sock = fd;
+    *sock = server_fd;
     return TCL_OK;
 }
 
@@ -462,12 +467,24 @@ static void tws_FreeConn(tws_conn_t *conn) {
     Tcl_MutexUnlock(dataPtr->mutex);
 }
 
+static void tws_DeleteFileHandler(int fd) {
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+
+    // Remove the server socket from the epoll set
+    struct epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = fd;
+    if (epoll_ctl(dataPtr->epoll_fd, EPOLL_CTL_DEL, fd, &ev) == -1) {
+        DBG(fprintf(stderr, "tws_DeleteFileHandler: epoll_ctl failed, fd: %d\n", fd));
+    }
+}
+
 static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
     DBG(fprintf(stderr, "tws_DeleteFileHandlerForKeepaliveConn client=%d\n", conn->client));
-    Tcl_DeleteFileHandler(conn->client);
-//    conn->todelete = 1;
+    tws_DeleteFileHandler(conn->client);
+//    Tcl_DeleteFileHandler(conn->client);
     tws_FreeConn(conn);
     return 1;
 }
@@ -574,12 +591,26 @@ static void tws_CleanupConnections(ClientData clientData) {
     Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, clientData);
 }
 
+static void tws_CreateFileHandler(int fd, ClientData clientData) {
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+
+    // Add the server socket to the epoll set
+    struct epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = fd;
+    ev.data.ptr = clientData;
+    if (epoll_ctl(dataPtr->epoll_fd, EPOLL_CTL_ADD, fd, &ev) == -1) {
+        DBG(fprintf(stderr, "tws_CreateFileHandler: epoll_ctl failed, fd: %d\n", fd));
+    }
+}
+
 static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn\n"));
     tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
     DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn conn=%p client=%d\n", conn, conn->client));
-    Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
+    tws_CreateFileHandler(conn->client, conn);
+//    Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
     return 1;
 }
 
@@ -709,6 +740,7 @@ tws_HandleConnThread(
     dataPtr->mutex = &mutex;
     dataPtr->firstConnPtr = NULL;
     dataPtr->lastConnPtr = NULL;
+    dataPtr->epoll_fd = epoll_create1(0);
     Tcl_IncrRefCount(dataPtr->cmdPtr);
 
     DBG(fprintf(stderr, "created interp=%p\n", dataPtr->interp));
@@ -726,10 +758,18 @@ tws_HandleConnThread(
         Tcl_ExitThread(TCL_ERROR);
         return TCL_THREAD_CREATE_RETURN;
     }
+
+    // create a file handler for the epoll fd for this thread
+    Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
+
     // make sure that garbage collection does not start the same time on all threads
-    int first_timer_millis = ctrl->thread_index * (ctrl->server->garbage_collection_interval_millis / ctrl->server->num_threads);
+    int first_timer_millis =
+            ctrl->thread_index * (ctrl->server->garbage_collection_interval_millis / ctrl->server->num_threads);
     Tcl_CreateTimerHandler(first_timer_millis, tws_CleanupConnections, ctrl->server);
+
+    // notify the main thread that we are done initializing
     Tcl_ConditionNotify(&ctrl->condWait);
+
     DBG(fprintf(stderr, "tws_HandleConnThread: in (%p) - first timer millis: %d\n", threadId, first_timer_millis));
     while (1) {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
@@ -750,15 +790,15 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
 
     // prefer to refuse connection if we are over the limit
     // otherwise, buffer overflow may happen
-    int thread_limit = FD_SETSIZE / (2 + conn->server->num_threads);
-    if (dataPtr->numConns >= thread_limit ) {
-        shutdown(conn->client, SHUT_RDWR);
-        close(conn->client);
-        SSL_free(conn->ssl);
-        Tcl_Free((char *) conn);
-        Tcl_MutexUnlock(dataPtr->mutex);
-        return 1;
-    }
+//    int thread_limit = FD_SETSIZE / (2 + conn->server->num_threads);
+//    if (dataPtr->numConns >= thread_limit) {
+//        shutdown(conn->client, SHUT_RDWR);
+//        close(conn->client);
+//        SSL_free(conn->ssl);
+//        Tcl_Free((char *) conn);
+//        Tcl_MutexUnlock(dataPtr->mutex);
+//        return 1;
+//    }
 
     if (dataPtr->firstConnPtr == NULL) {
         dataPtr->firstConnPtr = conn;
@@ -769,7 +809,9 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
         dataPtr->lastConnPtr = conn;
     }
     dataPtr->numConns++;
-//    fprintf(stderr, "tws_HandleConnEventInThread - numConns: %d FD_SETSIZE: %d thread_limit: %d\n", dataPtr->numConns, FD_SETSIZE, thread_limit);
+
+    //    fprintf(stderr, "tws_HandleConnEventInThread - numConns: %d FD_SETSIZE: %d thread_limit: %d\n", dataPtr->numConns, FD_SETSIZE, thread_limit);
+
     Tcl_MutexUnlock(dataPtr->mutex);
 
     tws_HandleConn(conn);
@@ -789,52 +831,80 @@ static void tws_ThreadQueueConnEvent(tws_conn_t *conn, char *conn_handle) {
 
 static void tws_KeepaliveConnHandler(void *data, int mask) {
     DBG(fprintf(stderr, "tws_KeepaliveConnHandler mask=%d\n", mask));
-    tws_conn_t *conn = (tws_conn_t *) data;
 
-    // reuse conn
-//    char conn_handle[80];
-//    CMD_CONN_NAME(conn_handle, conn);
-//    tws_RegisterConnName(conn_handle, conn);
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
 
-    DBG(fprintf(stderr, "tws_KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
+    struct epoll_event events[MAX_EVENTS];
+    int nfds = epoll_wait(dataPtr->epoll_fd, events, MAX_EVENTS, -1);
+    if (nfds == -1) {
+        DBG(fprintf(stderr, "tws_KeepaliveConnHandler: epoll_wait failed"));
+        return;
+    }
 
-    // populate "conn->latest_millis"
-    conn->latest_millis = current_time_in_millis();
+    for (int i = 0; i < nfds; i++) {
+        tws_conn_t *conn = (tws_conn_t *) events[i].data.ptr;
+        DBG(fprintf(stderr, "tws_KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
+        conn->latest_millis = current_time_in_millis();
+        tws_HandleConn(conn);
+    }
 
-    tws_HandleConn(conn);
 }
 
 static void tws_AcceptConn(void *data, int mask) {
     tws_server_t *server = (tws_server_t *) data;
-    struct sockaddr_in addr;
-    unsigned int len = sizeof(addr);
 
-    DBG(fprintf(stderr, "-------------------tws_AcceptConn\n"));
-
-    int client = accept(server->accept_ctx->sock, (struct sockaddr *) &addr, &len);
-    DBG(fprintf(stderr, "client: %d, addr: %s\n", client, inet_ntoa(addr.sin_addr)));
-    if (client < 0) {
-        DBG(fprintf(stderr, "Unable to accept"));
+    struct epoll_event events[MAX_EVENTS];
+    int nfds = epoll_wait(server->accept_ctx->epoll_fd, events, MAX_EVENTS, -1);
+    if (nfds == -1) {
+        DBG(fprintf(stderr, "epoll_wait failed"));
         return;
     }
+    DBG(fprintf(stderr, "-------------------tws_AcceptConn, nfds: %d\n", nfds));
 
-    tws_conn_t *conn = tws_NewConn(server, client);
-    if (conn == NULL) {
-        shutdown(client, SHUT_WR);
-        shutdown(client, SHUT_RD);
-        close(client);
-        DBG(fprintf(stderr, "Unable to create SSL connection"));
-        return;
-    }
+    for (int i = 0; i < nfds; i++) {
+        if (events[i].data.fd == server->accept_ctx->server_fd) {
+            // new incoming connection
 
-//    char conn_handle[80];
-    CMD_CONN_NAME(conn->conn_handle, conn);
-    tws_RegisterConnName(conn->conn_handle, conn);
+            struct sockaddr_in addr;
+            unsigned int len = sizeof(addr);
+            int client = accept(server->accept_ctx->server_fd, (struct sockaddr *) &addr, &len);
+            DBG(fprintf(stderr, "client: %d, addr: %s\n", client, inet_ntoa(addr.sin_addr)));
+            if (client < 0) {
+                DBG(fprintf(stderr, "Unable to accept"));
+                return;
+            }
 
-    if (server->num_threads > 0) {
-        tws_ThreadQueueConnEvent(conn, conn->conn_handle);
-    } else {
-        tws_HandleConn(conn);
+            tws_conn_t *conn = tws_NewConn(server, client);
+            if (conn == NULL) {
+                shutdown(client, SHUT_WR);
+                shutdown(client, SHUT_RD);
+                close(client);
+                DBG(fprintf(stderr, "Unable to create SSL connection"));
+                return;
+            }
+
+            //    char conn_handle[80];
+            CMD_CONN_NAME(conn->conn_handle, conn);
+            tws_RegisterConnName(conn->conn_handle, conn);
+
+            if (server->num_threads > 0) {
+                tws_ThreadQueueConnEvent(conn, conn->conn_handle);
+            } else {
+                tws_HandleConn(conn);
+            }
+
+        } else {
+            // data available on an existing connection
+            // we do not have any as each thread has its own epoll instance
+
+            DBG(fprintf(stderr, "TODO: data available on an existing connection\n"));
+
+//            int client_fd = events[i].data.fd;
+//            handle_request(client_fd);  // Handle the request
+//            epoll_ctl(server->accept_ctx->sock, EPOLL_CTL_DEL, client_fd, NULL);  // Remove from epoll
+
+        }
+
     }
 }
 
@@ -852,17 +922,34 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
         return TCL_ERROR;
     }
 
-    int sock;
-    if (TCL_OK != create_socket(interp, server, port, &sock)) {
+    int server_fd;
+    if (TCL_OK != create_socket(interp, server, port, &server_fd)) {
         return TCL_ERROR;
     }
-    if (sock < 0) {
+    if (server_fd < 0) {
         SetResult("Unable to create socket");
         return TCL_ERROR;
     }
 
+    // Create an epoll instance
+    int epoll_fd = epoll_create1(0);
+    if (epoll_fd == -1) {
+        SetResult("Unable to create epoll instance");
+        return TCL_ERROR;
+    }
+
+    // Add the server socket to the epoll set
+    struct epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = server_fd;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &ev) == -1) {
+        SetResult("Unable to add server socket to epoll set");
+        return TCL_ERROR;
+    }
+
     tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_Alloc(sizeof(tws_accept_ctx_t));
-    accept_ctx->sock = sock;
+    accept_ctx->server_fd = server_fd;
+    accept_ctx->epoll_fd = epoll_fd;
     accept_ctx->port = port;
     accept_ctx->interp = interp;
     server->accept_ctx = accept_ctx;
@@ -892,7 +979,9 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
             DBG(fprintf(stderr, "tws_Listen - created thread: %p\n", id));
         }
     }
-    Tcl_CreateFileHandler(sock, TCL_READABLE, tws_AcceptConn, server);
+
+    Tcl_CreateFileHandler(epoll_fd, TCL_READABLE, tws_AcceptConn, server);
+
     if (server->num_threads == 0) {
         tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
         dataPtr->interp = NULL;
@@ -1287,7 +1376,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         int gzip_types_count;
         Tcl_Obj **gzip_types;
         if (TCL_OK != Tcl_ListObjGetElements(interp, gzipTypesPtr, &gzip_types_count,
-                                              &gzip_types)) {
+                                             &gzip_types)) {
             SetResult("gzip_types must be a list");
             return TCL_ERROR;
         }
@@ -1331,7 +1420,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         SetResult("num_threads must be > 0 if a thread_init_script is provided");
         return TCL_ERROR;
     }
-    
+
     Tcl_Obj *threadStacksizePtr;
     Tcl_Obj *threadStacksizeKeyPtr = Tcl_NewStringObj("thread_stacksize", -1);
     Tcl_IncrRefCount(threadStacksizeKeyPtr);
