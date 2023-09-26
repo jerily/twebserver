@@ -750,7 +750,8 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
 
     // prefer to refuse connection if we are over the limit
     // otherwise, buffer overflow may happen
-    if (dataPtr->numConns > FD_SETSIZE / conn->server->num_threads - conn->server->num_threads ) {
+    int thread_limit = FD_SETSIZE / (2 + conn->server->num_threads);
+    if (dataPtr->numConns >= thread_limit ) {
         shutdown(conn->client, SHUT_RDWR);
         close(conn->client);
         SSL_free(conn->ssl);
@@ -768,6 +769,7 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
         dataPtr->lastConnPtr = conn;
     }
     dataPtr->numConns++;
+//    fprintf(stderr, "tws_HandleConnEventInThread - numConns: %d FD_SETSIZE: %d thread_limit: %d\n", dataPtr->numConns, FD_SETSIZE, thread_limit);
     Tcl_MutexUnlock(dataPtr->mutex);
 
     tws_HandleConn(conn);
