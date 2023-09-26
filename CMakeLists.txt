@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(twebserver VERSION 1.47.0 LANGUAGES CXX C)
+project(twebserver VERSION 1.47.1 LANGUAGES CXX C)
 
 set(TARGET twebserver)
 set(CMAKE_C_STANDARD   11)

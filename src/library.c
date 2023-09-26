@@ -990,6 +990,8 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
         dataPtr->mutex = &tws_Thread_Mutex;
         dataPtr->firstConnPtr = NULL;
         dataPtr->lastConnPtr = NULL;
+        dataPtr->epoll_fd = epoll_create1(0);
+        Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
 
         Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, server);
     }

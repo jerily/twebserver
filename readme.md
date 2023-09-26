@@ -20,9 +20,9 @@ sudo yum install openssl-devel
 
 ### Build the library
 ```
-wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.0.tar.gz
-tar -xzf v1.47.0.tar.gz
-export TWS_DIR=$(pwd)/twebserver-1.47.0
+wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.1.tar.gz
+tar -xzf v1.47.1.tar.gz
+export TWS_DIR=$(pwd)/twebserver-1.47.1
 cd ${TWS_DIR}
 mkdir build
 cd build
