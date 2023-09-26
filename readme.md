@@ -20,8 +20,10 @@ sudo yum install openssl-devel
 
 ### Build the library
 ```
-git clone https://github.com/jerily/twebserver.git
-cd twebserver
+wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.0.tar.gz
+tar -xzf v1.47.0.tar.gz
+export TWS_DIR=$(pwd)/twebserver-1.47.0
+cd ${TWS_DIR}
 mkdir build
 cd build
 cmake ..
