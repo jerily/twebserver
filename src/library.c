@@ -780,7 +780,7 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
 //    CMD_CONN_NAME(conn_handle, conn);
 //    tws_RegisterConnName(conn_handle, conn);
 
-    DBG(fprintf(stderr, "tws_KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn_handle));
+    DBG(fprintf(stderr, "tws_KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
 
     // populate "conn->latest_millis"
     conn->latest_millis = current_time_in_millis();
