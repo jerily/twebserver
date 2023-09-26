@@ -455,9 +455,9 @@ static void tws_FreeConn(tws_conn_t *conn) {
 }
 
 static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
-    DBG(fprintf(stderr, "tws_DeleteFileHandlerForKeepaliveConn\n"));
     tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
+    DBG(fprintf(stderr, "tws_DeleteFileHandlerForKeepaliveConn client=%d\n", conn->client));
     Tcl_DeleteFileHandler(conn->client);
 //    conn->todelete = 1;
     tws_FreeConn(conn);
@@ -498,7 +498,7 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     }
 
     if (conn->created_file_handler_p == 1) {
-        DBG(fprintf(stderr, "delete file handler client: %d\n", conn->client));
+        DBG(fprintf(stderr, "schedule deletion of file handler client: %d\n", conn->client));
 //        Tcl_DeleteFileHandler(conn->client);
 
         // notify the event loop to delete the file handler for keepalive
