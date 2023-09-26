@@ -1513,6 +1513,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
 
     server_ctx->num_threads = 0;
     server_ctx->thread_stacksize = TCL_THREAD_STACK_DEFAULT;
+    server_ctx->thread_max_concurrent_conns = 0;
 
     if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ctx, objv[1])) {
         Tcl_Free((char *) server_ctx);
