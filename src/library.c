@@ -125,6 +125,7 @@ typedef struct {
 typedef struct {
     Tcl_Condition condWait;
     tws_server_t *server;
+    int thread_index;
 } tws_thread_ctrl_t;
 
 static Tcl_ThreadDataKey dataKey;
@@ -718,9 +719,11 @@ tws_HandleConnThread(
         Tcl_ExitThread(TCL_ERROR);
         return TCL_THREAD_CREATE_RETURN;
     }
-    Tcl_CreateTimerHandler(ctrl->server->garbage_collection_interval_millis, tws_CleanupConnections, ctrl->server);
+    // make sure that garbage collection does not start the same time on all threads
+    int first_timer_millis = ctrl->thread_index * (ctrl->server->garbage_collection_interval_millis / ctrl->server->num_threads);
+    Tcl_CreateTimerHandler(first_timer_millis, tws_CleanupConnections, ctrl->server);
     Tcl_ConditionNotify(&ctrl->condWait);
-    DBG(fprintf(stderr, "tws_HandleConnThread: in (%p)\n", threadId));
+    DBG(fprintf(stderr, "tws_HandleConnThread: in (%p) - first timer millis: %d\n", threadId, first_timer_millis));
     while (1) {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
     }
@@ -853,6 +856,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
             tws_thread_ctrl_t ctrl;
             ctrl.condWait = NULL;
             ctrl.server = server;
+            ctrl.thread_index = i;
             if (TCL_OK !=
                 Tcl_CreateThread(&id, tws_HandleConnThread, &ctrl, TCL_THREAD_STACK_DEFAULT, TCL_THREAD_NOFLAGS)) {
                 Tcl_MutexUnlock(&tws_Thread_Mutex);
