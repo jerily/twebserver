@@ -753,6 +753,8 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
     if (dataPtr->numConns > FD_SETSIZE / conn->server->num_threads - conn->server->num_threads ) {
         shutdown(conn->client, SHUT_RDWR);
         close(conn->client);
+        SSL_free(conn->ssl);
+        Tcl_Free((char *) conn);
         Tcl_MutexUnlock(dataPtr->mutex);
         return 1;
     }
