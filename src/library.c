@@ -499,7 +499,6 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
 
     if (conn->created_file_handler_p == 1) {
         DBG(fprintf(stderr, "schedule deletion of file handler client: %d\n", conn->client));
-//        Tcl_DeleteFileHandler(conn->client);
 
         // notify the event loop to delete the file handler for keepalive
         tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
