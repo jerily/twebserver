@@ -82,6 +82,7 @@ typedef struct {
     int keepintvl;  // the time (in seconds) between individual keepalive probes
     int keepcnt;    // The maximum number of keepalive probes TCP should send before dropping the connection
     int num_threads; // number of threads to handle connections
+    int thread_stacksize; // the stack size for each thread in bytes
     int gzip; // whether gzip compression is on or off
     int gzip_min_length; // the minimum length of the response body to apply gzip compression
     Tcl_HashTable gzip_types_HT; // the list of mime types to apply gzip compression
@@ -861,7 +862,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
             ctrl.server = server;
             ctrl.thread_index = i;
             if (TCL_OK !=
-                Tcl_CreateThread(&id, tws_HandleConnThread, &ctrl, TCL_THREAD_STACK_DEFAULT, TCL_THREAD_NOFLAGS)) {
+                Tcl_CreateThread(&id, tws_HandleConnThread, &ctrl, server->thread_stacksize, TCL_THREAD_NOFLAGS)) {
                 Tcl_MutexUnlock(&tws_Thread_Mutex);
                 SetResult("Unable to create thread");
                 return TCL_ERROR;
@@ -1314,6 +1315,26 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         SetResult("num_threads must be > 0 if a thread_init_script is provided");
         return TCL_ERROR;
     }
+    
+    Tcl_Obj *threadStacksizePtr;
+    Tcl_Obj *threadStacksizeKeyPtr = Tcl_NewStringObj("thread_stacksize", -1);
+    Tcl_IncrRefCount(threadStacksizeKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, threadStacksizeKeyPtr, &threadStacksizePtr)) {
+        Tcl_DecrRefCount(threadStacksizeKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(threadStacksizeKeyPtr);
+    if (threadStacksizePtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, threadStacksizePtr, &server_ctx->thread_stacksize)) {
+            SetResult("thread_stacksize must be an integer");
+            return TCL_ERROR;
+        }
+    }
+    if (server_ctx->thread_stacksize < 0) {
+        SetResult("thread_stacksize must be >= 0");
+        return TCL_ERROR;
+    }
 
     return TCL_OK;
 }
@@ -1363,6 +1384,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     }
 
     server_ctx->num_threads = 0;
+    server_ctx->thread_stacksize = TCL_THREAD_STACK_DEFAULT;
 
     if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ctx, objv[1])) {
         Tcl_Free((char *) server_ctx);
