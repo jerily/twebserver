@@ -10,12 +10,17 @@ The extension depends on OpenSSL (3.0.2 or later) and TCL (8.6.13).
 
 To install the packages on Debian/Ubuntu-based systems:
 ```bash
-sudo apt-get install libssl-dev
+sudo apt-get install cmake libssl-dev
 ```
 
 To install the packages on Amazon Linux/Redhat/Fedora/CentOS-based systems
 ```bash
-sudo yum install openssl-devel
+sudo yum install cmake openssl-devel
+```
+
+To install the packages on MacOS:
+```bash
+brew install cmake openssl@3
 ```
 
 ### Build the library
@@ -26,7 +31,9 @@ export TWS_DIR=$(pwd)/twebserver-1.47.1
 cd ${TWS_DIR}
 mkdir build
 cd build
-cmake ..
+cmake .. \
+  -DTCL_LIBRARY_DIR=/usr/local/lib \
+  -DTCL_INCLUDE_DIR=/usr/local/include
 make
 make install
 ```
@@ -87,6 +94,7 @@ tclsh ../examples/example-best-with-native-threads.tcl
 ## Benchmark
 ```
 go install github.com/parkghost/gohttpbench@latest
+export PATH="$PATH:$(go env GOPATH)/bin"
 # with keepalive
 gohttpbench -v 10 -n 100000 -c 10 -t 10 -k "https://localhost:4433/example?a=1&b=2"
 # without keepalive

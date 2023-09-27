@@ -19,8 +19,14 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <sys/time.h>
-#include <sys/epoll.h>
 #include <fcntl.h>
+#include <sys/types.h>
+
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#include <sys/event.h>
+#else
+#include <sys/epoll.h>
+#endif
 
 #define XSTR(s) STR(s)
 #define STR(s) #s
@@ -45,6 +51,9 @@
 #define CHARTYPE(what, c) (is ## what ((int)((unsigned char)(c))))
 
 #define MAX_EVENTS 10
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#define MAX_BUFFER_SIZE 1024
+#endif
 
 static int tws_ModuleInitialized;
 
@@ -363,6 +372,8 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
             DBG(fprintf(stderr, "setsockopt SO_KEEPALIVE failed"));
         }
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#else
         // Set the TCP_KEEPIDLE option on the socket
         if (setsockopt(server_fd, IPPROTO_TCP, TCP_KEEPIDLE, &server->keepidle, sizeof(int)) == -1) {
             DBG(fprintf(stderr, "setsockopt TCP_KEEPIDLE failed"));
@@ -377,6 +388,7 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
         if (setsockopt(server_fd, IPPROTO_TCP, TCP_KEEPCNT, &server->keepcnt, sizeof(int)) == -1) {
             DBG(fprintf(stderr, "setsockopt TCP_KEEPCNT failed"));
         }
+#endif
     }
 
     if (bind(server_fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
@@ -471,6 +483,14 @@ static void tws_FreeConn(tws_conn_t *conn) {
 static void tws_DeleteFileHandler(int fd) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    // Remove the server socket from the kqueue set
+    struct kevent ev;
+    EV_SET(&ev, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+    if (kevent(dataPtr->epoll_fd, &ev, 1, NULL, 0, NULL) == -1) {
+        DBG(fprintf(stderr, "tws_DeleteFileHandler: kevent failed, fd: %d\n", fd));
+    }
+#else
     // Remove the server socket from the epoll set
     struct epoll_event ev;
     ev.events = EPOLLIN;
@@ -478,6 +498,7 @@ static void tws_DeleteFileHandler(int fd) {
     if (epoll_ctl(dataPtr->epoll_fd, EPOLL_CTL_DEL, fd, &ev) == -1) {
         DBG(fprintf(stderr, "tws_DeleteFileHandler: epoll_ctl failed, fd: %d\n", fd));
     }
+#endif
 }
 
 static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
@@ -595,6 +616,14 @@ static void tws_CleanupConnections(ClientData clientData) {
 static void tws_CreateFileHandler(int fd, ClientData clientData) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    // Add the server socket to the kqueue set
+    struct kevent ev;
+    EV_SET(&ev, fd, EVFILT_READ, EV_ADD, 0, 0, clientData);
+    if (kevent(dataPtr->epoll_fd, &ev, 1, NULL, 0, NULL) == -1) {
+        DBG(fprintf(stderr, "tws_CreateFileHandler: kevent failed, fd: %d\n", fd));
+    }
+#else
     // Add the server socket to the epoll set
     struct epoll_event ev;
     ev.events = EPOLLIN;
@@ -603,6 +632,7 @@ static void tws_CreateFileHandler(int fd, ClientData clientData) {
     if (epoll_ctl(dataPtr->epoll_fd, EPOLL_CTL_ADD, fd, &ev) == -1) {
         DBG(fprintf(stderr, "tws_CreateFileHandler: epoll_ctl failed, fd: %d\n", fd));
     }
+#endif
 }
 
 static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
@@ -741,7 +771,11 @@ tws_HandleConnThread(
     dataPtr->mutex = &mutex;
     dataPtr->firstConnPtr = NULL;
     dataPtr->lastConnPtr = NULL;
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    dataPtr->epoll_fd = kqueue();
+#else
     dataPtr->epoll_fd = epoll_create1(0);
+#endif
     Tcl_IncrRefCount(dataPtr->cmdPtr);
 
     DBG(fprintf(stderr, "created interp=%p\n", dataPtr->interp));
@@ -835,16 +869,29 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
 
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    struct kevent events[MAX_EVENTS];
+    int nfds = kevent(dataPtr->epoll_fd, NULL, 0, events, MAX_EVENTS, NULL);
+    if (nfds == -1) {
+        DBG(fprintf(stderr, "tws_KeepaliveConnHandler: kevent failed"));
+        return;
+    }
+#else
     struct epoll_event events[MAX_EVENTS];
     int nfds = epoll_wait(dataPtr->epoll_fd, events, MAX_EVENTS, -1);
     if (nfds == -1) {
         DBG(fprintf(stderr, "tws_KeepaliveConnHandler: epoll_wait failed"));
         return;
     }
+#endif
 
     for (int i = 0; i < nfds; i++) {
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+        tws_conn_t *conn = (tws_conn_t *) events[i].udata;
+#else
         tws_conn_t *conn = (tws_conn_t *) events[i].data.ptr;
         DBG(fprintf(stderr, "tws_KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
+#endif
         conn->latest_millis = current_time_in_millis();
         tws_HandleConn(conn);
     }
@@ -854,16 +901,29 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
 static void tws_AcceptConn(void *data, int mask) {
     tws_server_t *server = (tws_server_t *) data;
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    struct kevent events[MAX_EVENTS];
+    int nfds = kevent(server->accept_ctx->epoll_fd, NULL, 0, events, MAX_EVENTS, NULL);
+    if (nfds == -1) {
+        DBG(fprintf(stderr, "kevent failed"));
+        return;
+    }
+#else
     struct epoll_event events[MAX_EVENTS];
     int nfds = epoll_wait(server->accept_ctx->epoll_fd, events, MAX_EVENTS, -1);
     if (nfds == -1) {
         DBG(fprintf(stderr, "epoll_wait failed"));
         return;
     }
+#endif
     DBG(fprintf(stderr, "-------------------tws_AcceptConn, nfds: %d\n", nfds));
 
     for (int i = 0; i < nfds; i++) {
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+        if (events[i].ident == server->accept_ctx->server_fd) {
+#else
         if (events[i].data.fd == server->accept_ctx->server_fd) {
+#endif
             // new incoming connection
 
             struct sockaddr_in addr;
@@ -897,13 +957,6 @@ static void tws_AcceptConn(void *data, int mask) {
         } else {
             // data available on an existing connection
             // we do not have any as each thread has its own epoll instance
-
-            DBG(fprintf(stderr, "TODO: data available on an existing connection\n"));
-
-//            int client_fd = events[i].data.fd;
-//            handle_request(client_fd);  // Handle the request
-//            epoll_ctl(server->accept_ctx->sock, EPOLL_CTL_DEL, client_fd, NULL);  // Remove from epoll
-
         }
 
     }
@@ -932,13 +985,31 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
         return TCL_ERROR;
     }
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    // Create a kqueue instance
+    int epoll_fd = kqueue();
+    if (epoll_fd == -1) {
+        SetResult("Unable to create kqueue instance");
+        return TCL_ERROR;
+    }
+#else
     // Create an epoll instance
     int epoll_fd = epoll_create1(0);
     if (epoll_fd == -1) {
         SetResult("Unable to create epoll instance");
         return TCL_ERROR;
     }
+#endif
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    // Add the server socket to the kqueue set
+    struct kevent ev;
+    EV_SET(&ev, server_fd, EVFILT_READ, EV_ADD, 0, 0, server_fd);
+    if (kevent(epoll_fd, &ev, 1, NULL, 0, NULL) == -1) {
+        SetResult("Unable to add server socket to kqueue set");
+        return TCL_ERROR;
+    }
+#else
     // Add the server socket to the epoll set
     struct epoll_event ev;
     ev.events = EPOLLIN;
@@ -947,6 +1018,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
         SetResult("Unable to add server socket to epoll set");
         return TCL_ERROR;
     }
+#endif
 
     tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_Alloc(sizeof(tws_accept_ctx_t));
     accept_ctx->server_fd = server_fd;
@@ -990,7 +1062,11 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
         dataPtr->mutex = &tws_Thread_Mutex;
         dataPtr->firstConnPtr = NULL;
         dataPtr->lastConnPtr = NULL;
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+        dataPtr->epoll_fd = kqueue();
+#else
         dataPtr->epoll_fd = epoll_create1(0);
+#endif
         Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
 
         Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, server);
@@ -1493,7 +1569,7 @@ static int tws_CreateCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     // configuration
     server_ctx->max_request_read_bytes = 10 * 1024 * 1024;
     server_ctx->max_read_buffer_size = 1024 * 1024;
-    server_ctx->backlog = 1024;
+    server_ctx->backlog = SOMAXCONN;
     server_ctx->conn_timeout_millis = 2 * 60 * 1000;  // 2 minutes
     server_ctx->garbage_collection_interval_millis = 10 * 1000;  // 10 seconds
     server_ctx->keepalive = 1;
