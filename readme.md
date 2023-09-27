@@ -25,12 +25,13 @@ brew install cmake openssl@3
 
 ### Build the library
 ```
-wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.1.tar.gz
-tar -xzf v1.47.1.tar.gz
-export TWS_DIR=$(pwd)/twebserver-1.47.1
+wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.2.tar.gz
+tar -xzf v1.47.2.tar.gz
+export TWS_DIR=$(pwd)/twebserver-1.47.2
 cd ${TWS_DIR}
 mkdir build
 cd build
+# change "TCL_LIBRARY_DIR" and "TCL_INCLUDE_DIR" to the correct paths
 cmake .. \
   -DTCL_LIBRARY_DIR=/usr/local/lib \
   -DTCL_INCLUDE_DIR=/usr/local/include
