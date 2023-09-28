@@ -73,7 +73,7 @@ openssl req -x509 \
 
 Run the example:
 ```bash
-tclsh ../examples/example-with-req-resp.tcl
+tclsh8.6 ../examples/example-with-req-resp.tcl
 ```
 
 Try a few requests:
@@ -97,7 +97,7 @@ e?a=1&b=2&c=this+is+a+test&c=blah+blah'
 
 Run the example:
 ```bash
-tclsh ../examples/example-best-with-native-threads.tcl
+tclsh8.6 ../examples/example-best-with-native-threads.tcl
 ```
 
 ## Benchmark
