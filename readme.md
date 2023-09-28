@@ -35,7 +35,7 @@ make
 make install
 ```
 
-### Build the library
+### Build the twebserver extension
 ```
 wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.2.tar.gz
 tar -xzf v1.47.2.tar.gz
