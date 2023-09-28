@@ -8,6 +8,14 @@ The extension depends on OpenSSL (3.0.2 or later) and TCL (8.6.13).
 
 ### Install Dependencies
 
+To install TCL with threads from source:
+```bash
+cd tcl8.6.13/unix
+./configure --enable-threads
+make
+make install
+```
+
 To install the packages on Debian/Ubuntu-based systems:
 ```bash
 sudo apt-get install cmake libssl-dev
@@ -94,10 +102,13 @@ tclsh ../examples/example-best-with-native-threads.tcl
 
 ## Benchmark
 ```
+brew install go
 go install github.com/parkghost/gohttpbench@latest
 export PATH="$PATH:$(go env GOPATH)/bin"
+
 # with keepalive
 gohttpbench -v 10 -n 100000 -c 10 -t 10 -k "https://localhost:4433/example?a=1&b=2"
+
 # without keepalive
 gohttpbench -v 10 -n 100000 -c 10 -t 10 "https://localhost:4433/example?a=1&b=2"
 ```

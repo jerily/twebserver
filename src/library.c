@@ -890,8 +890,8 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
         tws_conn_t *conn = (tws_conn_t *) events[i].udata;
 #else
         tws_conn_t *conn = (tws_conn_t *) events[i].data.ptr;
-        DBG(fprintf(stderr, "tws_KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
 #endif
+        DBG(fprintf(stderr, "tws_KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
         conn->latest_millis = current_time_in_millis();
         tws_HandleConn(conn);
     }
