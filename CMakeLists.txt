@@ -18,10 +18,6 @@ set(CMAKE_C_FLAGS  "-DTCL_THREADS -DVERSION=${PROJECT_VERSION} ${CMAKE_C_FLAGS}"
 add_library(twebserver SHARED src/library.c src/base64.c src/base64/cencode.c src/base64/cdecode.c)
 set_target_properties(twebserver PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-#if (NOT TCL_INCLUDE_PATH OR NOT TCL_LIBRARY)
-#    include(cmake/FindTCL.cmake)
-#endif ()
-
 include_directories(${TCL_INCLUDE_PATH} ${OPENSSL_INCLUDE_DIR})
 target_link_libraries(twebserver PRIVATE ${OPENSSL_LIBRARIES} ${TCL_LIBRARY})
 get_filename_component(TCL_LIBRARY_PATH "${TCL_LIBRARY}" PATH)
