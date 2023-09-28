@@ -101,16 +101,42 @@ tclsh8.6 ../examples/example-best-with-native-threads.tcl
 ```
 
 ## Benchmark
+
+Install go and gohttpbench:
 ```
 brew install go
 go install github.com/parkghost/gohttpbench@latest
 export PATH="$PATH:$(go env GOPATH)/bin"
+```
 
-# with keepalive
+With keepalive (example-best-with-native-threads.tcl - uses parse_conn/return_conn): 
+```
 gohttpbench -v 10 -n 100000 -c 10 -t 10 -k "https://localhost:4433/example?a=1&b=2"
 
-# without keepalive
+Concurrency Level:      10
+Time taken for tests:   1.51 seconds
+Complete requests:      100000
+Failed requests:        0
+HTML transferred:       23700000 bytes
+Requests per second:    66290.23 [#/sec] (mean)
+Time per request:       0.151 [ms] (mean)
+Time per request:       0.015 [ms] (mean, across all concurrent requests)
+HTML Transfer rate:     15342.21 [Kbytes/sec] received
+```
+
+Without keepalive (example-best-with-native-threads.tcl - uses parse_conn/return_conn):
+```
 gohttpbench -v 10 -n 100000 -c 10 -t 10 "https://localhost:4433/example?a=1&b=2"
+
+Concurrency Level:      10
+Time taken for tests:   10.00 seconds
+Complete requests:      35832
+Failed requests:        0
+HTML transferred:       8313024 bytes
+Requests per second:    3583.20 [#/sec] (mean)
+Time per request:       2.791 [ms] (mean)
+Time per request:       0.279 [ms] (mean, across all concurrent requests)
+HTML Transfer rate:     811.80 [Kbytes/sec] received
 ```
 
 ## TCL Commands
