@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT.
  */
 #include "common.h"
+#include "conn.h"
 #include "router.h"
 #include <string.h>
 
