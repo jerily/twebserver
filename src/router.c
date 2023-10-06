@@ -43,7 +43,7 @@ int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, int objc
     }
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
     Tcl_Obj *requestDictPtr;
-    tws_ParseConn(conn, conn_handle, encoding, &requestDictPtr);
+    tws_ParseConn(interp, conn, conn_handle, encoding, &requestDictPtr);
 
     return TCL_OK;
 }
