@@ -529,7 +529,7 @@ int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
     return TCL_OK;
 }
 
-static int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle, Tcl_Encoding encoding, Tcl_Obj **requestDictPtr) {
+int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle, Tcl_Encoding encoding, Tcl_Obj **requestDictPtr) {
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
     if (TCL_OK != tws_ReadConn(interp, conn, conn_handle, &ds)) {
