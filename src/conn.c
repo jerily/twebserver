@@ -635,28 +635,12 @@ int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
 
 }
 
-int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "ReturnConnCmd\n"));
-    CheckArgs(3, 4, 1, "conn_handle response ?encoding_name?");
-
-    const char *conn_handle = Tcl_GetString(objv[1]);
-    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
-    if (!conn) {
-        SetResult("return_conn: conn handle not found");
-        return TCL_ERROR;
-    }
-
-    // "response" is a dictionary of the form:
-    //    Integer statusCode;
-    //    Map<String, String> headers;
-    //    Map<String, List<String>> multiValueHeaders;
-    //    String body;
-    //    Boolean isBase64Encoded;
+int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr, Tcl_Encoding encoding) {
 
     Tcl_Obj *statusCodePtr;
     Tcl_Obj *statusCodeKeyPtr = Tcl_NewStringObj("statusCode", -1);
     Tcl_IncrRefCount(statusCodeKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], statusCodeKeyPtr, &statusCodePtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, statusCodeKeyPtr, &statusCodePtr)) {
         Tcl_DecrRefCount(statusCodeKeyPtr);
         SetResult("error reading from dict");
         return TCL_ERROR;
@@ -669,7 +653,7 @@ int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
     Tcl_Obj *headersPtr;
     Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
     Tcl_IncrRefCount(headersKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], headersKeyPtr, &headersPtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, headersKeyPtr, &headersPtr)) {
         Tcl_DecrRefCount(headersKeyPtr);
         SetResult("error reading from dict");
         return TCL_ERROR;
@@ -679,7 +663,7 @@ int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
     Tcl_Obj *multiValueHeadersPtr;
     Tcl_Obj *multiValueHeadersKeyPtr = Tcl_NewStringObj("multiValueHeaders", -1);
     Tcl_IncrRefCount(multiValueHeadersKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], multiValueHeadersKeyPtr, &multiValueHeadersPtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, multiValueHeadersKeyPtr, &multiValueHeadersPtr)) {
         Tcl_DecrRefCount(multiValueHeadersKeyPtr);
         SetResult("error reading from dict");
         return TCL_ERROR;
@@ -689,7 +673,7 @@ int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
     Tcl_Obj *bodyPtr;
     Tcl_Obj *bodyKeyPtr = Tcl_NewStringObj("body", -1);
     Tcl_IncrRefCount(bodyKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], bodyKeyPtr, &bodyPtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, bodyKeyPtr, &bodyPtr)) {
         Tcl_DecrRefCount(bodyKeyPtr);
         SetResult("error reading from dict");
         return TCL_ERROR;
@@ -699,7 +683,7 @@ int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
     Tcl_Obj *isBase64EncodedPtr;
     Tcl_Obj *isBase64EncodedKeyPtr = Tcl_NewStringObj("isBase64Encoded", -1);
     Tcl_IncrRefCount(isBase64EncodedKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[2], isBase64EncodedKeyPtr, &isBase64EncodedPtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, isBase64EncodedKeyPtr, &isBase64EncodedPtr)) {
         Tcl_DecrRefCount(isBase64EncodedKeyPtr);
         SetResult("error reading from dict");
         return TCL_ERROR;
@@ -915,6 +899,34 @@ int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
     }
 
     return TCL_OK;
+}
+
+int tws_ReturnConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "ReturnConnCmd\n"));
+    CheckArgs(3, 4, 1, "conn_handle response ?encoding_name?");
+
+    const char *conn_handle = Tcl_GetString(objv[1]);
+    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
+    if (!conn) {
+        SetResult("return_conn: conn handle not found");
+        return TCL_ERROR;
+    }
+
+    Tcl_Encoding encoding;
+    if (objc == 4) {
+        encoding = Tcl_GetEncoding(interp, Tcl_GetString(objv[3]));
+    } else {
+        encoding = Tcl_GetEncoding(interp, "utf-8");
+    }
+
+    // "response" is a dictionary of the form:
+    //    Integer statusCode;
+    //    Map<String, String> headers;
+    //    Map<String, List<String>> multiValueHeaders;
+    //    String body;
+    //    Boolean isBase64Encoded;
+
+    return tws_ReturnConn(interp, conn, objv[2], encoding);
 }
 
 int tws_CloseConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
