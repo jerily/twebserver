@@ -122,6 +122,7 @@ typedef struct tws_route_s {
     char path[1024];
     int proc_name_len;
     char proc_name[128];
+    Tcl_Obj *keys;
     Tcl_RegExp regexp;
     struct tws_route_s *nextPtr;
 } tws_route_t;

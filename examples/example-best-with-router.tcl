@@ -9,8 +9,8 @@ set init_script {
     #$router use_middleware session_middleware
     # $router add_route ?-exact|-prefix(default)|-regexp? httpMethod path procName ?list_of_middleware_procs?
 
-    ::twebserver::add_route $router GET /asdf get_test_handler
-    ::twebserver::add_route $router -regexp GET /qwerty/:user_id/sayhi get_test_handler
+    #::twebserver::add_route $router GET /asdf get_test_handler
+    ::twebserver::add_route $router GET /qwerty/:user_id/sayhi get_test_handler
 
     #$router add_route POST /test post_test_handler
     #$router add_route GET "/static/" get_static_content_handler

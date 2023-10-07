@@ -10,6 +10,6 @@
 #include <tcl.h>
 #include "../common.h"
 
-ObjCmdProc(tws_PathToRegExpCmd);
+int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int flags, Tcl_Obj **keysPtr, Tcl_RegExp *regexp);
 
 #endif //TWEBSERVER_PATH_REGEXP_H

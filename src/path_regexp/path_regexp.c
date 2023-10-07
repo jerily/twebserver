@@ -61,7 +61,7 @@ int tws_PathExprLexer(Tcl_Interp *interp, const char *path_expr, int path_expr_l
                 q++;
             }
             Tcl_ListObjAppendElement(interp, lexTokensListPtr, Tcl_NewIntObj(NAME));
-            Tcl_ListObjAppendElement(interp, lexTokensListPtr, Tcl_NewStringObj(p, q - p));
+            Tcl_ListObjAppendElement(interp, lexTokensListPtr, Tcl_NewStringObj(p + 1, q - p - 1));
             p = q;
             continue;
         }
@@ -126,7 +126,11 @@ int tws_PathExprLexer(Tcl_Interp *interp, const char *path_expr, int path_expr_l
 }
 
 Tcl_Obj *tws_TryConsume(Tcl_Obj **tokens, int *iPtr, int type) {
-    if (Tcl_GetIntFromObj(NULL, tokens[*iPtr], NULL) == type) {
+    int tokenType;
+    if (TCL_OK != Tcl_GetIntFromObj(NULL, tokens[*iPtr], &tokenType)) {
+        return NULL;
+    }
+    if (tokenType == type) {
         Tcl_Obj *result = tokens[(*iPtr) + 1];
         (*iPtr) += 2;
         return result;
@@ -138,9 +142,26 @@ Tcl_Obj *tws_MustConsume(Tcl_Obj **tokens, int *iPtr, int type) {
     return tws_TryConsume(tokens, iPtr, type);
 }
 
-Tcl_Obj *tws_TryConsumeText() {
-    // todo
+Tcl_Obj *tws_TryConsumeText(Tcl_Obj **tokens, int *iPtr) {
+    Tcl_Obj *resultPtr = Tcl_NewStringObj("", -1);
+    Tcl_Obj *valuePtr = tws_TryConsume(tokens, iPtr, CHAR);
+    if (valuePtr == NULL) {
+        valuePtr = tws_TryConsume(tokens, iPtr, ESCAPED_CHAR);
+    }
+    while (valuePtr) {
+        Tcl_AppendObjToObj(resultPtr, valuePtr);
+        valuePtr = tws_TryConsume(tokens, iPtr, CHAR);
+        if (valuePtr == NULL) {
+            valuePtr = tws_TryConsume(tokens, iPtr, ESCAPED_CHAR);
+        }
+    }
+    return resultPtr;
 }
+
+enum {
+    STRING_TOKEN,
+    DICT_TOKEN
+};
 
 int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_expr_len, int flags, Tcl_Obj *tokensListPtr) {
     Tcl_Obj *lexTokensListPtr = Tcl_NewListObj(0, NULL);
@@ -148,6 +169,8 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
         SetResult("tws_PathExprLexer failed");
         return TCL_ERROR;
     }
+
+    fprintf(stderr, "lex tokens: %s\n", Tcl_GetString(lexTokensListPtr));
 
     int lexTokensLen;
     Tcl_Obj **lexTokens;
@@ -167,14 +190,20 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
         Tcl_Obj *patternPtr = tws_TryConsume(lexTokens, &i, PATTERN);
 
         if (namePtr != NULL || patternPtr != NULL) {
-            Tcl_Obj *prefixPtr = charPtr ? charPtr : Tcl_NewStringObj("", -1);
 
-//            if (prefixes.indexOf(prefix) === -1) {
-//                path += prefix;
-//                prefix = "";
-//            }
+            int appended = 0;
+            if (charPtr) {
+                int prefix_len;
+                const char *prefix = Tcl_GetStringFromObj(charPtr, &prefix_len);
+                if (prefix[0] != '.' && prefix[0] != '/') {
+                    Tcl_DStringAppend(&path, prefix, prefix_len);
+                    appended = 1;
+                }
+            }
+            Tcl_Obj *prefixPtr = !appended && charPtr ? charPtr : Tcl_NewStringObj("", -1);
 
             if (Tcl_DStringLength(&path)) {
+                Tcl_ListObjAppendElement(interp, tokensListPtr, Tcl_NewIntObj(STRING_TOKEN));
                 Tcl_ListObjAppendElement(interp, tokensListPtr, Tcl_NewStringObj(Tcl_DStringValue(&path), Tcl_DStringLength(&path)));
                 Tcl_DStringTrunc(&path, 0);
             }
@@ -186,11 +215,12 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
             Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("pattern", -1), patternPtr ? patternPtr : defaultPatternPtr);
             Tcl_Obj *modifierPtr = tws_TryConsume(lexTokens, &i, MODIFIER);
             Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("modifier", -1), modifierPtr ? modifierPtr : Tcl_NewStringObj("", -1));
+            Tcl_ListObjAppendElement(interp, tokensListPtr, Tcl_NewIntObj(DICT_TOKEN));
             Tcl_ListObjAppendElement(interp, tokensListPtr, dictPtr);
+            continue;
         }
 
         Tcl_Obj *valuePtr = charPtr ? charPtr : tws_TryConsume(lexTokens, &i, ESCAPED_CHAR);
-        i += 2;
         if (valuePtr != NULL) {
             int value_len;
             const char *value = Tcl_GetStringFromObj(valuePtr, &value_len);
@@ -199,6 +229,7 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
         }
 
         if (Tcl_DStringLength(&path)) {
+            Tcl_ListObjAppendElement(interp, tokensListPtr, Tcl_NewIntObj(STRING_TOKEN));
             Tcl_ListObjAppendElement(interp, tokensListPtr, Tcl_NewStringObj(Tcl_DStringValue(&path), Tcl_DStringLength(&path)));
             Tcl_DStringTrunc(&path, 0);
         }
@@ -224,6 +255,7 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
                            openNamePtr && !openPatternPtr ? defaultPatternPtr : openPatternPtr);
             Tcl_Obj *modifierPtr = tws_TryConsume(lexTokens, &i, MODIFIER);
             Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("modifier", -1), modifierPtr ? modifierPtr : Tcl_NewStringObj("", -1));
+            Tcl_ListObjAppendElement(interp, tokensListPtr, Tcl_NewIntObj(DICT_TOKEN));
             Tcl_ListObjAppendElement(interp, tokensListPtr, dictPtr);
 
             continue;
@@ -240,11 +272,209 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
     return TCL_OK;
 }
 
-int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tcl_DString *dsPtr) {
+void tws_DStringAppendEscaped(Tcl_DString *dsPtr, const char *str, int len) {
+    // str.replace(/([.+*?=^!:${}()[\]|/\\])/g, "\\$1");
+    const char *p = str;
+    const char *end = str + len;
+
+    while (p < end) {
+        char c = *p;
+        if (c == '.' || c == '+' || c == '*' || c == '?' || c == '=' || c == '^' || c == '!' || c == ':' || c == '$' ||
+            c == '{' || c == '}' || c == '(' || c == ')' || c == '[' || c == ']' || c == '|' || c == '/' || c == '\\') {
+            Tcl_DStringAppend(dsPtr, "\\", 1);
+        }
+        Tcl_DStringAppend(dsPtr, p, 1);
+        p++;
+    }
+}
+
+int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tcl_Obj *keysListPtr, Tcl_DString *dsPtr) {
+    int strict = 0;
+    int start = 1;
+    int end = 1;
+
+    if (start) {
+        Tcl_DStringAppend(dsPtr, "^", 1);
+    }
+
+    Tcl_Obj **tokens;
+    int tokens_len;
+    if (TCL_OK != Tcl_ListObjGetElements(interp, tokensListPtr, &tokens_len, &tokens)) {
+        SetResult("failed to read list of tokens");
+        return TCL_ERROR;
+    }
+
+    for (int i = 0; i < tokens_len; i+=2) {
+        Tcl_Obj *typePtr = tokens[i];
+        int type;
+        if (TCL_OK != Tcl_GetIntFromObj(interp, typePtr, &type)) {
+            SetResult("failed to read token type");
+            return TCL_ERROR;
+        }
+        Tcl_Obj *tokenPtr = tokens[i + 1];
+
+        if (type == STRING_TOKEN) {
+            int token_len;
+            const char *token = Tcl_GetStringFromObj(tokenPtr, &token_len);
+            Tcl_DStringAppend(dsPtr, token, token_len);
+        } else {
+            Tcl_Obj *nameKeyPtr = Tcl_NewStringObj("name", -1);
+            Tcl_IncrRefCount(nameKeyPtr);
+            Tcl_Obj *namePtr;
+            if (TCL_OK != Tcl_DictObjGet(interp, tokenPtr, nameKeyPtr, &namePtr)) {
+                SetResult("failed to read token name");
+                return TCL_ERROR;
+            }
+            Tcl_DecrRefCount(nameKeyPtr);
+
+            Tcl_Obj *prefixKeyPtr = Tcl_NewStringObj("prefix", -1);
+            Tcl_IncrRefCount(prefixKeyPtr);
+            Tcl_Obj *prefixPtr;
+            if (TCL_OK != Tcl_DictObjGet(interp, tokenPtr, prefixKeyPtr, &prefixPtr)) {
+                SetResult("failed to read token prefix");
+                return TCL_ERROR;
+            }
+            Tcl_DecrRefCount(prefixKeyPtr);
+
+            Tcl_Obj *suffixKeyPtr = Tcl_NewStringObj("suffix", -1);
+            Tcl_IncrRefCount(suffixKeyPtr);
+            Tcl_Obj *suffixPtr;
+            if (TCL_OK != Tcl_DictObjGet(interp, tokenPtr, suffixKeyPtr, &suffixPtr)) {
+                SetResult("failed to read token suffix");
+                return TCL_ERROR;
+            }
+            Tcl_DecrRefCount(suffixKeyPtr);
+
+            Tcl_Obj *patternKeyPtr = Tcl_NewStringObj("pattern", -1);
+            Tcl_IncrRefCount(patternKeyPtr);
+            Tcl_Obj *patternPtr;
+            if (TCL_OK != Tcl_DictObjGet(interp, tokenPtr, patternKeyPtr, &patternPtr)) {
+                SetResult("failed to read token pattern");
+                return TCL_ERROR;
+            }
+            Tcl_DecrRefCount(patternKeyPtr);
+
+            Tcl_Obj *modifierKeyPtr = Tcl_NewStringObj("modifier", -1);
+            Tcl_IncrRefCount(modifierKeyPtr);
+            Tcl_Obj *modifierPtr;
+            if (TCL_OK != Tcl_DictObjGet(interp, tokenPtr, modifierKeyPtr, &modifierPtr)) {
+                SetResult("failed to read token modifier");
+                return TCL_ERROR;
+            }
+            Tcl_DecrRefCount(modifierKeyPtr);
+
+            int pattern_len;
+            const char *pattern = Tcl_GetStringFromObj(patternPtr, &pattern_len);
+            int prefix_len;
+            const char *prefix = Tcl_GetStringFromObj(prefixPtr, &prefix_len);
+            int suffix_len;
+            const char *suffix = Tcl_GetStringFromObj(suffixPtr, &suffix_len);
+            int modifier_len;
+            const char *modifier = Tcl_GetStringFromObj(modifierPtr, &modifier_len);
+
+            if (pattern_len > 0) {
+                Tcl_ListObjAppendElement(interp, keysListPtr, namePtr);
+
+                if (prefix_len > 0 || suffix_len > 0) {
+                    if (modifier[0] == '+' || modifier[0] == '*') {
+//                        char mod = modifier[0] == '*' ? '?' : '';
+//                        route += `(?:${prefix}((?:${token.pattern})(?:${suffix}${prefix}(?:${token.pattern}))*)${suffix})${mod}`;
+                        Tcl_DStringAppend(dsPtr, "(?:", 3);
+                        tws_DStringAppendEscaped(dsPtr, prefix, prefix_len);
+                        Tcl_DStringAppend(dsPtr, "((?:", 4);
+                        Tcl_DStringAppend(dsPtr, pattern, pattern_len);
+                        Tcl_DStringAppend(dsPtr, ")(?:", 3);
+                        tws_DStringAppendEscaped(dsPtr, suffix, suffix_len);
+                        tws_DStringAppendEscaped(dsPtr, prefix, prefix_len);
+                        Tcl_DStringAppend(dsPtr, "(?:", 3);
+                        Tcl_DStringAppend(dsPtr, pattern, pattern_len);
+                        Tcl_DStringAppend(dsPtr, "))*)", 4);
+                        Tcl_DStringAppend(dsPtr, suffix, suffix_len);
+                        Tcl_DStringAppend(dsPtr, ")", 1);
+                        if (modifier[0] == '*') {
+                            char mod = '?';
+                            Tcl_DStringAppend(dsPtr, &mod, 1);
+                        }
+                    } else {
+                        // route += `(?:${prefix}(${token.pattern})${suffix})${token.modifier}`;
+                        Tcl_DStringAppend(dsPtr, "(?:", 3);
+                        tws_DStringAppendEscaped(dsPtr, prefix, prefix_len);
+                        Tcl_DStringAppend(dsPtr, "(", 1);
+                        Tcl_DStringAppend(dsPtr, pattern, pattern_len);
+                        Tcl_DStringAppend(dsPtr, ")", 1);
+                        tws_DStringAppendEscaped(dsPtr, suffix, suffix_len);
+                        Tcl_DStringAppend(dsPtr, ")", 1);
+                        Tcl_DStringAppend(dsPtr, modifier, modifier_len);
+                    }
+                } else {
+                    if (modifier[0] == '+' || modifier[0] == '*') {
+                        // route += `((?:${token.pattern})${token.modifier})`;
+                        Tcl_DStringAppend(dsPtr, "((?:", 4);
+                        Tcl_DStringAppend(dsPtr, pattern, pattern_len);
+                        Tcl_DStringAppend(dsPtr, ")", 1);
+                        Tcl_DStringAppend(dsPtr, modifier, modifier_len);
+                        Tcl_DStringAppend(dsPtr, ")", 1);
+                    } else {
+                        // route += `(${token.pattern})${token.modifier}`;
+                        Tcl_DStringAppend(dsPtr, "(", 1);
+                        Tcl_DStringAppend(dsPtr, pattern, pattern_len);
+                        Tcl_DStringAppend(dsPtr, ")", 1);
+                        Tcl_DStringAppend(dsPtr, modifier, modifier_len);
+                    }
+                }
+            } else {
+                // route += `(?:${prefix}${suffix})${token.modifier}`;
+                Tcl_DStringAppend(dsPtr, "(?:", 3);
+                tws_DStringAppendEscaped(dsPtr, prefix, prefix_len);
+                Tcl_DStringAppend(dsPtr, suffix, suffix_len);
+                tws_DStringAppendEscaped(dsPtr, ")", 1);
+                Tcl_DStringAppend(dsPtr, modifier, modifier_len);
+
+            }
+        }
+    }
+
+    char delimiterRe[3] = {'\\', '/', 0};
+    if (end) {
+        if (!strict) {
+            // route += `${delimiterRe}?`;
+            Tcl_DStringAppend(dsPtr, delimiterRe, 2);
+            Tcl_DStringAppend(dsPtr, "?", 1);
+        }
+        Tcl_DStringAppend(dsPtr, "$", 1);
+    } else {
+
+        if (!strict) {
+            // route += `(?:${delimiterRe}(?=${endsWithRe}))?`;
+            Tcl_DStringAppend(dsPtr, delimiterRe, 2);
+            Tcl_DStringAppend(dsPtr, "?", 1);
+        }
+
+        Tcl_Obj *endTokenTypePtr = tokens[tokens_len - 2];
+        int endTokenType;
+        if (TCL_OK != Tcl_GetIntFromObj(interp, endTokenTypePtr, &endTokenType)) {
+            SetResult("failed to read end token type");
+            return TCL_ERROR;
+        }
+        Tcl_Obj *endTokenPtr = tokens[tokens_len - 1];
+        int endTokenLen;
+        const char *endToken = Tcl_GetStringFromObj(endTokenPtr, &endTokenLen);
+
+        int isEndDelimited = endTokenType == STRING_TOKEN ?
+                endToken[endTokenLen - 1] == '/'
+                : endTokenLen == 0;
+
+        if (!isEndDelimited) {
+            // route += `(?=${delimiterRe}|${endsWithRe})`;
+            Tcl_DStringAppend(dsPtr, "(?=", 2);
+            Tcl_DStringAppend(dsPtr, delimiterRe, 2);
+            Tcl_DStringAppend(dsPtr, ")", 1);
+        }
+    }
     return TCL_OK;
 }
 
-int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int flags, Tcl_RegExp *regexp) {
+int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int flags, Tcl_Obj **keys, Tcl_RegExp *regexp) {
 
     Tcl_Obj *tokensListPtr = Tcl_NewListObj(0, NULL);
     if (TCL_OK != tws_PathExprToTokens(interp, path, path_len, flags, tokensListPtr)) {
@@ -252,15 +482,22 @@ int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int fla
         return TCL_ERROR;
     }
 
+    fprintf(stderr, "tokens: %s\n", Tcl_GetString(tokensListPtr));
+
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
-    if (TCL_OK != tws_TokensToRegExp(interp, tokensListPtr, flags, &ds)) {
+    Tcl_Obj *keysListPtr = Tcl_NewListObj(0, NULL);
+    Tcl_IncrRefCount(keysListPtr);
+    if (TCL_OK != tws_TokensToRegExp(interp, tokensListPtr, flags, keysListPtr, &ds)) {
+        Tcl_DecrRefCount(keysListPtr);
         SetResult("tws_TokensToRegExp failed");
         return TCL_ERROR;
     }
 
     const char *pattern = Tcl_DStringValue(&ds);
+    fprintf(stderr, "pattern: %s\n", pattern);
     *regexp = Tcl_RegExpCompile(interp, pattern);
+    *keys = keysListPtr;
     Tcl_DStringFree(&ds);
     return TCL_OK;
 }

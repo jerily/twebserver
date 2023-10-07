@@ -173,7 +173,8 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
     route_ptr->nextPtr = NULL;
 
     // todo: pass options like pathMatch = prefix | full
-    if (TCL_OK != tws_PathToRegExp(interp, path, path_len, &route_ptr->regexp)) {
+    int flags = 0;
+    if (TCL_OK != tws_PathToRegExp(interp, path, path_len, flags, &route_ptr->keys, &route_ptr->regexp)) {
         SetResult("add_route: path_to_regexp failed");
         return TCL_ERROR;
     }
