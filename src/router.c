@@ -9,7 +9,50 @@
 #include "path_regexp/path_regexp.h"
 #include <string.h>
 
-static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *requestDictPtr, int *flag) {
+static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *path_ptr, Tcl_Obj *requestDictPtr, int *matched) {
+    Tcl_RegExp regexp = Tcl_RegExpCompile(interp, route_ptr->pattern);
+
+    // nmatches: The number of matching subexpressions that should be remembered for later use.
+    // If this value is 0, then no subexpression match information will be computed.
+    // If the value is -1, then all of the matching subexpressions will be remembered.
+    // Any other value will be taken as the maximum number of subexpressions to remember.
+
+    if (Tcl_RegExpExecObj(interp, regexp, path_ptr, 0, -1, 0) == 1) {
+        *matched = 1;
+
+        DBG(fprintf(stderr, "matched pattern: %s\n", route_ptr->pattern));
+
+        int keys_objc;
+        Tcl_Obj **keys_objv;
+        Tcl_ListObjGetElements(interp, route_ptr->keys, &keys_objc, &keys_objv);
+        Tcl_Obj *pathParametersDictPtr = Tcl_NewDictObj();
+        const char *start;
+        const char *end;
+        for (int i = 0; i < keys_objc; i++) {
+            Tcl_RegExpRange(regexp, i + 1, &start, &end);
+            Tcl_Obj *key_ptr = keys_objv[i];
+            Tcl_Obj *value_ptr = Tcl_NewStringObj(start, end - start);
+
+            DBG(fprintf(stderr, "key: %s, value: %s\n", Tcl_GetString(key_ptr), Tcl_GetString(value_ptr)));
+
+            if (TCL_OK != Tcl_DictObjPut(interp, pathParametersDictPtr, key_ptr, value_ptr)) {
+                SetResult("MatchRoute: dict put failed");
+                return TCL_ERROR;
+            }
+        }
+
+        Tcl_Obj *pathParametersKeyPtr = Tcl_NewStringObj("pathParameters", -1);
+        if (TCL_OK != Tcl_DictObjPut(interp, requestDictPtr, pathParametersKeyPtr, pathParametersDictPtr)) {
+            SetResult("MatchRoute: dict put failed");
+            return TCL_ERROR;
+        }
+    } else {
+        *matched = 0;
+    }
+    return TCL_OK;
+}
+
+static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *requestDictPtr, int *matched) {
     Tcl_Obj *http_method_key_ptr = Tcl_NewStringObj("httpMethod", -1);
     Tcl_IncrRefCount(http_method_key_ptr);
     Tcl_Obj *http_method_ptr;
@@ -38,47 +81,13 @@ static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *r
     if (http_method_len == route_ptr->http_method_len
             && strncmp(http_method, route_ptr->http_method, route_ptr->http_method_len) == 0) {
 
-        Tcl_RegExp regexp = Tcl_RegExpCompile(interp, route_ptr->pattern);
-
-        // nmatches: The number of matching subexpressions that should be remembered for later use.
-        // If this value is 0, then no subexpression match information will be computed.
-        // If the value is -1, then all of the matching subexpressions will be remembered.
-        // Any other value will be taken as the maximum number of subexpressions to remember.
-
-        if (Tcl_RegExpExecObj(interp, regexp, path_ptr, 0, -1, 0) == 1) {
-            *flag = 1;
-
-            DBG(fprintf(stderr, "matched pattern: %s\n", route_ptr->pattern));
-
-            int keys_objc;
-            Tcl_Obj **keys_objv;
-            Tcl_ListObjGetElements(interp, route_ptr->keys, &keys_objc, &keys_objv);
-            Tcl_Obj *pathParametersDictPtr = Tcl_NewDictObj();
-            const char *start;
-            const char *end;
-            for (int i = 0; i < keys_objc; i++) {
-                Tcl_RegExpRange(regexp, i + 1, &start, &end);
-                Tcl_Obj *key_ptr = keys_objv[i];
-                Tcl_Obj *value_ptr = Tcl_NewStringObj(start, end - start);
-
-                DBG(fprintf(stderr, "key: %s, value: %s\n", Tcl_GetString(key_ptr), Tcl_GetString(value_ptr)));
-
-                if (TCL_OK != Tcl_DictObjPut(interp, pathParametersDictPtr, key_ptr, value_ptr)) {
-                    SetResult("MatchRoute: dict put failed");
-                    return TCL_ERROR;
-                }
-            }
-
-            Tcl_Obj *pathParametersKeyPtr = Tcl_NewStringObj("pathParameters", -1);
-            if (TCL_OK != Tcl_DictObjPut(interp, requestDictPtr, pathParametersKeyPtr, pathParametersDictPtr)) {
-                SetResult("MatchRoute: dict put failed");
-                return TCL_ERROR;
-            }
-        } else {
-            *flag = 0;
+        if (TCL_OK != tws_MatchRegExpRoute(interp, route_ptr, path_ptr, requestDictPtr, matched)) {
+            SetResult("MatchRoute: match_regexp_route failed");
+            return TCL_ERROR;
         }
+
     } else {
-        *flag = 0;
+        *matched = 0;
     }
 
     return TCL_OK;
