@@ -6,6 +6,7 @@
 #include "common.h"
 #include "conn.h"
 #include "router.h"
+#include "path_regexp/path_regexp.h"
 #include <string.h>
 
 static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *requestDictPtr, int *flag) {
@@ -170,6 +171,12 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
     memcpy(route_ptr->proc_name, proc_name, proc_name_len);
     route_ptr->proc_name[proc_name_len] = '\0';
     route_ptr->nextPtr = NULL;
+
+    // todo: pass options like pathMatch = prefix | full
+    if (TCL_OK != tws_PathToRegExp(interp, path, path_len, &route_ptr->regexp)) {
+        SetResult("add_route: path_to_regexp failed");
+        return TCL_ERROR;
+    }
 
     if (router_ptr->firstRoutePtr == NULL) {
         router_ptr->firstRoutePtr = route_ptr;

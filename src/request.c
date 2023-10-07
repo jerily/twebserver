@@ -4,12 +4,9 @@
  * SPDX-License-Identifier: MIT.
  */
 
-#include <ctype.h>
 #include "request.h"
 #include "uri.h"
 #include "base64.h"
-
-#define CHARTYPE(what, c) (is ## what ((int)((unsigned char)(c))))
 
 // search a string for any of a set of bytes
 const char *tws_strpbrk(const char *s, const char *end, const char *accept) {

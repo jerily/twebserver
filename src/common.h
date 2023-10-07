@@ -9,6 +9,7 @@
 #include <tcl.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <ctype.h>
 
 #define XSTR(s) STR(s)
 #define STR(s) #s
@@ -33,6 +34,8 @@
 #define CMD_SERVER_NAME(s, internal) sprintf((s), "_TWS_SERVER_%p", (internal))
 #define CMD_CONN_NAME(s, internal) sprintf((s), "_TWS_CONN_%p", (internal))
 #define CMD_ROUTER_NAME(s, internal) sprintf((s), "_TWS_ROUTER_%p", (internal))
+
+#define CHARTYPE(what, c) (is ## what ((int)((unsigned char)(c))))
 
 typedef struct {
     int server_fd;
@@ -119,6 +122,7 @@ typedef struct tws_route_s {
     char path[1024];
     int proc_name_len;
     char proc_name[128];
+    Tcl_RegExp regexp;
     struct tws_route_s *nextPtr;
 } tws_route_t;
 
