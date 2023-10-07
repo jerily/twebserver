@@ -123,7 +123,7 @@ typedef struct tws_route_s {
     int proc_name_len;
     char proc_name[128];
     Tcl_Obj *keys;
-    Tcl_RegExp regexp;
+    const char *pattern;
     struct tws_route_s *nextPtr;
 } tws_route_t;
 

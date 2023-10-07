@@ -170,7 +170,7 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
         return TCL_ERROR;
     }
 
-    fprintf(stderr, "lex tokens: %s\n", Tcl_GetString(lexTokensListPtr));
+    DBG(fprintf(stderr, "lex tokens: %s\n", Tcl_GetString(lexTokensListPtr)));
 
     int lexTokensLen;
     Tcl_Obj **lexTokens;
@@ -316,7 +316,7 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
         if (type == STRING_TOKEN) {
             int token_len;
             const char *token = Tcl_GetStringFromObj(tokenPtr, &token_len);
-            Tcl_DStringAppend(dsPtr, token, token_len);
+            tws_DStringAppendEscaped(dsPtr, token, token_len);
         } else {
             Tcl_Obj *nameKeyPtr = Tcl_NewStringObj("name", -1);
             Tcl_IncrRefCount(nameKeyPtr);
@@ -474,7 +474,7 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
     return TCL_OK;
 }
 
-int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int flags, Tcl_Obj **keys, Tcl_RegExp *regexp) {
+int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int flags, Tcl_Obj **keys, char **pattern) {
 
     Tcl_Obj *tokensListPtr = Tcl_NewListObj(0, NULL);
     if (TCL_OK != tws_PathExprToTokens(interp, path, path_len, flags, tokensListPtr)) {
@@ -482,7 +482,7 @@ int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int fla
         return TCL_ERROR;
     }
 
-    fprintf(stderr, "tokens: %s\n", Tcl_GetString(tokensListPtr));
+    DBG(fprintf(stderr, "tokens: %s\n", Tcl_GetString(tokensListPtr)));
 
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
@@ -494,9 +494,10 @@ int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int fla
         return TCL_ERROR;
     }
 
-    const char *pattern = Tcl_DStringValue(&ds);
-    fprintf(stderr, "pattern: %s\n", pattern);
-    *regexp = Tcl_RegExpCompile(interp, pattern);
+    *pattern = Tcl_Alloc(Tcl_DStringLength(&ds) + 1);
+    memcpy(*pattern, Tcl_DStringValue(&ds), Tcl_DStringLength(&ds));
+    (*pattern)[Tcl_DStringLength(&ds)] = '\0';
+    DBG(fprintf(stderr, "PathToRegExp - pattern: %s\n", *pattern));
     *keys = keysListPtr;
     Tcl_DStringFree(&ds);
     return TCL_OK;

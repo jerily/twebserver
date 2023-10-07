@@ -9,8 +9,8 @@ set init_script {
     #$router use_middleware session_middleware
     # $router add_route ?-exact|-prefix(default)|-regexp? httpMethod path procName ?list_of_middleware_procs?
 
-    #::twebserver::add_route $router GET /asdf get_test_handler
-    ::twebserver::add_route $router GET /qwerty/:user_id/sayhi get_test_handler
+    ::twebserver::add_route $router GET /asdf get_asdf_handler
+    ::twebserver::add_route $router GET /qwerty/:user_id/sayhi get_qwerty_handler
 
     #$router add_route POST /test post_test_handler
     #$router add_route GET "/static/" get_static_content_handler
@@ -19,19 +19,27 @@ set init_script {
 
     #puts "done route definitions"
 
-    #proc get_test_handler {ctxVar reqVar resVar}
-    proc get_test_handler {reqVar resVar} {
+    proc get_asdf_handler {ctxVar reqVar resVar} {
+        upvar $reqVar req
+        upvar $resVar res
+
+        dict set res statusCode 200
+        dict set res headers {content-type text/plain}
+        dict set res body "test message GET asdf"
+    }
+
+    proc get_qwerty_handler {reqVar resVar} {
         #upvar $ctxVar ctx
         upvar $reqVar req
         upvar $resVar res
 
         #set conn [dict get $ctx conn]
         #set params [dict get $ctx params]
-        #set user_id [dict get $params user_id]
+        set user_id [dict get $req pathParameters user_id]
 
         dict set res statusCode 200
         dict set res headers {content-type text/plain}
-        dict set res body "test message GET"
+        dict set res body "test message GET user_id=$user_id"
         # return 0 to return the response immediately, 1 to continue with the rest of the handlers
         return 1
     }
