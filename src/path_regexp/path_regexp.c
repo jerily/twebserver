@@ -291,9 +291,9 @@ void tws_DStringAppendEscaped(Tcl_DString *dsPtr, const char *str, int len) {
 }
 
 int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tcl_Obj *keysListPtr, Tcl_DString *dsPtr) {
-    int strict = flags & STRICT_MATCH;
-    int start = flags & START_MATCH;
-    int end = flags & END_MATCH;
+    int strict = (flags & STRICT_MATCH);
+    int start = (flags & START_MATCH);
+    int end = (flags & END_MATCH);
 
     if (start) {
         Tcl_DStringAppend(dsPtr, "^", 1);

@@ -15,7 +15,14 @@ enum {
 };
 
 static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *path_ptr, Tcl_Obj *requestDictPtr, int *matched) {
-    Tcl_RegExp regexp = Tcl_RegExpCompile(interp, route_ptr->pattern);
+
+    int cflags = 0;
+    if (route_ptr->option_nocase) {
+        cflags |= TCL_REG_NOCASE;
+        cflags |= TCL_REG_ADVANCED;
+    }
+    Tcl_Obj *patObj = Tcl_NewStringObj(route_ptr->pattern, -1);
+    Tcl_RegExp regexp = Tcl_GetRegExpFromObj(interp, patObj, cflags);
     if (regexp == NULL) {
         SetResult("MatchRoute: regexp compile failed");
         return TCL_ERROR;
@@ -96,7 +103,7 @@ static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *r
             int path_len;
             const char *path = Tcl_GetStringFromObj(path_ptr, &path_len);
 
-            if (route_ptr->prefix_matching) {
+            if (route_ptr->option_prefix) {
                 *matched = (path_len >= route_ptr->path_len
                             && strncmp(path, route_ptr->path, route_ptr->path_len) == 0);
             } else {
@@ -215,18 +222,28 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
 
 int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "AddRouteCmd\n"));
-    CheckArgs(5, 7, 1, "?-prefix? ?-nocase? router_handle http_method path proc_name");
 
-
-    int optionPrefixMatching = 0;
-    int optionCaseInsensitive = 0;
+    int option_prefix = 0;
+    int option_nocase = 0;
+    int option_strict = 0;
     Tcl_ArgvInfo ArgTable[] = {
-            {TCL_ARGV_CONSTANT, "-prefix", INT2PTR(1), &optionPrefixMatching, "prefix matching"},
-            {TCL_ARGV_CONSTANT, "-nocase", INT2PTR(1), &optionCaseInsensitive, "case insensitive"},
+            {TCL_ARGV_CONSTANT, "-prefix", INT2PTR(1), &option_prefix, "prefix matching"},
+            {TCL_ARGV_CONSTANT, "-nocase", INT2PTR(1), &option_nocase, "case insensitive"},
+            {TCL_ARGV_CONSTANT, "-strict", INT2PTR(1), &option_strict, "strict matching"},
             {TCL_ARGV_END, NULL, NULL, NULL, NULL}
     };
     Tcl_Obj **remObjv;
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
+
+    if ((objc < 5) || (objc > 5)) {
+        Tcl_WrongNumArgs(interp, 1, remObjv, "router_handle http_method path proc_name");
+        return TCL_ERROR;
+    }
+
+    if (option_prefix && option_strict) {
+        SetResult("add_route: option -prefix and -strict are mutually exclusive");
+        return TCL_ERROR;
+    }
 
     tws_router_t *router_ptr = tws_GetInternalFromRouterName(Tcl_GetString(remObjv[1]));
     if (!router_ptr) {
@@ -259,9 +276,11 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
     route_ptr->keys = NULL;
     route_ptr->pattern = NULL;
 
-    route_ptr->prefix_matching = optionPrefixMatching;
+    route_ptr->option_prefix = option_prefix;
+    route_ptr->option_nocase = option_nocase;
+    route_ptr->option_strict = option_strict;
     route_ptr->fast_star = path_len == 1 && path[0] == '*';
-    route_ptr->fast_slash = path_len == 1 && path[0] == '/' && optionPrefixMatching;
+    route_ptr->fast_slash = path_len == 1 && path[0] == '/' && option_prefix;
 
     if (!route_ptr->fast_star && !route_ptr->fast_slash) {
         const char *p = strpbrk(route_ptr->path, ".+*?=^!:${}()[]|");
@@ -270,8 +289,14 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
 
             int flags = 0;
             flags |= START_MATCH;
-            if (!optionPrefixMatching) {
+            if (!option_prefix) {
                 flags |= END_MATCH;
+            }
+            if (option_nocase) {
+                flags |= NOCASE_MATCH;
+            }
+            if (option_strict) {
+                flags |= STRICT_MATCH;
             }
 
             if (TCL_OK != tws_PathToRegExp(interp, path, path_len, flags, &route_ptr->keys, &route_ptr->pattern)) {
@@ -311,7 +336,9 @@ int tws_InfoRoutesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
         Tcl_Obj *path_ptr = Tcl_NewStringObj(route_ptr->path, route_ptr->path_len);
         Tcl_Obj *proc_name_ptr = Tcl_NewStringObj(route_ptr->proc_name, route_ptr->proc_name_len);
         Tcl_Obj *type_ptr = Tcl_NewStringObj(route_ptr->type == ROUTE_TYPE_EXACT ? "exact" : "regexp", -1);
-        Tcl_Obj *prefix_matching_ptr = Tcl_NewBooleanObj(route_ptr->prefix_matching);
+        Tcl_Obj *option_prefix_ptr = Tcl_NewBooleanObj(route_ptr->option_prefix);
+        Tcl_Obj *option_nocase_ptr = Tcl_NewBooleanObj(route_ptr->option_nocase);
+        Tcl_Obj *option_strict_ptr = Tcl_NewBooleanObj(route_ptr->option_strict);
         Tcl_Obj *fast_star_ptr = Tcl_NewBooleanObj(route_ptr->fast_star);
         Tcl_Obj *fast_slash_ptr = Tcl_NewBooleanObj(route_ptr->fast_slash);
         Tcl_Obj *pattern_ptr = Tcl_NewStringObj(route_ptr->pattern ? route_ptr->pattern : "", -1);
@@ -321,7 +348,9 @@ int tws_InfoRoutesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
                 path_ptr,
                 proc_name_ptr,
                 type_ptr,
-                prefix_matching_ptr,
+                option_prefix_ptr,
+                option_nocase_ptr,
+                option_strict_ptr,
                 fast_star_ptr,
                 fast_slash_ptr,
                 pattern_ptr,
@@ -332,7 +361,9 @@ int tws_InfoRoutesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
                 Tcl_NewStringObj("path", -1),
                 Tcl_NewStringObj("procName", -1),
                 Tcl_NewStringObj("type", -1),
-                Tcl_NewStringObj("prefixMatching", -1),
+                Tcl_NewStringObj("optionPrefix", -1),
+                Tcl_NewStringObj("optionNocase", -1),
+                Tcl_NewStringObj("optionStrict", -1),
                 Tcl_NewStringObj("fastStar", -1),
                 Tcl_NewStringObj("fastSlash", -1),
                 Tcl_NewStringObj("pattern", -1),

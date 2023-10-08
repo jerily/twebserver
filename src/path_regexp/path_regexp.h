@@ -11,9 +11,10 @@
 #include "../common.h"
 
 enum {
-    STRICT_MATCH,
-    START_MATCH,
-    END_MATCH,
+    STRICT_MATCH = 1,
+    START_MATCH = 2,
+    END_MATCH = 4,
+    NOCASE_MATCH = 8,
 };
 
 int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int flags, Tcl_Obj **keysPtr, char **pattern);

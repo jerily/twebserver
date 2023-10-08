@@ -10,7 +10,7 @@ set init_script {
     # $router add_route ?-exact|-prefix? httpMethod path procName ?list_of_middleware_procs?
 
     ::twebserver::add_route -prefix $router GET /asdf get_asdf_handler
-    ::twebserver::add_route $router GET /qwerty/:user_id/sayhi get_qwerty_handler
+    ::twebserver::add_route -strict -nocase $router GET /qwerty/:user_id/sayhi get_qwerty_handler
 
     #$router add_route POST /test post_test_handler
     #$router add_route GET "/static/" get_static_content_handler

@@ -119,7 +119,9 @@ typedef struct tws_route_s {
     int type;
     int fast_star;
     int fast_slash;
-    int prefix_matching;
+    int option_prefix;
+    int option_nocase;
+    int option_strict;
     int http_method_len;
     char http_method[10];
     int path_len;
