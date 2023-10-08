@@ -145,6 +145,8 @@ HTML Transfer rate:     811.80 [Kbytes/sec] received
 
 ## TCL Commands
 
+### High-Level Commands
+
 * **::twebserver::create_server** *config_dict* *request_processor_proc* *?thread_init_script?*
     - returns a handle to a server, see [docs/config.md](docs/config.md) for configuration parameters
   ```tcl
@@ -161,6 +163,47 @@ HTML Transfer rate:     811.80 [Kbytes/sec] received
   ```tcl
   ::twebserver::listen_server $server_handle 4433
   ```
+* **::twebserver::destroy_server** *handle*
+  - destroys a server
+  ```tcl
+  ::twebserver::destroy_server $server_handle
+  ```
+* **::twebserver::create_router**
+  - returns a handle to a router and creates a request_processor_proc
+like the one accepted in ```create_server``` command
+  ```tcl
+  set router [::twebserver::create_router]
+  ```
+* **::twebserver::add_route** *?-prefix?* *?-nocase?* *?-strict?* *router* *method* *path* *handler_proc*
+  - adds a route to a router, the handler_proc should accept two arguments: ```context_dict``` and ```request_dict```.
+    See [Routing](docs/routing.md) for more information.
+  ```tcl
+  proc example_handler {ctx req} {
+    set response_dict [dict create]
+    dict set response_dict statusCode 200
+    dict set response_dict body "hello world"
+    return $response_dict
+  }
+  ::twebserver::add_route $router GET /example example_handler
+  ```
+* **::twebserver::add_middleware** *?-enter_proc enter_proc_name?* *?-leave_proc leave_proc_name?* *router*
+  - adds middleware to a router, the enter_proc_name should accept two arguments: ```context_dict``` and ```request_dict```.
+    The leave_proc_name should accept three arguments: ```context_dict```, ```request_dict```, and ```response_dict```.
+    See [Middleware](docs/middleware.md) for more information.
+    ```tcl
+    proc example_enter {ctx req} {
+        puts "entering example"
+    }
+    proc example_leave {ctx req resp} {
+        puts "leaving example"
+    }
+    ::twebserver::add_middleware \
+      -enter_proc example_enter \
+      -leave_proc example_leave \
+      $router
+    ```
+### Medium-level Commands
+
 * **::twebserver::parse_conn** *conn* *encoding_name*
   - reads a connection and parses the request to a dictionary.
     The dictionary includes the following:
@@ -189,6 +232,9 @@ HTML Transfer rate:     811.80 [Kbytes/sec] received
   ```tcl
   ::twebserver::return_conn $conn $response_dict
   ```
+
+### Low-level Commands
+
 * **::twebserver::read_conn** *conn*
     - reads a connection, low-level command, prefer **::twebserver::parse_conn**
   ```tcl
@@ -215,11 +261,9 @@ HTML Transfer rate:     811.80 [Kbytes/sec] received
   ```tcl
   set request_dict [::twebserver::parse_request $request]
   ```
-* **::twebserver::destroy_server** *handle*
-  - destroys a server
-  ```tcl
-  ::twebserver::destroy_server $server_handle
-  ```
+
+### Utility Commands
+
 * **:twebserver::encode_uri_component** *string*
   - encodes a string for use in a URI
 * **::twebserver::decode_uri_component** *string* *encoding_name*
