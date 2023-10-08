@@ -21,7 +21,9 @@ static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_
         cflags |= TCL_REG_NOCASE;
     }
     Tcl_Obj *patObj = Tcl_NewStringObj(route_ptr->pattern, -1);
+    Tcl_IncrRefCount(patObj);
     Tcl_RegExp regexp = Tcl_GetRegExpFromObj(interp, patObj, cflags);
+    Tcl_DecrRefCount(patObj);
     if (regexp == NULL) {
         SetResult("MatchRoute: regexp compile failed");
         return TCL_ERROR;
@@ -181,31 +183,36 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
         int matched = 0;
         if (TCL_OK != tws_MatchRoute(interp, route_ptr, req_dict_ptr, &matched)) {
             Tcl_DecrRefCount(ctx_dict_ptr);
+            Tcl_DecrRefCount(req_dict_ptr);
             SetResult("router_process_conn: match_route failed");
             return TCL_ERROR;
         }
+
         if (matched) {
+            Tcl_ResetResult(interp);
             if (TCL_OK != tws_EvalRoute(interp, route_ptr, ctx_dict_ptr, req_dict_ptr)) {
                 DBG(fprintf(stderr, "router_process_conn: eval route failed path: %s\n", route_ptr->path));
                 tws_CloseConn(conn, 1);
                 Tcl_DecrRefCount(ctx_dict_ptr);
+                Tcl_DecrRefCount(req_dict_ptr);
 //                SetResult("router_process_conn: eval route failed");
                 return TCL_ERROR;
             }
 
-            Tcl_Obj *responseDictPtr = Tcl_GetObjResult(interp);
-
-            if (TCL_OK != tws_ReturnConn(interp, conn, responseDictPtr, encoding)) {
+            if (TCL_OK != tws_ReturnConn(interp, conn, Tcl_GetObjResult(interp), encoding)) {
                 tws_CloseConn(conn, 1);
                 Tcl_DecrRefCount(ctx_dict_ptr);
+                Tcl_DecrRefCount(req_dict_ptr);
 //                SetResult("router_process_conn: return_conn failed");
                 return TCL_ERROR;
             }
+
             break;
         }
         route_ptr = route_ptr->nextPtr;
     }
     Tcl_DecrRefCount(ctx_dict_ptr);
+    Tcl_DecrRefCount(req_dict_ptr);
 
     if (TCL_OK != tws_CloseConn(conn, 0)) {
         SetResult("router_process_conn: close_conn failed");

@@ -24,10 +24,10 @@ set init_script {
     }
 
     proc get_qwerty_handler {ctx req} {
-        puts ctx=[dict get $ctx]
-        puts req=[dict get $req]
-        set addr [dict get $ctx addr]
+        #puts ctx=[dict get $ctx]
+        #puts req=[dict get $req]
 
+        set addr [dict get $ctx addr]
         set user_id [dict get $req pathParameters user_id]
 
         dict set res statusCode 200
