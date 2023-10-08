@@ -133,9 +133,18 @@ typedef struct tws_route_s {
     struct tws_route_s *nextPtr;
 } tws_route_t;
 
+typedef struct tws_middleware_s {
+    Tcl_Obj *enter_proc_ptr;
+    Tcl_Obj *leave_proc_ptr;
+    struct tws_middleware_s *nextPtr;
+    struct tws_middleware_s *prevPtr;
+} tws_middleware_t;
+
 typedef struct {
     tws_route_t *firstRoutePtr;
     tws_route_t *lastRoutePtr;
+    tws_middleware_t *firstMiddlewarePtr;
+    tws_middleware_t *lastMiddlewarePtr;
     char handle[40];
 } tws_router_t;
 

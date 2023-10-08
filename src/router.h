@@ -11,5 +11,6 @@
 ObjCmdProc(tws_CreateRouterCmd);
 ObjCmdProc(tws_AddRouteCmd);
 ObjCmdProc(tws_InfoRoutesCmd);
+ObjCmdProc(tws_AddMiddlewareCmd);
 
 #endif //TWEBSERVER_ROUTER_H

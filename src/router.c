@@ -144,7 +144,7 @@ static int tws_EvalRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *ct
     Tcl_Obj *const proc_objv[] = {proc_name_ptr, ctx_dict_ptr, req_dict_ptr};
     if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
         Tcl_DecrRefCount(proc_name_ptr);
-        SetResult("router_process_conn: eval failed");
+//        SetResult("router_process_conn: eval failed");
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(proc_name_ptr);
@@ -190,8 +190,35 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
 
         if (matched) {
             Tcl_ResetResult(interp);
+
+            // traverse middleware enter procs
+            tws_middleware_t *prev_middleware_ptr = NULL;
+            tws_middleware_t *middleware_ptr = router_ptr->firstMiddlewarePtr;
+            while (middleware_ptr != NULL) {
+                if (middleware_ptr->enter_proc_ptr) {
+                    Tcl_Obj *const proc_objv[] = {middleware_ptr->enter_proc_ptr, ctx_dict_ptr, req_dict_ptr};
+                    if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
+                        // todo: return 500
+                        tws_CloseConn(conn, 1);
+                        Tcl_DecrRefCount(ctx_dict_ptr);
+                        Tcl_DecrRefCount(req_dict_ptr);
+                        SetResult("router_process_conn: enter proc eval failed");
+                        return TCL_ERROR;
+                    }
+                    Tcl_DecrRefCount(req_dict_ptr);
+                    req_dict_ptr = Tcl_GetObjResult(interp);
+                    Tcl_IncrRefCount(req_dict_ptr);
+                }
+                prev_middleware_ptr = middleware_ptr;
+                middleware_ptr = middleware_ptr->nextPtr;
+            }
+
+            DBG(fprintf(stderr, "req: %s\n", Tcl_GetString(req_dict_ptr)));
+
+            // eval route proc
             if (TCL_OK != tws_EvalRoute(interp, route_ptr, ctx_dict_ptr, req_dict_ptr)) {
                 DBG(fprintf(stderr, "router_process_conn: eval route failed path: %s\n", route_ptr->path));
+                // todo: return 500
                 tws_CloseConn(conn, 1);
                 Tcl_DecrRefCount(ctx_dict_ptr);
                 Tcl_DecrRefCount(req_dict_ptr);
@@ -199,14 +226,39 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
                 return TCL_ERROR;
             }
 
+            Tcl_Obj *res_dict_ptr = Tcl_GetObjResult(interp);
+            Tcl_IncrRefCount(res_dict_ptr);
+            DBG(fprintf(stderr, "res: %s\n", Tcl_GetString(res_dict_ptr)));
+
+            // traverse middleware leave procs in reverse order
+            middleware_ptr = prev_middleware_ptr;
+            while (middleware_ptr != NULL) {
+                if (middleware_ptr->leave_proc_ptr) {
+                    Tcl_Obj *const proc_objv[] = {middleware_ptr->leave_proc_ptr, ctx_dict_ptr, req_dict_ptr,res_dict_ptr};
+                    if (TCL_OK != Tcl_EvalObjv(interp, 4, proc_objv, TCL_EVAL_GLOBAL)) {
+                        // todo: return 500
+                        tws_CloseConn(conn, 1);
+                        Tcl_DecrRefCount(ctx_dict_ptr);
+                        Tcl_DecrRefCount(req_dict_ptr);
+                        SetResult("router_process_conn: leave proc eval failed");
+                        return TCL_ERROR;
+                    }
+                    Tcl_DecrRefCount(res_dict_ptr);
+                    res_dict_ptr = Tcl_GetObjResult(interp);
+                }
+                middleware_ptr = middleware_ptr->prevPtr;
+            }
+
+            // return response
             if (TCL_OK != tws_ReturnConn(interp, conn, Tcl_GetObjResult(interp), encoding)) {
                 tws_CloseConn(conn, 1);
                 Tcl_DecrRefCount(ctx_dict_ptr);
                 Tcl_DecrRefCount(req_dict_ptr);
+                Tcl_DecrRefCount(res_dict_ptr);
 //                SetResult("router_process_conn: return_conn failed");
                 return TCL_ERROR;
             }
-
+            Tcl_DecrRefCount(res_dict_ptr);
             break;
         }
         route_ptr = route_ptr->nextPtr;
@@ -232,6 +284,8 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
     }
     router_ptr->firstRoutePtr = NULL;
     router_ptr->lastRoutePtr = NULL;
+    router_ptr->firstMiddlewarePtr = NULL;
+    router_ptr->lastMiddlewarePtr = NULL;
 
     CMD_ROUTER_NAME(router_ptr->handle, router_ptr);
     tws_RegisterRouterName(router_ptr->handle, router_ptr);
@@ -410,5 +464,69 @@ int tws_InfoRoutesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
         route_ptr = route_ptr->nextPtr;
     }
     Tcl_SetObjResult(interp, result_ptr);
+    return TCL_OK;
+}
+
+
+int tws_AddMiddlewareCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "AddMiddlewareCmd\n"));
+
+    const char *enter_proc;
+    const char *leave_proc;
+    Tcl_ArgvInfo ArgTable[] = {
+            {TCL_ARGV_STRING, "-enter_proc", NULL, &enter_proc, "enter proc"},
+            {TCL_ARGV_STRING, "-leave_proc", NULL, &leave_proc, "leave proc"},
+            {TCL_ARGV_END, NULL,           NULL, NULL, NULL}
+    };
+    Tcl_Obj **remObjv;
+    Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
+
+    if ((objc < 2) || (objc > 2)) {
+        Tcl_WrongNumArgs(interp, 1, remObjv, "router_handle");
+        return TCL_ERROR;
+    }
+
+    if (!enter_proc && !leave_proc) {
+        SetResult("add_middleware: at least one of -enter_proc or -leave_proc must be specified");
+        return TCL_ERROR;
+    }
+
+    tws_router_t *router_ptr = tws_GetInternalFromRouterName(Tcl_GetString(remObjv[1]));
+    if (!router_ptr) {
+        SetResult("add_middleware: router handle not found");
+        return TCL_ERROR;
+    }
+
+    tws_middleware_t *middleware_ptr = (tws_middleware_t *) Tcl_Alloc(sizeof(tws_middleware_t));
+    if (!middleware_ptr) {
+        SetResult("add_middleware: memory alloc failed");
+        return TCL_ERROR;
+    }
+
+    if (enter_proc) {
+        middleware_ptr->enter_proc_ptr = Tcl_NewStringObj(enter_proc, -1);
+        Tcl_IncrRefCount(middleware_ptr->enter_proc_ptr);
+    } else {
+        middleware_ptr->enter_proc_ptr = NULL;
+    }
+
+    if (leave_proc) {
+        middleware_ptr->leave_proc_ptr = Tcl_NewStringObj(leave_proc, -1);
+        Tcl_IncrRefCount(middleware_ptr->leave_proc_ptr);
+    } else {
+        middleware_ptr->leave_proc_ptr = NULL;
+    }
+
+    middleware_ptr->nextPtr = NULL;
+    if (router_ptr->firstMiddlewarePtr == NULL) {
+        middleware_ptr->prevPtr = NULL;
+        router_ptr->firstMiddlewarePtr = middleware_ptr;
+        router_ptr->lastMiddlewarePtr = middleware_ptr;
+    } else {
+        middleware_ptr->prevPtr = router_ptr->lastMiddlewarePtr;
+        router_ptr->lastMiddlewarePtr->nextPtr = middleware_ptr;
+        router_ptr->lastMiddlewarePtr = middleware_ptr;
+    }
+
     return TCL_OK;
 }
