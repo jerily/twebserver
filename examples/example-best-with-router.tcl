@@ -3,10 +3,33 @@ package require twebserver
 set init_script {
     package require twebserver
 
+    namespace eval simple_session_manager {
+        variable secret "keyboard cat"
+        variable resave false
+        variable save_uninitialized false
+        variable cookie [dict create maxAge 3600000]
+
+        proc enter {ctx req} {
+            dict set req session [dict create id 1234567890]
+            return $req
+        }
+        proc leave {ctx req res} {
+            dict set res headers [list Set-Cookie "session_id=[dict get $req session id]; path=/;"]
+            return $res
+        }
+    }
+
     set router [::twebserver::create_router]
+
+    ::twebserver::add_middleware \
+        -enter_proc simple_session_manager::enter \
+        -leave_proc simple_session_manager::leave \
+        $router
+
     ::twebserver::add_route -prefix $router GET /asdf get_asdf_handler
     ::twebserver::add_route -strict $router GET /qwerty/:user_id/sayhi get_qwerty_handler
     ::twebserver::add_route $router GET "*" get_catchall_handler
+
     interp alias {} process_conn {} $router
 
     proc get_catchall_handler {ctx req} {
