@@ -67,6 +67,24 @@ static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_
     return TCL_OK;
 }
 
+static int tws_MatchExactRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *path_ptr, int *matched) {
+    int path_len;
+    char *path = Tcl_GetStringFromObj(path_ptr, &path_len);
+
+    if (route_ptr->option_nocase) {
+        path_len = Tcl_UtfToLower(path);
+    }
+
+    if (route_ptr->option_prefix) {
+        *matched = (path_len >= route_ptr->path_len
+                    && strncmp(path, route_ptr->path, route_ptr->path_len) == 0);
+    } else {
+        *matched = (path_len == route_ptr->path_len
+                    && strncmp(path, route_ptr->path, path_len) == 0);
+    }
+    return TCL_OK;
+}
+
 static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *requestDictPtr, int *matched) {
     Tcl_Obj *http_method_key_ptr = Tcl_NewStringObj("httpMethod", -1);
     Tcl_IncrRefCount(http_method_key_ptr);
@@ -99,15 +117,9 @@ static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *r
         }
 
         if (route_ptr->type == ROUTE_TYPE_EXACT) {
-            int path_len;
-            const char *path = Tcl_GetStringFromObj(path_ptr, &path_len);
-
-            if (route_ptr->option_prefix) {
-                *matched = (path_len >= route_ptr->path_len
-                            && strncmp(path, route_ptr->path, route_ptr->path_len) == 0);
-            } else {
-                *matched = (path_len == route_ptr->path_len
-                            && strncmp(path, route_ptr->path, path_len) == 0);
+            if (TCL_OK != tws_MatchExactRoute(interp, route_ptr, path_ptr, matched)) {
+                SetResult("MatchRoute: match_exact_route failed");
+                return TCL_ERROR;
             }
         } else {
             if (TCL_OK != tws_MatchRegExpRoute(interp, route_ptr, path_ptr, requestDictPtr, matched)) {
@@ -304,6 +316,15 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
             }
         } else {
             route_ptr->type = ROUTE_TYPE_EXACT;
+            if (option_nocase) {
+                // Changes every UTF-8 character in str to lower-case
+                // Because changing the case of a character may change its size,
+                // the byte offset of each character in the resulting string may differ from its original location.
+                // Tcl_UtfToLower writes a null byte at the end of the converted string.
+                // Tcl_UtfToLower returns the new length of the string in bytes.
+                // This new length is guaranteed to be no longer than the original string length.
+                route_ptr->path_len = Tcl_UtfToLower(route_ptr->path);
+            }
         }
     }
 
