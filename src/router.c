@@ -16,10 +16,9 @@ enum {
 
 static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *path_ptr, Tcl_Obj *requestDictPtr, int *matched) {
 
-    int cflags = 0;
+    int cflags = TCL_REG_ADVANCED;
     if (route_ptr->option_nocase) {
         cflags |= TCL_REG_NOCASE;
-        cflags |= TCL_REG_ADVANCED;
     }
     Tcl_Obj *patObj = Tcl_NewStringObj(route_ptr->pattern, -1);
     Tcl_RegExp regexp = Tcl_GetRegExpFromObj(interp, patObj, cflags);
