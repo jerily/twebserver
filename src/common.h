@@ -119,6 +119,7 @@ typedef struct tws_route_s {
     int type;
     int fast_star;
     int fast_slash;
+    int prefix_matching;
     int http_method_len;
     char http_method[10];
     int path_len;
@@ -157,5 +158,21 @@ SSL_CTX *tws_GetInternalFromHostName(const char *name);
 int tws_RegisterRouterName(const char *name, tws_router_t *internal);
 int tws_UnregisterRouterName(const char *name);
 tws_router_t *tws_GetInternalFromRouterName(const char *name);
+
+/*
+ * Macros used to cast between pointers and integers (e.g. when storing an int
+ * in ClientData), on 64-bit architectures they avoid gcc warning about "cast
+ * to/from pointer from/to integer of different size".
+ */
+
+#if !defined(INT2PTR) && !defined(PTR2INT)
+#   if defined(HAVE_INTPTR_T) || defined(intptr_t)
+#	define INT2PTR(p) ((void *)(intptr_t)(p))
+#	define PTR2INT(p) ((int)(intptr_t)(p))
+#   else
+#	define INT2PTR(p) ((void *)(p))
+#	define PTR2INT(p) ((int)(p))
+#   endif
+#endif
 
 #endif //TWEBSERVER_COMMON_H

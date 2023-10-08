@@ -9,7 +9,7 @@ set init_script {
     #$router use_middleware session_middleware
     # $router add_route ?-exact|-prefix? httpMethod path procName ?list_of_middleware_procs?
 
-    ::twebserver::add_route $router GET /asdf get_asdf_handler
+    ::twebserver::add_route -prefix $router GET /asdf get_asdf_handler
     ::twebserver::add_route $router GET /qwerty/:user_id/sayhi get_qwerty_handler
 
     #$router add_route POST /test post_test_handler
@@ -30,7 +30,7 @@ set init_script {
         dict set res body "test message GET not found"
     }
 
-    proc get_asdf_handler {ctxVar reqVar resVar} {
+    proc get_asdf_handler {reqVar resVar} {
         upvar $reqVar req
         upvar $resVar res
 

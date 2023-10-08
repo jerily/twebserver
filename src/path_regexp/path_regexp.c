@@ -468,7 +468,7 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
 
         if (!isEndDelimited) {
             // route += `(?=${delimiterRe}|${endsWithRe})`;
-            Tcl_DStringAppend(dsPtr, "(?=", 2);
+            Tcl_DStringAppend(dsPtr, "(?=", 3);
             Tcl_DStringAppend(dsPtr, delimiterRe, 2);
             Tcl_DStringAppend(dsPtr, ")", 1);
         }
