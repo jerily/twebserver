@@ -153,7 +153,6 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
     Tcl_Obj *res_dict_ptr = Tcl_NewDictObj();
     tws_route_t *route_ptr = router_ptr->firstRoutePtr;
     while (route_ptr != NULL) {
-        fprintf(stderr, "checking route path: %s\n", route_ptr->path);
         int matched = 0;
         if (TCL_OK != tws_MatchRoute(interp, route_ptr, req_dict_ptr, &matched)) {
             SetResult("router_process_conn: match_route failed");
