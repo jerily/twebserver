@@ -7,17 +7,28 @@ set init_script {
     #puts router=$router
     #$router use_middleware log_middleware
     #$router use_middleware session_middleware
-    # $router add_route ?-exact|-prefix(default)|-regexp? httpMethod path procName ?list_of_middleware_procs?
+    # $router add_route ?-exact|-prefix? httpMethod path procName ?list_of_middleware_procs?
 
     ::twebserver::add_route $router GET /asdf get_asdf_handler
     ::twebserver::add_route $router GET /qwerty/:user_id/sayhi get_qwerty_handler
 
     #$router add_route POST /test post_test_handler
     #$router add_route GET "/static/" get_static_content_handler
-    #$router add_route GET "" catchall_handler
+    ::twebserver::add_route $router GET "*" get_catchall_handler
     interp alias {} process_conn {} $router
 
+    puts routes=[::twebserver::info_routes $router]
+
     #puts "done route definitions"
+
+    proc get_catchall_handler {reqVar resVar} {
+        upvar $reqVar req
+        upvar $resVar res
+
+        dict set res statusCode 404
+        dict set res headers {content-type text/plain}
+        dict set res body "test message GET not found"
+    }
 
     proc get_asdf_handler {ctxVar reqVar resVar} {
         upvar $reqVar req

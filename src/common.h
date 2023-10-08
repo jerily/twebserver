@@ -116,6 +116,9 @@ typedef struct {
 } tws_thread_ctrl_t;
 
 typedef struct tws_route_s {
+    int type;
+    int fast_star;
+    int fast_slash;
     int http_method_len;
     char http_method[10];
     int path_len;
@@ -123,7 +126,7 @@ typedef struct tws_route_s {
     int proc_name_len;
     char proc_name[128];
     Tcl_Obj *keys;
-    const char *pattern;
+    char *pattern;
     struct tws_route_s *nextPtr;
 } tws_route_t;
 

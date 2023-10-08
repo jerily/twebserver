@@ -10,10 +10,6 @@
 
 #include "path_regexp.h"
 
-enum route_path_option_enum {
-    TWS_ROUTE_PATH_OPTION_START = 1,
-};
-
 enum lex_token_type_enum {
     MODIFIER,
     ESCAPED_CHAR,
@@ -120,7 +116,7 @@ int tws_PathExprLexer(Tcl_Interp *interp, const char *path_expr, int path_expr_l
     }
 
     Tcl_ListObjAppendElement(interp, lexTokensListPtr, Tcl_NewIntObj(END));
-    Tcl_ListObjAppendElement(interp, lexTokensListPtr, Tcl_NewStringObj(p, 1));
+    Tcl_ListObjAppendElement(interp, lexTokensListPtr, Tcl_NewStringObj("", -1));
 
     return TCL_OK;
 }
@@ -166,11 +162,11 @@ enum {
 int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_expr_len, int flags, Tcl_Obj *tokensListPtr) {
     Tcl_Obj *lexTokensListPtr = Tcl_NewListObj(0, NULL);
     if (TCL_OK != tws_PathExprLexer(interp, path_expr, path_expr_len, lexTokensListPtr)) {
-        SetResult("tws_PathExprLexer failed");
+        SetResult("PathExprLexer failed");
         return TCL_ERROR;
     }
 
-    DBG(fprintf(stderr, "lex tokens: %s\n", Tcl_GetString(lexTokensListPtr)));
+    DBG(fprintf(stderr, "PathExprToTokens - lex tokens: %s\n", Tcl_GetString(lexTokensListPtr)));
 
     int lexTokensLen;
     Tcl_Obj **lexTokens;
@@ -188,6 +184,12 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
         Tcl_Obj *charPtr = tws_TryConsume(lexTokens, &i, CHAR);
         Tcl_Obj *namePtr = tws_TryConsume(lexTokens, &i, NAME);
         Tcl_Obj *patternPtr = tws_TryConsume(lexTokens, &i, PATTERN);
+
+//        fprintf(stderr, "i: %d charPtr: %s, namePtr: %s, patternPtr: %s\n",
+//                i,
+//                charPtr ? Tcl_GetString(charPtr) : "NULL",
+//                namePtr ? Tcl_GetString(namePtr) : "NULL",
+//                patternPtr ? Tcl_GetString(patternPtr) : "NULL");
 
         if (namePtr != NULL || patternPtr != NULL) {
 
@@ -289,9 +291,9 @@ void tws_DStringAppendEscaped(Tcl_DString *dsPtr, const char *str, int len) {
 }
 
 int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tcl_Obj *keysListPtr, Tcl_DString *dsPtr) {
-    int strict = 0;
-    int start = 1;
-    int end = 1;
+    int strict = flags & STRICT_MATCH;
+    int start = flags & START_MATCH;
+    int end = flags & END_MATCH;
 
     if (start) {
         Tcl_DStringAppend(dsPtr, "^", 1);
@@ -482,7 +484,7 @@ int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int fla
         return TCL_ERROR;
     }
 
-    DBG(fprintf(stderr, "tokens: %s\n", Tcl_GetString(tokensListPtr)));
+    DBG(fprintf(stderr, "PathToRegExp - tokens: %s\n", Tcl_GetString(tokensListPtr)));
 
     Tcl_DString ds;
     Tcl_DStringInit(&ds);

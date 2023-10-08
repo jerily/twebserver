@@ -8,7 +8,8 @@
 
 #include <tcl.h>
 
-int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
-int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
+ObjCmdProc(tws_CreateRouterCmd);
+ObjCmdProc(tws_AddRouteCmd);
+ObjCmdProc(tws_InfoRoutesCmd);
 
 #endif //TWEBSERVER_ROUTER_H

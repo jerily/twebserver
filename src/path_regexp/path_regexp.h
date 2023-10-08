@@ -10,6 +10,12 @@
 #include <tcl.h>
 #include "../common.h"
 
+enum {
+    STRICT_MATCH,
+    START_MATCH,
+    END_MATCH,
+};
+
 int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int flags, Tcl_Obj **keysPtr, char **pattern);
 
 #endif //TWEBSERVER_PATH_REGEXP_H

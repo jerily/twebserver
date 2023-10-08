@@ -9,6 +9,11 @@
 #include "path_regexp/path_regexp.h"
 #include <string.h>
 
+enum {
+    ROUTE_TYPE_EXACT,
+    ROUTE_TYPE_REGEXP
+};
+
 static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *path_ptr, Tcl_Obj *requestDictPtr, int *matched) {
     Tcl_RegExp regexp = Tcl_RegExpCompile(interp, route_ptr->pattern);
 
@@ -74,16 +79,27 @@ static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *r
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(path_key_ptr);
-    int path_len;
-    const char *path = Tcl_GetStringFromObj(path_ptr, &path_len);
 
-    // TODO: make this more sophisticated with exact matching, prefix matching, etc.
     if (http_method_len == route_ptr->http_method_len
             && strncmp(http_method, route_ptr->http_method, route_ptr->http_method_len) == 0) {
 
-        if (TCL_OK != tws_MatchRegExpRoute(interp, route_ptr, path_ptr, requestDictPtr, matched)) {
-            SetResult("MatchRoute: match_regexp_route failed");
-            return TCL_ERROR;
+        if (route_ptr->fast_slash || route_ptr->fast_star) {
+            *matched = 1;
+            return TCL_OK;
+        }
+
+        if (route_ptr->type == ROUTE_TYPE_EXACT) {
+            int path_len;
+            const char *path = Tcl_GetStringFromObj(path_ptr, &path_len);
+
+            *matched = (path_len == route_ptr->path_len
+                    && strncmp(path, route_ptr->path, route_ptr->path_len) == 0);
+        } else {
+            // TODO: make this more sophisticated with full matching, prefix matching, etc.
+            if (TCL_OK != tws_MatchRegExpRoute(interp, route_ptr, path_ptr, requestDictPtr, matched)) {
+                SetResult("MatchRoute: match_regexp_route failed");
+                return TCL_ERROR;
+            }
         }
 
     } else {
@@ -137,17 +153,21 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
     Tcl_Obj *res_dict_ptr = Tcl_NewDictObj();
     tws_route_t *route_ptr = router_ptr->firstRoutePtr;
     while (route_ptr != NULL) {
-        int matched;
+        fprintf(stderr, "checking route path: %s\n", route_ptr->path);
+        int matched = 0;
         if (TCL_OK != tws_MatchRoute(interp, route_ptr, req_dict_ptr, &matched)) {
             SetResult("router_process_conn: match_route failed");
             return TCL_ERROR;
         }
         if (matched) {
             if (TCL_OK != tws_EvalRoute(interp, route_ptr, req_dict_ptr, res_dict_ptr)) {
+                fprintf(stderr, "router_process_conn: eval route failed path: %s\n", route_ptr->path);
+                tws_CloseConn(conn, 1);
                 SetResult("router_process_conn: eval route failed");
                 return TCL_ERROR;
             }
             if (TCL_OK != tws_ReturnConn(interp, conn, res_dict_ptr, encoding)) {
+                tws_CloseConn(conn, 1);
                 SetResult("router_process_conn: return_conn failed");
                 return TCL_ERROR;
             }
@@ -217,12 +237,28 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
     memcpy(route_ptr->proc_name, proc_name, proc_name_len);
     route_ptr->proc_name[proc_name_len] = '\0';
     route_ptr->nextPtr = NULL;
+    route_ptr->keys = NULL;
+    route_ptr->pattern = NULL;
 
     // todo: pass options like pathMatch = prefix | full
     int flags = 0;
-    if (TCL_OK != tws_PathToRegExp(interp, path, path_len, flags, &route_ptr->keys, &route_ptr->pattern)) {
-        SetResult("add_route: path_to_regexp failed");
-        return TCL_ERROR;
+    flags |= START_MATCH;
+    flags |= END_MATCH;
+
+    route_ptr->fast_star = path_len == 1 && path[0] == '*';
+    route_ptr->fast_slash = path_len == 1 && path[0] == '/' && !(flags & END_MATCH);
+
+    if (!route_ptr->fast_star && !route_ptr->fast_slash) {
+        const char *p = strpbrk(route_ptr->path, ".+*?=^!:${}()[]|/\\");
+        if (p != NULL) {
+            route_ptr->type = ROUTE_TYPE_REGEXP;
+            if (TCL_OK != tws_PathToRegExp(interp, path, path_len, flags, &route_ptr->keys, &route_ptr->pattern)) {
+                SetResult("add_route: path_to_regexp failed");
+                return TCL_ERROR;
+            }
+        } else {
+            route_ptr->type = ROUTE_TYPE_EXACT;
+        }
     }
 
     if (router_ptr->firstRoutePtr == NULL) {
@@ -233,5 +269,57 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
         router_ptr->lastRoutePtr = route_ptr;
     }
 
+    return TCL_OK;
+}
+
+int tws_InfoRoutesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "AddRouteCmd\n"));
+    CheckArgs(2, 2, 1, "router_handle");
+    tws_router_t *router_ptr = tws_GetInternalFromRouterName(Tcl_GetString(objv[1]));
+    if (!router_ptr) {
+        SetResult("info_routes: router handle not found");
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *result_ptr = Tcl_NewListObj(0, NULL);
+    tws_route_t *route_ptr = router_ptr->firstRoutePtr;
+    while (route_ptr != NULL) {
+        Tcl_Obj *route_dict_ptr = Tcl_NewDictObj();
+        Tcl_Obj *http_method_ptr = Tcl_NewStringObj(route_ptr->http_method, route_ptr->http_method_len);
+        Tcl_Obj *path_ptr = Tcl_NewStringObj(route_ptr->path, route_ptr->path_len);
+        Tcl_Obj *proc_name_ptr = Tcl_NewStringObj(route_ptr->proc_name, route_ptr->proc_name_len);
+        Tcl_Obj *type_ptr = Tcl_NewStringObj(route_ptr->type == ROUTE_TYPE_EXACT ? "exact" : "regexp", -1);
+        Tcl_Obj *fast_star_ptr = Tcl_NewBooleanObj(route_ptr->fast_star);
+        Tcl_Obj *fast_slash_ptr = Tcl_NewBooleanObj(route_ptr->fast_slash);
+        Tcl_Obj *pattern_ptr = Tcl_NewStringObj(route_ptr->pattern ? route_ptr->pattern : "", -1);
+
+        Tcl_Obj *values[] = {
+                http_method_ptr,
+                path_ptr,
+                proc_name_ptr,
+                type_ptr,
+                fast_star_ptr,
+                fast_slash_ptr,
+                pattern_ptr,
+                NULL
+        };
+        Tcl_Obj *keys[] = {
+                Tcl_NewStringObj("httpMethod", -1),
+                Tcl_NewStringObj("path", -1),
+                Tcl_NewStringObj("procName", -1),
+                Tcl_NewStringObj("type", -1),
+                Tcl_NewStringObj("fastStar", -1),
+                Tcl_NewStringObj("fastSlash", -1),
+                Tcl_NewStringObj("pattern", -1),
+                NULL
+        };
+        for (int i = 0; keys[i] != NULL; i++) {
+            Tcl_DictObjPut(interp, route_dict_ptr, keys[i], values[i]);
+        }
+        Tcl_ListObjAppendElement(interp, result_ptr, route_dict_ptr);
+
+        route_ptr = route_ptr->nextPtr;
+    }
+    Tcl_SetObjResult(interp, result_ptr);
     return TCL_OK;
 }

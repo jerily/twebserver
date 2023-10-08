@@ -1014,7 +1014,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         return TCL_THREAD_CREATE_RETURN;
     }
     if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->server->scriptPtr)) {
-        DBG(fprintf(stderr, "error evaluating init script\n"));
+        fprintf(stderr, "error evaluating init script\n");
         Tcl_FinalizeThread();
         Tcl_ExitThread(TCL_ERROR);
         return TCL_THREAD_CREATE_RETURN;
