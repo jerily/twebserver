@@ -148,7 +148,7 @@ HTML Transfer rate:     811.80 [Kbytes/sec] received
 ### High-Level Commands
 
 * **::twebserver::create_server** *config_dict* *request_processor_proc* *?thread_init_script?*
-    - returns a handle to a server, see [docs/config.md](docs/config.md) for configuration parameters
+    - returns a handle to a server, see [Server Configuration](docs/config.md) for configuration parameters
   ```tcl
   set server_handle [::twebserver::create_server [dict create] process_conn]
   ```
