@@ -4,22 +4,10 @@ set init_script {
     package require twebserver
 
     set router [::twebserver::create_router]
-    #puts router=$router
-    #$router use_middleware log_middleware
-    #$router use_middleware session_middleware
-    # $router add_route ?-prefix? ?-nocase? ?-strict? httpMethod path procName ?list_of_middleware_procs?
-
     ::twebserver::add_route -prefix $router GET /asdf get_asdf_handler
     ::twebserver::add_route -strict $router GET /qwerty/:user_id/sayhi get_qwerty_handler
-
-    #$router add_route POST /test post_test_handler
-    #$router add_route GET "/static/" get_static_content_handler
     ::twebserver::add_route $router GET "*" get_catchall_handler
     interp alias {} process_conn {} $router
-
-    puts routes=[::twebserver::info_routes $router]
-
-    #puts "done route definitions"
 
     proc get_catchall_handler {reqVar resVar} {
         upvar $reqVar req
@@ -44,15 +32,11 @@ set init_script {
         upvar $reqVar req
         upvar $resVar res
 
-        #set conn [dict get $ctx conn]
-        #set params [dict get $ctx params]
         set user_id [dict get $req pathParameters user_id]
 
         dict set res statusCode 200
         dict set res headers {content-type text/plain}
         dict set res body "test message GET user_id=$user_id"
-        # return 0 to return the response immediately, 1 to continue with the rest of the handlers
-        return 1
     }
 
 }
