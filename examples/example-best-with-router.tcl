@@ -9,34 +9,32 @@ set init_script {
     ::twebserver::add_route $router GET "*" get_catchall_handler
     interp alias {} process_conn {} $router
 
-    proc get_catchall_handler {reqVar resVar} {
-        upvar $reqVar req
-        upvar $resVar res
-
+    proc get_catchall_handler {ctx req} {
         dict set res statusCode 404
         dict set res headers {content-type text/plain}
-        dict set res body "test message GET not found"
+        dict set res body "not found"
+        return $res
     }
 
-    proc get_asdf_handler {reqVar resVar} {
-        upvar $reqVar req
-        upvar $resVar res
-
+    proc get_asdf_handler {ctx req} {
         dict set res statusCode 200
         dict set res headers {content-type text/plain}
         dict set res body "test message GET asdf"
+        return $res
     }
 
-    proc get_qwerty_handler {reqVar resVar} {
-        #upvar $ctxVar ctx
-        upvar $reqVar req
-        upvar $resVar res
+    proc get_qwerty_handler {ctx req} {
+        puts ctx=[dict get $ctx]
+        puts req=[dict get $req]
+        set addr [dict get $ctx addr]
 
         set user_id [dict get $req pathParameters user_id]
 
         dict set res statusCode 200
         dict set res headers {content-type text/plain}
-        dict set res body "test message GET user_id=$user_id"
+        dict set res body "test message GET user_id=$user_id addr=$addr"
+
+        return $res
     }
 
 }

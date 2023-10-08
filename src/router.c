@@ -135,19 +135,11 @@ static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *r
     return TCL_OK;
 }
 
-static int tws_EvalRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *req_dict_ptr, Tcl_Obj *res_dict_ptr) {
+static int tws_EvalRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *ctx_dict_ptr, Tcl_Obj *req_dict_ptr) {
 
     Tcl_Obj *proc_name_ptr = Tcl_NewStringObj(route_ptr->proc_name, -1);
     Tcl_IncrRefCount(proc_name_ptr);
-    Tcl_Obj *req_var = Tcl_NewStringObj("reqDict", -1);
-    Tcl_IncrRefCount(req_var);
-    Tcl_Obj *res_var = Tcl_NewStringObj("resDict", -1);
-    Tcl_IncrRefCount(res_var);
-
-    Tcl_ObjSetVar2(interp, req_var, NULL, req_dict_ptr, TCL_GLOBAL_ONLY);
-    Tcl_ObjSetVar2(interp, res_var, NULL, res_dict_ptr, TCL_GLOBAL_ONLY);
-
-    Tcl_Obj *const proc_objv[] = {proc_name_ptr, req_var, res_var};
+    Tcl_Obj *const proc_objv[] = {proc_name_ptr, ctx_dict_ptr, req_dict_ptr};
     if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
         Tcl_DecrRefCount(proc_name_ptr);
         SetResult("router_process_conn: eval failed");
@@ -176,30 +168,44 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
         return TCL_ERROR;
     }
 
-    Tcl_Obj *res_dict_ptr = Tcl_NewDictObj();
+    Tcl_Obj *ctx_dict_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(ctx_dict_ptr);
+
+    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("router", -1), Tcl_NewStringObj(router_ptr->handle, -1));
+    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("conn", -1), objv[1]);
+    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("addr", -1), objv[2]);
+    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("port", -1), objv[3]);
+
     tws_route_t *route_ptr = router_ptr->firstRoutePtr;
     while (route_ptr != NULL) {
         int matched = 0;
         if (TCL_OK != tws_MatchRoute(interp, route_ptr, req_dict_ptr, &matched)) {
+            Tcl_DecrRefCount(ctx_dict_ptr);
             SetResult("router_process_conn: match_route failed");
             return TCL_ERROR;
         }
         if (matched) {
-            if (TCL_OK != tws_EvalRoute(interp, route_ptr, req_dict_ptr, res_dict_ptr)) {
-                fprintf(stderr, "router_process_conn: eval route failed path: %s\n", route_ptr->path);
+            if (TCL_OK != tws_EvalRoute(interp, route_ptr, ctx_dict_ptr, req_dict_ptr)) {
+                DBG(fprintf(stderr, "router_process_conn: eval route failed path: %s\n", route_ptr->path));
                 tws_CloseConn(conn, 1);
-                SetResult("router_process_conn: eval route failed");
+                Tcl_DecrRefCount(ctx_dict_ptr);
+//                SetResult("router_process_conn: eval route failed");
                 return TCL_ERROR;
             }
-            if (TCL_OK != tws_ReturnConn(interp, conn, res_dict_ptr, encoding)) {
+
+            Tcl_Obj *responseDictPtr = Tcl_GetObjResult(interp);
+
+            if (TCL_OK != tws_ReturnConn(interp, conn, responseDictPtr, encoding)) {
                 tws_CloseConn(conn, 1);
-                SetResult("router_process_conn: return_conn failed");
+                Tcl_DecrRefCount(ctx_dict_ptr);
+//                SetResult("router_process_conn: return_conn failed");
                 return TCL_ERROR;
             }
             break;
         }
         route_ptr = route_ptr->nextPtr;
     }
+    Tcl_DecrRefCount(ctx_dict_ptr);
 
     if (TCL_OK != tws_CloseConn(conn, 0)) {
         SetResult("router_process_conn: close_conn failed");
