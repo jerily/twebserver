@@ -245,6 +245,7 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
                     }
                     Tcl_DecrRefCount(res_dict_ptr);
                     res_dict_ptr = Tcl_GetObjResult(interp);
+                    Tcl_IncrRefCount(res_dict_ptr);
                 }
                 middleware_ptr = middleware_ptr->prevPtr;
             }
