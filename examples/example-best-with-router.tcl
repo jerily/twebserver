@@ -7,7 +7,7 @@ set init_script {
     #puts router=$router
     #$router use_middleware log_middleware
     #$router use_middleware session_middleware
-    # $router add_route ?-exact|-prefix? httpMethod path procName ?list_of_middleware_procs?
+    # $router add_route ?-prefix? ?-nocase? ?-strict? httpMethod path procName ?list_of_middleware_procs?
 
     ::twebserver::add_route -prefix $router GET /asdf get_asdf_handler
     ::twebserver::add_route -strict $router GET /qwerty/:user_id/sayhi get_qwerty_handler

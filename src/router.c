@@ -356,15 +356,15 @@ int tws_InfoRoutesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
                 NULL
         };
         Tcl_Obj *keys[] = {
-                Tcl_NewStringObj("httpMethod", -1),
+                Tcl_NewStringObj("http_method", -1),
                 Tcl_NewStringObj("path", -1),
-                Tcl_NewStringObj("procName", -1),
+                Tcl_NewStringObj("proc_name", -1),
                 Tcl_NewStringObj("type", -1),
-                Tcl_NewStringObj("optionPrefix", -1),
-                Tcl_NewStringObj("optionNocase", -1),
-                Tcl_NewStringObj("optionStrict", -1),
-                Tcl_NewStringObj("fastStar", -1),
-                Tcl_NewStringObj("fastSlash", -1),
+                Tcl_NewStringObj("option_prefix", -1),
+                Tcl_NewStringObj("option_nocase", -1),
+                Tcl_NewStringObj("option_strict", -1),
+                Tcl_NewStringObj("fast_star", -1),
+                Tcl_NewStringObj("fast_slash", -1),
                 Tcl_NewStringObj("pattern", -1),
                 NULL
         };
