@@ -8,8 +8,9 @@ route handler has executed.
 The enter proc has access to the context and request dictionaries.
 The leave proc has access to the context, request, and response dictionaries.
 
-The current middleware function can end the request-response cycle
-by returning 0 i.e. ```return 0```.
+In the future, the current middleware function will be able to
+end the request-response cycle by returning 0 i.e. ```return 0```.
+Otherwise, it should return to continue processing the request.
 
 Router-level middleware is bound to an instance of
 a router:
