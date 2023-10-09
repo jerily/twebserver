@@ -26,7 +26,6 @@ proc process_conn {conn addr port} {
     } errmsg] } {
         puts "error: $errmsg"
     }
-    ::twebserver::close_conn $conn
 }
 
 set config_dict [dict create]

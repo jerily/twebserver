@@ -17,7 +17,6 @@ set init_script {
         } errmsg] } {
             puts "error: $errmsg"
         }
-        ::twebserver::close_conn $conn
     }
 }
 

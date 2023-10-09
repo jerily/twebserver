@@ -642,11 +642,13 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(statusCodeKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, statusCodeKeyPtr, &statusCodePtr)) {
         Tcl_DecrRefCount(statusCodeKeyPtr);
+        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(statusCodeKeyPtr);
     if (!statusCodePtr) {
+        tws_CloseConn(conn, 1);
         SetResult("statusCode not found");
         return TCL_ERROR;
     }
@@ -655,6 +657,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(headersKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, headersKeyPtr, &headersPtr)) {
         Tcl_DecrRefCount(headersKeyPtr);
+        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
@@ -665,6 +668,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(multiValueHeadersKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, multiValueHeadersKeyPtr, &multiValueHeadersPtr)) {
         Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
@@ -675,6 +679,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(bodyKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, bodyKeyPtr, &bodyPtr)) {
         Tcl_DecrRefCount(bodyKeyPtr);
+        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
@@ -685,6 +690,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(isBase64EncodedKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, isBase64EncodedKeyPtr, &isBase64EncodedPtr)) {
         Tcl_DecrRefCount(isBase64EncodedKeyPtr);
+        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
@@ -778,6 +784,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
             if (base64_decode(b64_body, b64_body_length, body, &body_length)) {
                 Tcl_DStringFree(&ds);
                 Tcl_Free(body);
+                tws_CloseConn(conn, 1);
                 SetResult("base64 decode error");
                 return TCL_ERROR;
             }
@@ -802,6 +809,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
             if (body_alloc) {
                 Tcl_Free(body);
             }
+            tws_CloseConn(conn, 1);
             SetResult("error reading from dict");
             return TCL_ERROR;
         }
@@ -848,6 +856,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
             if (body_alloc) {
                 Tcl_Free(body);
             }
+            tws_CloseConn(conn, 1);
             SetResult("gzip compression error");
             return TCL_ERROR;
         }
@@ -895,6 +904,11 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         DBG(fprintf(stderr, "return_conn: SSL_write error (reply): %s\n", ssl_errors[SSL_get_error(conn->ssl, rc)]));
         tws_CloseConn(conn, 1);
         SetResult("return_conn: SSL_write error (reply)");
+        return TCL_ERROR;
+    }
+
+    if (TCL_OK != tws_CloseConn(conn, 0)) {
+        SetResult("return_conn: close_conn failed");
         return TCL_ERROR;
     }
 

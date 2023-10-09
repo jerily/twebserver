@@ -266,11 +266,6 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
     }
     Tcl_DecrRefCount(ctx_dict_ptr);
     Tcl_DecrRefCount(req_dict_ptr);
-
-    if (TCL_OK != tws_CloseConn(conn, 0)) {
-        SetResult("router_process_conn: close_conn failed");
-        return TCL_ERROR;
-    }
     return TCL_OK;
 }
 
