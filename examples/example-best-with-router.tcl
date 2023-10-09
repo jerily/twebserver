@@ -28,6 +28,7 @@ set init_script {
 
     ::twebserver::add_route -prefix $router GET /asdf get_asdf_handler
     ::twebserver::add_route -strict $router GET /qwerty/:user_id/sayhi get_qwerty_handler
+    ::twebserver::add_route -strict $router POST /example post_example_handler
     ::twebserver::add_route $router GET "*" get_catchall_handler
 
     interp alias {} process_conn {} $router
@@ -36,6 +37,13 @@ set init_script {
         dict set res statusCode 404
         dict set res headers {content-type text/plain}
         dict set res body "not found"
+        return $res
+    }
+
+    proc post_example_handler {ctx req} {
+        dict set res statusCode 200
+        dict set res headers {content-type text/plain}
+        dict set res body "test message POST [dict get $req headers]"
         return $res
     }
 
