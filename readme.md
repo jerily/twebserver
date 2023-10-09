@@ -186,24 +186,25 @@ like the one accepted in ```create_server``` command
   }
   ::twebserver::add_route $router GET /example example_handler
   ```
-  * **::twebserver::add_middleware** *?-enter_proc enter_proc_name?* *?-leave_proc leave_proc_name?* *router*
-    - adds middleware to a router, the enter_proc_name should accept two arguments: ```context_dict``` and ```request_dict```.
-      The leave_proc_name should accept three arguments: ```context_dict```, ```request_dict```, and ```response_dict```.
-      See [Middleware](docs/middleware.md) for more information.
-      ```tcl
-      proc example_enter {ctx req} {
-        puts "entering example"
-        return $req
-      }
-      proc example_leave {ctx req res} {
-        puts "leaving example"
-        return $res
-      }
-      ::twebserver::add_middleware \
-        -enter_proc example_enter \
-        -leave_proc example_leave \
-        $router
-      ```
+
+* **::twebserver::add_middleware** *?-enter_proc enter_proc_name?* *?-leave_proc leave_proc_name?* *router*
+  - adds middleware to a router, the enter_proc_name should accept two arguments: ```context_dict``` and ```request_dict```.
+    The leave_proc_name should accept three arguments: ```context_dict```, ```request_dict```, and ```response_dict```.
+    See [Middleware](docs/middleware.md) for more information.
+    ```tcl
+    proc example_enter {ctx req} {
+      puts "entering example"
+      return $req
+    }
+    proc example_leave {ctx req res} {
+      puts "leaving example"
+      return $res
+    }
+    ::twebserver::add_middleware \
+      -enter_proc example_enter \
+      -leave_proc example_leave \
+      $router
+    ```
 ### Medium-level Commands
 
 * **::twebserver::parse_conn** *conn* *encoding_name*
