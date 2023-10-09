@@ -12,6 +12,7 @@
 #include <sys/time.h>
 #include <fcntl.h>
 #include <sys/types.h>
+#include <unistd.h>
 #include "conn.h"
 #include "base64.h"
 #include "request.h"
@@ -20,8 +21,6 @@
 #include <sys/event.h>
 #else
 #include <sys/epoll.h>
-#include <unistd.h>
-
 #endif
 
 #define MAX_EVENTS 10
