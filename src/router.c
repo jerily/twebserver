@@ -202,7 +202,7 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
                         tws_CloseConn(conn, 1);
                         Tcl_DecrRefCount(ctx_dict_ptr);
                         Tcl_DecrRefCount(req_dict_ptr);
-                        SetResult("router_process_conn: enter proc eval failed");
+                        // SetResult("router_process_conn: enter proc eval failed");
                         return TCL_ERROR;
                     }
                     Tcl_DecrRefCount(req_dict_ptr);
@@ -240,7 +240,7 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
                         tws_CloseConn(conn, 1);
                         Tcl_DecrRefCount(ctx_dict_ptr);
                         Tcl_DecrRefCount(req_dict_ptr);
-                        SetResult("router_process_conn: leave proc eval failed");
+                        // SetResult("router_process_conn: leave proc eval failed");
                         return TCL_ERROR;
                     }
                     Tcl_DecrRefCount(res_dict_ptr);
