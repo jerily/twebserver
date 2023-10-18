@@ -503,7 +503,8 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
     Tcl_DecrRefCount(threadMaxConcurrentConnsKeyPtr);
     if (threadMaxConcurrentConnsPtr) {
-        if (TCL_OK != Tcl_GetIntFromObj(interp, threadMaxConcurrentConnsPtr, &server_ctx->thread_max_concurrent_conns)) {
+        if (TCL_OK !=
+            Tcl_GetIntFromObj(interp, threadMaxConcurrentConnsPtr, &server_ctx->thread_max_concurrent_conns)) {
             SetResult("thread_max_concurrent_conns must be an integer");
             return TCL_ERROR;
         }
@@ -735,6 +736,271 @@ static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
     return TCL_OK;
 }
 
+static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *responseDictPtr, Tcl_Obj *headerNamePtr, Tcl_Obj *headerValuePtr, Tcl_Obj **resultPtr) {
+    Tcl_Obj *dupResponseDictPtr = Tcl_DuplicateObj(responseDictPtr);
+    Tcl_IncrRefCount(dupResponseDictPtr);
+
+    // check if the header exists in "multiValueHeaders" first
+    Tcl_Obj *multiValueHeadersPtr;
+    Tcl_Obj *multiValueHeadersKeyPtr = Tcl_NewStringObj("multiValueHeaders", -1);
+    Tcl_IncrRefCount(multiValueHeadersKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, multiValueHeadersKeyPtr, &multiValueHeadersPtr)) {
+        Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+        Tcl_DecrRefCount(dupResponseDictPtr);
+        SetResult("add_header: error reading response dict for multiValueHeaders");
+        return TCL_ERROR;
+    }
+
+    if (multiValueHeadersPtr) {
+        Tcl_Obj *listValuePtr;
+        if (TCL_OK != Tcl_DictObjGet(interp, multiValueHeadersPtr, headerNamePtr, &listValuePtr)) {
+            Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+            Tcl_DecrRefCount(dupResponseDictPtr);
+            SetResult("add_header: error reading multiValueHeaders for header");
+            return TCL_ERROR;
+        }
+
+        if (listValuePtr) {
+            if (TCL_OK != Tcl_ListObjAppendElement(interp, listValuePtr, headerValuePtr)) {
+                Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+                Tcl_DecrRefCount(dupResponseDictPtr);
+                SetResult("add_header: error appending to list of the new value of multiValueHeaders");
+                return TCL_ERROR;
+            }
+        }
+
+        if (TCL_OK != Tcl_DictObjPut(interp, multiValueHeadersPtr, headerNamePtr, listValuePtr)) {
+            Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+            Tcl_DecrRefCount(dupResponseDictPtr);
+            SetResult("add_header: error writing new list value to multiValueHeaders");
+            return TCL_ERROR;
+        }
+
+        if (TCL_OK != Tcl_DictObjPut(interp, responseDictPtr, multiValueHeadersKeyPtr, multiValueHeadersPtr)) {
+            Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+            Tcl_DecrRefCount(dupResponseDictPtr);
+            SetResult("add_header: error writing multiValueHeaders back to response dict");
+            return TCL_ERROR;
+        }
+        Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+        Tcl_DecrRefCount(dupResponseDictPtr);
+        return TCL_OK;
+    }
+
+    // check if the header exists in "headers" next, means we need to populate "multiValueHeaders"
+    Tcl_Obj *headersPtr;
+    Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
+    Tcl_IncrRefCount(headersKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, headersKeyPtr, &headersPtr)) {
+        Tcl_DecrRefCount(headersKeyPtr);
+        Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+        Tcl_DecrRefCount(dupResponseDictPtr);
+        SetResult("add_header: error reading headers from response dict");
+        return TCL_ERROR;
+    }
+
+    if (headersPtr) {
+        Tcl_Obj *valuePtr;
+        if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, headerNamePtr, &valuePtr)) {
+            Tcl_DecrRefCount(headersKeyPtr);
+            Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+            Tcl_DecrRefCount(dupResponseDictPtr);
+            SetResult("add_header: error reading headers from headers");
+            return TCL_ERROR;
+        }
+
+        if (valuePtr) {
+            // create "listValuePtr" list with the existing value and the new value
+            Tcl_Obj *listValuePtr = Tcl_NewListObj(0, NULL);
+            if (TCL_OK != Tcl_ListObjAppendElement(interp, listValuePtr, valuePtr)
+                || TCL_OK != Tcl_ListObjAppendElement(interp, listValuePtr, headerValuePtr)) {
+                Tcl_DecrRefCount(headersKeyPtr);
+                Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+                Tcl_DecrRefCount(dupResponseDictPtr);
+                SetResult("add_header: error appending to list while creating multiValueHeaders");
+                return TCL_ERROR;
+            }
+
+            // create "multiValueHeaders" dict
+            Tcl_Obj *newMultiValueHeadersPtr = Tcl_NewDictObj();
+            if (TCL_OK != Tcl_DictObjPut(interp, newMultiValueHeadersPtr, headerNamePtr, listValuePtr)) {
+                Tcl_DecrRefCount(headersKeyPtr);
+                Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+                Tcl_DecrRefCount(dupResponseDictPtr);
+                SetResult("add_header: error writing new list value to multiValueHeaders");
+                return TCL_ERROR;
+            }
+
+            // write "multiValueHeaders" dict to response dict
+            if (TCL_OK != Tcl_DictObjPut(interp, responseDictPtr, multiValueHeadersKeyPtr, newMultiValueHeadersPtr)) {
+                Tcl_DecrRefCount(headersKeyPtr);
+                Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+                Tcl_DecrRefCount(dupResponseDictPtr);
+                SetResult("add_header: error writing multiValueHeaders back to response dict");
+                return TCL_ERROR;
+            }
+
+            // we are done
+        } else {
+            // write to "headers" directly
+            Tcl_Obj *dupHeadersPtr = Tcl_DuplicateObj(headersPtr);
+            Tcl_IncrRefCount(dupHeadersPtr);
+            if (TCL_OK != Tcl_DictObjPut(interp, dupHeadersPtr, headerNamePtr, headerValuePtr)) {
+                Tcl_DecrRefCount(dupHeadersPtr);
+                Tcl_DecrRefCount(headersKeyPtr);
+                Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+                Tcl_DecrRefCount(dupResponseDictPtr);
+                SetResult("add_header: error writing header directly to headers");
+                return TCL_ERROR;
+            }
+
+            // write "headers" to response dict
+            if (TCL_OK != Tcl_DictObjPut(interp, dupResponseDictPtr, headersKeyPtr, dupHeadersPtr)) {
+                Tcl_DecrRefCount(dupHeadersPtr);
+                Tcl_DecrRefCount(headersKeyPtr);
+                Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+                Tcl_DecrRefCount(dupResponseDictPtr);
+                SetResult("add_header: error writing headers back to response dict");
+                return TCL_ERROR;
+            }
+
+            // we are done
+        }
+    } else {
+        // create "headersPtr" dict
+        headersPtr = Tcl_NewDictObj();
+        if (TCL_OK != Tcl_DictObjPut(interp, headersPtr, headerNamePtr, headerValuePtr)) {
+            Tcl_DecrRefCount(headersKeyPtr);
+            Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+            Tcl_DecrRefCount(dupResponseDictPtr);
+            SetResult("add_header: error writing value to headers");
+            return TCL_ERROR;
+        }
+
+        // write "headersPtr" to response dict
+        if (TCL_OK != Tcl_DictObjPut(interp, responseDictPtr, headersKeyPtr, headersPtr)) {
+            Tcl_DecrRefCount(headersKeyPtr);
+            Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+            Tcl_DecrRefCount(dupResponseDictPtr);
+            SetResult("add_header: error writing headers back to response dict");
+            return TCL_ERROR;
+        }
+
+        // we are done
+    }
+
+    *resultPtr = dupResponseDictPtr;
+    Tcl_DecrRefCount(headersKeyPtr);
+    Tcl_DecrRefCount(multiValueHeadersKeyPtr);
+    return TCL_OK;
+}
+
+static int tws_AddHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "AddHeaderCmd\n"));
+    CheckArgs(4, 4, 1, "response_dict header_name header_value");
+
+    Tcl_Obj *responseDictPtr;
+    if (TCL_OK != tws_AddHeader(interp, objv[1], objv[2], objv[3], &responseDictPtr)) {
+        return TCL_ERROR;
+    }
+    Tcl_SetObjResult(interp, responseDictPtr);
+    Tcl_DecrRefCount(responseDictPtr);
+    return TCL_OK;
+}
+
+static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "AddCookieCmd\n"));
+
+    const char *option_path = NULL;
+    const char *option_domain = NULL;
+    const char *option_samesite = NULL;
+    int option_maxage = 0;
+    int option_httponly = 0;
+    int option_partitioned = 0;
+    Tcl_ArgvInfo ArgTable[] = {
+            {TCL_ARGV_STRING, "-path", NULL, &option_path,                  "value for the Path attribute"},
+            {TCL_ARGV_STRING, "-domain", NULL, &option_domain,              "value for the Domain attribute"},
+            {TCL_ARGV_STRING, "-samesite", NULL, &option_samesite,          "value for the SameSite attribute"},
+            {TCL_ARGV_INT, "-maxage", NULL, &option_maxage,                 "number of seconds until the cookie expires"},
+            {TCL_ARGV_CONSTANT, "-httponly", INT2PTR(1), &option_httponly, "HttpOnly attribute is set"},
+            {TCL_ARGV_CONSTANT, "-partitioned", INT2PTR(1), &option_partitioned, "indicates that the cookie should be stored using partitioned storage"},
+            {TCL_ARGV_END, NULL, NULL, NULL, NULL}
+    };
+
+    Tcl_Obj **remObjv;
+    Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
+
+    if ((objc < 4) || (objc > 4)) {
+        Tcl_WrongNumArgs(interp, 1, remObjv, "response_dict cookie_name cookie_value");
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *headerNamePtr = Tcl_NewStringObj("Set-Cookie", 10);
+    Tcl_IncrRefCount(headerNamePtr);
+    Tcl_Obj *headerValuePtr = Tcl_NewStringObj("", 0);
+    Tcl_IncrRefCount(headerValuePtr);
+
+    // append cookie name and value to headerValuePtr
+    Tcl_AppendObjToObj(headerValuePtr, remObjv[2]);
+    Tcl_AppendToObj(headerValuePtr, "=", 1);
+    Tcl_AppendObjToObj(headerValuePtr, remObjv[3]);
+
+    // append Domain
+    if (option_domain) {
+        Tcl_AppendToObj(headerValuePtr, "; Domain=", 9);
+        Tcl_AppendToObj(headerValuePtr, option_domain, -1);
+    }
+
+    // append Path
+    if (option_path) {
+        Tcl_AppendToObj(headerValuePtr, "; Path=", 7);
+        Tcl_AppendToObj(headerValuePtr, option_path, -1);
+    } else {
+        Tcl_AppendToObj(headerValuePtr, "; Path=/", 8);
+    }
+
+    // append SameSite
+    if (option_samesite) {
+        Tcl_AppendToObj(headerValuePtr, "; SameSite=", 11);
+        Tcl_AppendToObj(headerValuePtr, option_samesite, -1);
+    }
+
+    // append Secure
+    Tcl_AppendToObj(headerValuePtr, "; Secure", 8);
+
+    // append HttpOnly
+    if (option_httponly) {
+        Tcl_AppendToObj(headerValuePtr, "; HttpOnly", 10);
+    }
+
+    // append Partitioned
+    if (option_partitioned) {
+        Tcl_AppendToObj(headerValuePtr, "; Partitioned", 12);
+    }
+
+    // append Max-Age
+    if (option_maxage) {
+        Tcl_AppendToObj(headerValuePtr, "; Max-Age=", 10);
+        Tcl_Obj *option_maxage_ptr = Tcl_NewIntObj(option_maxage);
+        Tcl_IncrRefCount(option_maxage_ptr);
+        Tcl_AppendObjToObj(headerValuePtr, option_maxage_ptr);
+        Tcl_DecrRefCount(option_maxage_ptr);
+    }
+
+    Tcl_Obj *responseDictPtr;
+    if (TCL_OK != tws_AddHeader(interp, remObjv[1], headerNamePtr, headerValuePtr, &responseDictPtr)) {
+        Tcl_DecrRefCount(headerValuePtr);
+        Tcl_DecrRefCount(headerNamePtr);
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(headerValuePtr);
+    Tcl_DecrRefCount(headerNamePtr);
+
+    Tcl_SetObjResult(interp, responseDictPtr);
+    Tcl_DecrRefCount(responseDictPtr);
+    return TCL_OK;
+}
+
 static void tws_ExitHandler(ClientData unused) {
     tws_DeleteServerNameHT();
     tws_DeleteConnNameHT();
@@ -791,6 +1057,9 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::add_route", tws_AddRouteCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::info_routes", tws_InfoRoutesCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_middleware", tws_AddMiddlewareCmd, NULL, NULL);
+
+    Tcl_CreateObjCommand(interp, "::twebserver::add_header", tws_AddHeaderCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::add_cookie", tws_AddCookieCmd, NULL, NULL);
 
     return Tcl_PkgProvide(interp, "twebserver", XSTR(VERSION));
 }
