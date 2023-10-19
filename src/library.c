@@ -10,6 +10,7 @@
 #include "conn.h"
 #include "request.h"
 #include "router.h"
+#include "crypto.h"
 
 #include <sys/socket.h> // for SOMAXCONN
 #include <stdio.h>
@@ -739,7 +740,8 @@ static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
     return TCL_OK;
 }
 
-static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *responseDictPtr, Tcl_Obj *headerNamePtr, Tcl_Obj *headerValuePtr, Tcl_Obj **resultPtr) {
+static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *responseDictPtr, Tcl_Obj *headerNamePtr, Tcl_Obj *headerValuePtr,
+                         Tcl_Obj **resultPtr) {
     Tcl_Obj *dupResponseDictPtr = Tcl_DuplicateObj(responseDictPtr);
     Tcl_IncrRefCount(dupResponseDictPtr);
 
@@ -977,7 +979,7 @@ static int tws_ParseCookieCmd(ClientData clientData, Tcl_Interp *interp, int obj
         Tcl_DecrRefCount(valuePtr);
 
         // skip the semicolon and spaces
-        while (p < end && (*p == ';' || *p == ' ') ) {
+        while (p < end && (*p == ';' || *p == ' ')) {
             p++;
         }
         start = p;
@@ -1012,13 +1014,13 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     int option_httponly = 0;
     int option_partitioned = 0;
     Tcl_ArgvInfo ArgTable[] = {
-            {TCL_ARGV_STRING, "-path", NULL, &option_path,                  "value for the Path attribute"},
-            {TCL_ARGV_STRING, "-domain", NULL, &option_domain,              "value for the Domain attribute"},
-            {TCL_ARGV_STRING, "-samesite", NULL, &option_samesite,          "value for the SameSite attribute"},
-            {TCL_ARGV_INT, "-maxage", NULL, &option_maxage,                 "number of seconds until the cookie expires"},
-            {TCL_ARGV_CONSTANT, "-httponly", INT2PTR(1), &option_httponly, "HttpOnly attribute is set"},
+            {TCL_ARGV_STRING,   "-path",        NULL,       &option_path,        "value for the Path attribute"},
+            {TCL_ARGV_STRING,   "-domain",      NULL,       &option_domain,      "value for the Domain attribute"},
+            {TCL_ARGV_STRING,   "-samesite",    NULL,       &option_samesite,    "value for the SameSite attribute"},
+            {TCL_ARGV_INT,      "-maxage",      NULL,       &option_maxage,      "number of seconds until the cookie expires"},
+            {TCL_ARGV_CONSTANT, "-httponly",    INT2PTR(1), &option_httponly,    "HttpOnly attribute is set"},
             {TCL_ARGV_CONSTANT, "-partitioned", INT2PTR(1), &option_partitioned, "indicates that the cookie should be stored using partitioned storage"},
-            {TCL_ARGV_END, NULL, NULL, NULL, NULL}
+            {TCL_ARGV_END, NULL,                NULL, NULL, NULL}
     };
 
     Tcl_Obj **remObjv;
@@ -1164,6 +1166,9 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::parse_cookie", tws_ParseCookieCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_header", tws_AddHeaderCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_cookie", tws_AddCookieCmd, NULL, NULL);
+
+    Tcl_CreateObjCommand(interp, "::twebserver::random_bytes", tws_RandomBytesCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::sha256", tws_Sha256Cmd, NULL, NULL);
 
     return Tcl_PkgProvide(interp, "twebserver", XSTR(VERSION));
 }

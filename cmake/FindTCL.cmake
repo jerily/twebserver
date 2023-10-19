@@ -32,7 +32,11 @@ library is.  This code sets the following variables:
       and dig from there.
 #]=======================================================================]
 
-set(TCL_POSSIBLE_LIB_PATHS ${TCL_LIBRARY_DIR})
+set(TCL_POSSIBLE_LIB_PATHS
+        ${TCL_LIBRARY_DIR}
+        "/usr/local/lib"
+        "/usr/lib"
+)
 
 set(TCL_POSSIBLE_LIB_PATH_SUFFIXES
         tcl8.7
@@ -58,7 +62,9 @@ find_library(TCL_LIBRARY
 
 set(TCL_POSSIBLE_INCLUDE_PATHS
         "${TCL_INCLUDE_DIR}"
-  "${TCL_LIBRARY_PATH_PARENT}/include"
+        "${TCL_LIBRARY_PATH_PARENT}/include"
+        "/usr/local/include"
+        "/usr/include"
   )
 
 set(TCL_POSSIBLE_INCLUDE_PATH_SUFFIXES

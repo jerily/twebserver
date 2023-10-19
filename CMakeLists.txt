@@ -21,6 +21,7 @@ add_library(twebserver SHARED src/library.c src/base64.c src/base64/cencode.c sr
         src/conn.c
         src/common.c
         src/request.c
+        src/crypto.c
         src/path_regexp/path_regexp.c)
 set_target_properties(twebserver PROPERTIES POSITION_INDEPENDENT_CODE ON)
 

@@ -123,17 +123,32 @@
 
 ### Utility Commands
 
+#### Encode/Decode URIs
+
 * **:twebserver::encode_uri_component** *string*
     - encodes a string for use in a URI
 * **::twebserver::decode_uri_component** *string* *encoding_name*
     - decodes a string from a URI
 * **::twebserver::encode_query** *query_string*
     - encodes a query string
+
+#### Base64
+
 * **::twebserver::base64_encode** *bytes*
     - encodes a string in base64
 * **::twebserver::base64_decode** *base64_encoded_string*
     - decodes a base64 encoded string
+
+#### Cookies
+
 * **::twebserver::parse_cookie** *cookie_string*
     - parses a cookie string into a dictionary
 * **::twebserver::add_header** *header_name* *header_value*
 * **::twebserver::add_cookie** *?-path path_value?* *?-domain domain_value?* *?-samesite samesite_value?* *?-httponly?* *?-maxage seconds?* *cookie_name* *cookie_value*
+
+#### Crypto
+
+* **::twebserver::random_bytes** *num_bytes*
+    - generates random bytes of length ```num_bytes```
+* **::twebserver::sha256** *bytes*
+    - generates a sha256 hash of ```bytes```
