@@ -916,47 +916,66 @@ static int tws_ParseCookieCmd(ClientData clientData, Tcl_Interp *interp, int obj
     const char *end = cookie_header + cookie_header_len;
     const char *p = start;
     while (p < end) {
+        // trim spaces in the beginning of the key
+        while (CHARTYPE(space, *p)) {
+            p++;
+        }
+        start = p;
+
         // find the next semicolon
         while (p < end && *p != ';') {
             p++;
         }
+
         // parse the key-value pair
         const char *q = start;
-        while (q < p && *q != '=') {
+        while (q < p && *q != '=' && *q != ';') {
             q++;
         }
-        if (q == p) {
-            // no equal sign found, throw an error
-            Tcl_DecrRefCount(cookie_dict);
-            SetResult("invalid cookie header");
-            return TCL_ERROR;
+
+        // trim spaces in the left of the equal sign (end of the key)
+        const char *r = q;
+        while (r > start && CHARTYPE(space, *(r - 1))) {
+            r--;
         }
-        if (q != start) {
-            // add the key-value pair to the cookie_dict
-            Tcl_Obj *keyPtr = Tcl_NewStringObj(start, q - start);
-            Tcl_IncrRefCount(keyPtr);
-//            Tcl_Obj *valuePtr = Tcl_NewStringObj(q + 1, p - q - 1);
 
-            Tcl_Obj *valuePtr = Tcl_NewStringObj("", 0);
-            Tcl_IncrRefCount(valuePtr);
-            if (TCL_OK != tws_UrlDecode(interp, encoding, q + 1, p - q - 1, valuePtr)) {
+        // trim spaces in the right of the equal sign (beginning of value)
+        const char *s = q;
+        while (s < p && CHARTYPE(space, *(s + 1))) {
+            s++;
+        }
+
+        // trim spaces in the right of the value
+        const char *t = p;
+        while (t > s && CHARTYPE(space, *(t - 1))) {
+            t--;
+        }
+
+        // add the key-value pair to the cookie_dict
+        Tcl_Obj *keyPtr = Tcl_NewStringObj(start, r - start);
+        Tcl_IncrRefCount(keyPtr);
+
+        Tcl_Obj *valuePtr = Tcl_NewStringObj("", 0);
+        Tcl_IncrRefCount(valuePtr);
+        if (s != t) {
+            if (TCL_OK != tws_UrlDecode(interp, encoding, s + 1, t - s - 1, valuePtr)) {
                 Tcl_DecrRefCount(keyPtr);
                 Tcl_DecrRefCount(valuePtr);
                 Tcl_DecrRefCount(cookie_dict);
                 return TCL_ERROR;
             }
+        }
 
-            Tcl_IncrRefCount(valuePtr);
-            if (TCL_OK != Tcl_DictObjPut(interp, cookie_dict, keyPtr, valuePtr)) {
-                Tcl_DecrRefCount(keyPtr);
-                Tcl_DecrRefCount(valuePtr);
-                Tcl_DecrRefCount(cookie_dict);
-                SetResult("error adding key-value pair to cookie_dict");
-                return TCL_ERROR;
-            }
+        if (TCL_OK != Tcl_DictObjPut(interp, cookie_dict, keyPtr, valuePtr)) {
             Tcl_DecrRefCount(keyPtr);
             Tcl_DecrRefCount(valuePtr);
+            Tcl_DecrRefCount(cookie_dict);
+            SetResult("error adding key-value pair to cookie_dict");
+            return TCL_ERROR;
         }
+        Tcl_DecrRefCount(keyPtr);
+        Tcl_DecrRefCount(valuePtr);
+
         // skip the semicolon and spaces
         while (p < end && (*p == ';' || *p == ' ') ) {
             p++;

@@ -13,10 +13,18 @@ test parse_cookie_ok {} {::twebserver::parse_cookie "abc=123; def=456"} {abc 123
 
 test parse_cookie_empty {} {::twebserver::parse_cookie ""} {}
 
-test parse_cookie_bad {} -body {::twebserver::parse_cookie "abc=123; def"} -returnCodes error -result {invalid cookie header}
+test parse_cookie_without_value {} {::twebserver::parse_cookie "abc=123; def"} {abc 123 def {}}
 
 test parse_cookie_no_value {} {::twebserver::parse_cookie "abc=123; def="} {abc 123 def {}}
+
+test parse_cookie_no_key_no_value {} {::twebserver::parse_cookie "=; def=456"} {{} {} def 456}
 
 test parse_cookie_simple {} {::twebserver::parse_cookie "PHPSESSID=298zf09hf012fh2; csrftoken=u32t4o3tb3gg43; _gat=1"} {PHPSESSID 298zf09hf012fh2 csrftoken u32t4o3tb3gg43 _gat 1}
 
 test parse_cookie_base64 {} {::twebserver::parse_cookie "XYZ=aGVsbG8gd29ybGQ%3D"} {XYZ aGVsbG8gd29ybGQ=}
+
+test parse_cookie_with_spaces {} {::twebserver::parse_cookie "test	=	21	 	;	ttt"} {test 21 ttt {}}
+
+test parse_cookie_with_comma {} {::twebserver::parse_cookie "test=21,ttt"} {test 21,ttt}
+
+test parse_cookie_with_quoted_value_containing_comma {} {::twebserver::parse_cookie "test=\"21, ttt\""} {test {"21, ttt"}}
