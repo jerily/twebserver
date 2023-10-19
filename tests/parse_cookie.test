@@ -1,0 +1,22 @@
+lappend auto_path ..
+package require tcltest
+package require twebserver
+
+namespace import -force ::tcltest::test
+
+::tcltest::configure {*}$argv
+
+# tests are of the form:
+#   test <test_name> {<description>} {<actual>} {<expected>}
+
+test parse_cookie_ok {} {::twebserver::parse_cookie "abc=123; def=456"} {abc 123 def 456}
+
+test parse_cookie_empty {} {::twebserver::parse_cookie ""} {}
+
+test parse_cookie_bad {} -body {::twebserver::parse_cookie "abc=123; def"} -returnCodes error -result {invalid cookie header}
+
+test parse_cookie_no_value {} {::twebserver::parse_cookie "abc=123; def="} {abc 123 def {}}
+
+test parse_cookie_simple {} {::twebserver::parse_cookie "PHPSESSID=298zf09hf012fh2; csrftoken=u32t4o3tb3gg43; _gat=1"} {PHPSESSID 298zf09hf012fh2 csrftoken u32t4o3tb3gg43 _gat 1}
+
+test parse_cookie_base64 {} {::twebserver::parse_cookie "XYZ=aGVsbG8gd29ybGQ%3D"} {XYZ aGVsbG8gd29ybGQ=}

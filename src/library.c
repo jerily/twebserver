@@ -650,7 +650,7 @@ static int tws_EncodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
     int length;
     const char *text = Tcl_GetStringFromObj(objv[1], &length);
 
-    Tcl_Obj *valuePtr = Tcl_NewObj();
+    Tcl_Obj *valuePtr;
     if (TCL_OK != tws_UrlEncode(interp, enc_flags, text, length, &valuePtr)) {
         return TCL_ERROR;
     }
@@ -691,10 +691,13 @@ static int tws_DecodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
     }
 
     Tcl_Obj *valuePtr = Tcl_NewStringObj("", 0);
+    Tcl_IncrRefCount(valuePtr);
     if (TCL_OK != tws_UrlDecode(interp, encoding, encoded_text, length, valuePtr)) {
+        Tcl_DecrRefCount(valuePtr);
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
+    Tcl_DecrRefCount(valuePtr);
     return TCL_OK;
 }
 
@@ -895,6 +898,78 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *responseDictPtr, Tcl_Obj *
     return TCL_OK;
 }
 
+static int tws_ParseCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "ParseCookieCmd\n"));
+    CheckArgs(2, 2, 1, "cookie_header");
+
+    int cookie_header_len;
+    const char *cookie_header = Tcl_GetStringFromObj(objv[1], &cookie_header_len);
+
+    Tcl_Obj *cookie_dict = Tcl_NewDictObj();
+    Tcl_IncrRefCount(cookie_dict);
+
+    Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
+
+    // a "cookie_header" is a semicolon-separate list of key-value pairs of the form key=value
+    // traverse the string of "cookie_header" and add each key-value pair to the cookie_dict
+    const char *start = cookie_header;
+    const char *end = cookie_header + cookie_header_len;
+    const char *p = start;
+    while (p < end) {
+        // find the next semicolon
+        while (p < end && *p != ';') {
+            p++;
+        }
+        // parse the key-value pair
+        const char *q = start;
+        while (q < p && *q != '=') {
+            q++;
+        }
+        if (q == p) {
+            // no equal sign found, throw an error
+            Tcl_DecrRefCount(cookie_dict);
+            SetResult("invalid cookie header");
+            return TCL_ERROR;
+        }
+        if (q != start) {
+            // add the key-value pair to the cookie_dict
+            Tcl_Obj *keyPtr = Tcl_NewStringObj(start, q - start);
+            Tcl_IncrRefCount(keyPtr);
+//            Tcl_Obj *valuePtr = Tcl_NewStringObj(q + 1, p - q - 1);
+
+            Tcl_Obj *valuePtr = Tcl_NewStringObj("", 0);
+            Tcl_IncrRefCount(valuePtr);
+            if (TCL_OK != tws_UrlDecode(interp, encoding, q + 1, p - q - 1, valuePtr)) {
+                Tcl_DecrRefCount(keyPtr);
+                Tcl_DecrRefCount(valuePtr);
+                Tcl_DecrRefCount(cookie_dict);
+                return TCL_ERROR;
+            }
+
+            Tcl_IncrRefCount(valuePtr);
+            if (TCL_OK != Tcl_DictObjPut(interp, cookie_dict, keyPtr, valuePtr)) {
+                Tcl_DecrRefCount(keyPtr);
+                Tcl_DecrRefCount(valuePtr);
+                Tcl_DecrRefCount(cookie_dict);
+                SetResult("error adding key-value pair to cookie_dict");
+                return TCL_ERROR;
+            }
+            Tcl_DecrRefCount(keyPtr);
+            Tcl_DecrRefCount(valuePtr);
+        }
+        // skip the semicolon and spaces
+        while (p < end && (*p == ';' || *p == ' ') ) {
+            p++;
+        }
+        start = p;
+    }
+
+    Tcl_SetObjResult(interp, cookie_dict);
+    Tcl_DecrRefCount(cookie_dict);
+    return TCL_OK;
+
+}
+
 static int tws_AddHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "AddHeaderCmd\n"));
     CheckArgs(4, 4, 1, "response_dict header_name header_value");
@@ -943,7 +1018,16 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     // append cookie name and value to headerValuePtr
     Tcl_AppendObjToObj(headerValuePtr, remObjv[2]);
     Tcl_AppendToObj(headerValuePtr, "=", 1);
-    Tcl_AppendObjToObj(headerValuePtr, remObjv[3]);
+
+    // encode the cookie value
+    int enc_flags = CHAR_COMPONENT;
+    Tcl_Obj *cookieValuePtr;
+    int cookie_value_length;
+    const char *cookie_value = Tcl_GetStringFromObj(remObjv[3], &cookie_value_length);
+    if (TCL_OK != tws_UrlEncode(interp, enc_flags, cookie_value, cookie_value_length, &cookieValuePtr)) {
+        return TCL_ERROR;
+    }
+    Tcl_AppendObjToObj(headerValuePtr, cookieValuePtr);
 
     // append Domain
     if (option_domain) {
@@ -1058,6 +1142,7 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::info_routes", tws_InfoRoutesCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_middleware", tws_AddMiddlewareCmd, NULL, NULL);
 
+    Tcl_CreateObjCommand(interp, "::twebserver::parse_cookie", tws_ParseCookieCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_header", tws_AddHeaderCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_cookie", tws_AddCookieCmd, NULL, NULL);
 
