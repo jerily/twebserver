@@ -436,6 +436,7 @@ static void tws_HandleConn(tws_conn_t *conn) {
         if (TCL_OK != Tcl_EvalObjv(interp, 4, cmdobjv, TCL_EVAL_INVOKE)) {
             fprintf(stderr, "error evaluating script sock=%d\n", conn->client);
             fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(interp)));
+            fprintf(stderr, "%s\n", Tcl_GetVar2(interp, "::errorInfo", NULL, TCL_GLOBAL_ONLY));
             Tcl_DecrRefCount(connPtr);
             Tcl_DecrRefCount(addrPtr);
             Tcl_DecrRefCount(portPtr);
