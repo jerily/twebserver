@@ -254,6 +254,29 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding
     return TCL_OK;
 }
 
+static inline int tws_IsHttpMethod(const char *p, size_t len) {
+    return ((len == 3 &&
+             ((*p == 'G' && *(p + 1) == 'E' && *(p + 2) == 'T') || (*p == 'P' && *(p + 1) == 'U' && *(p + 2) == 'T')))
+            || (len == 4 &&
+                ((*p == 'P' && *(p + 1) == 'O' && *(p + 2) == 'S' && *(p + 3) == 'T') ||
+                 (*p == 'H' && *(p + 1) == 'E' && *(p + 2) == 'A' && *(p + 3) == 'D')))
+            || (len == 5 &&
+                ((*p == 'P' && *(p + 1) == 'A' && *(p + 2) == 'T' && *(p + 3) == 'C' && *(p + 4) == 'H') ||
+                 (*p == 'T' && *(p + 1) == 'R' && *(p + 2) == 'A' && *(p + 3) == 'C' && *(p + 4) == 'E')))
+            || (len == 6 && *p == 'D' && *(p + 1) == 'E' && *(p + 2) == 'L' && *(p + 3) == 'E' && *(p + 4) == 'T' &&
+                *(p + 5) == 'E')
+            || (len == 7 && *p == 'O' && *(p + 1) == 'P' && *(p + 2) == 'T' && *(p + 3) == 'I' && *(p + 4) == 'O' &&
+                *(p + 5) == 'N' && *(p + 6) == 'S'
+            ));
+}
+
+static inline int tws_IsHttpVersion(const char *p, size_t len) {
+    return (len >= 6 && *p == 'H' && *(p + 1) == 'T' && *(p + 2) == 'T' && *(p + 3) == 'P' && *(p + 4) == '/' &&
+            CHARTYPE(digit, *(p + 5)))
+           && (len < 7 || *(p + 6) == '.')
+           && (len < 8 || CHARTYPE(digit, *(p + 7)));
+}
+
 static int tws_ParseRequestLine(Tcl_Interp *interp, Tcl_Encoding encoding, const char **currPtr, const char *end,
                                 Tcl_Obj *resultPtr) {
     const char *curr = *currPtr;
@@ -277,6 +300,13 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, Tcl_Encoding encoding, const
 //    char *http_method = strndup(p, curr - p);
 //    http_method[curr - p - 1] = '\0';
     int http_method_length = curr - p - 1;
+
+    // check that it is a valid http method:
+    // GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS, TRACE
+    if (!tws_IsHttpMethod(p, http_method_length)) {
+        SetResult("request line parse error: invalid http method");
+        return TCL_ERROR;
+    }
 
     Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("httpMethod", -1), Tcl_NewStringObj(p, http_method_length));
 
@@ -327,6 +357,11 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, Tcl_Encoding encoding, const
         }
         if (curr == end) {
             SetResult("request line parse error: while extracting version");
+            return TCL_ERROR;
+        }
+
+        if (!tws_IsHttpVersion(p, curr - p)) {
+            SetResult("request line parse error: invalid version");
             return TCL_ERROR;
         }
 
@@ -500,7 +535,7 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
     return TCL_OK;
 
     done:
-    SetResult("headers parse error");
+SetResult("headers parse error");
     return TCL_ERROR;
 }
 

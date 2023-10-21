@@ -151,6 +151,19 @@ static int tws_EvalRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *ct
     return TCL_OK;
 }
 
+static int tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const char *error_text, Tcl_Encoding encoding) {
+    Tcl_Obj *responseDictPtr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(responseDictPtr);
+    Tcl_DictObjPut(interp, responseDictPtr, Tcl_NewStringObj("statusCode", -1), Tcl_NewIntObj(status_code));
+    Tcl_DictObjPut(interp, responseDictPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(error_text, -1));
+    if (TCL_OK != tws_ReturnConn(interp, conn, responseDictPtr, encoding)) {
+        Tcl_DecrRefCount(responseDictPtr);
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(responseDictPtr);
+    return TCL_OK;
+}
+
 static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "RouterProcessConnCmd\n"));
     CheckArgs(4, 4, 1, "conn_handle addr port");
@@ -166,7 +179,14 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
     Tcl_Obj *req_dict_ptr;
     if (TCL_OK != tws_ParseConn(interp, conn, conn_handle, encoding, &req_dict_ptr)) {
-        SetResult("router_process_conn: parse_conn failed");
+        // fprintf(stderr, "router_process_conn: parse_conn failed with error: %s\n", Tcl_GetString(Tcl_GetObjResult(interp)));
+        if (TCL_OK != tws_ReturnError(interp, conn, 400, "Bad Request", encoding)) {
+            tws_CloseConn(conn, 1);
+            SetResult("router_process_conn: return_error failed");
+            return TCL_ERROR;
+        }
+        tws_CloseConn(conn, 1);
+//        SetResult("router_process_conn: parse_conn failed");
         return TCL_ERROR;
     }
 
@@ -198,7 +218,11 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
                 if (middleware_ptr->enter_proc_ptr) {
                     Tcl_Obj *const proc_objv[] = {middleware_ptr->enter_proc_ptr, ctx_dict_ptr, req_dict_ptr};
                     if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
-                        // todo: return 500
+                        if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
+                            tws_CloseConn(conn, 1);
+                            SetResult("router_process_conn: return_error failed");
+                            return TCL_ERROR;
+                        }
                         tws_CloseConn(conn, 1);
                         Tcl_DecrRefCount(ctx_dict_ptr);
                         Tcl_DecrRefCount(req_dict_ptr);
@@ -218,7 +242,11 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
             // eval route proc
             if (TCL_OK != tws_EvalRoute(interp, route_ptr, ctx_dict_ptr, req_dict_ptr)) {
                 DBG(fprintf(stderr, "router_process_conn: eval route failed path: %s\n", route_ptr->path));
-                // todo: return 500
+                if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
+                    tws_CloseConn(conn, 1);
+                    SetResult("router_process_conn: return_error failed");
+                    return TCL_ERROR;
+                }
                 tws_CloseConn(conn, 1);
                 Tcl_DecrRefCount(ctx_dict_ptr);
                 Tcl_DecrRefCount(req_dict_ptr);
@@ -236,7 +264,11 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
                 if (middleware_ptr->leave_proc_ptr) {
                     Tcl_Obj *const proc_objv[] = {middleware_ptr->leave_proc_ptr, ctx_dict_ptr, req_dict_ptr,res_dict_ptr};
                     if (TCL_OK != Tcl_EvalObjv(interp, 4, proc_objv, TCL_EVAL_GLOBAL)) {
-                        // todo: return 500
+                        if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
+                            tws_CloseConn(conn, 1);
+                            SetResult("router_process_conn: return_error failed");
+                            return TCL_ERROR;
+                        }
                         tws_CloseConn(conn, 1);
                         Tcl_DecrRefCount(ctx_dict_ptr);
                         Tcl_DecrRefCount(req_dict_ptr);
@@ -252,6 +284,11 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
 
             // return response
             if (TCL_OK != tws_ReturnConn(interp, conn, Tcl_GetObjResult(interp), encoding)) {
+                if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
+                    tws_CloseConn(conn, 1);
+                    SetResult("router_process_conn: return_error failed");
+                    return TCL_ERROR;
+                }
                 tws_CloseConn(conn, 1);
                 Tcl_DecrRefCount(ctx_dict_ptr);
                 Tcl_DecrRefCount(req_dict_ptr);
