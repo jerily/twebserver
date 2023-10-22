@@ -21,7 +21,7 @@ TCL Web Server (HTTPS) Extension
 * [ksuid-tcl](https://github.com/jerily/ksuid-tcl) - K-Sortable Unique Identifiers (KSUIDs) in TCL
 * [snappy-tcl](https://github.com/jerily/snappy-tcl) - TCL bindings for a fast compressor / decompressor library by google
 * [bcrypt-tcl](https://github.com/jerily/bcrypt-tcl) - TCL module for bcrypt, a password-hashing function.
-* [tmfa](https://github.com/jerily/tmfa) - Multi-Factor Authentication (MFA) using TOTP and HOTP (see sample-2fa )
+* [tmfa](https://github.com/jerily/tmfa) - Multi-Factor Authentication (MFA) using TOTP and HOTP
 * [tqrcodegen](https://github.com/jerily/tqrcodegen) - generate QR codes as SVG images
 * [tdom](http://www.tdom.org/) - XML parser and more 
 
