@@ -2,6 +2,17 @@
 
 TCL Web Server (HTTPS) Extension
 
+## Features
+
+* High performance web server (HTTPS) written in C and Tcl.
+* It uses a highly efficient event-driven model with fixed number of threads to manage connections.
+* It can be easily extended.
+* It is a TCL loadable module.
+* It supports multiple certificates for different hosts (SNI).
+* Keepalive connections
+* Compression (gzip)
+
+
 ## Modules and Extensions
 
 * [tjson](https://github.com/jerily/tjson) - parse and serialize json in TCL
