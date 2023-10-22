@@ -419,14 +419,14 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         // mark the end of the token and remember as "key"
         curr++;
         int keylen = curr - p - 1;
-        char *key = strndup(p, curr - p);
+        char *key = tws_strndup(p, curr - p);
         // lowercase "key"
         for (int i = 0; i < keylen; i++) {
             key[i] = tolower(key[i]);
         }
         key[curr - p - 1] = '\0';
         Tcl_Obj *keyPtr = Tcl_NewStringObj(key, keylen);
-        free(key);
+        Tcl_Free(key);
 
         // skip spaces
         while (curr < end && CHARTYPE(space, *curr) != 0) {
@@ -442,10 +442,10 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         // mark the end of the token and remember as "value"
         curr++;
         int valuelen = curr - p - 1;
-        char *value = strndup(p, curr - p);
+        char *value = tws_strndup(p, curr - p);
         value[curr - p - 1] = '\0';
         Tcl_Obj *valuePtr = Tcl_NewStringObj(value, valuelen);
-        free(value);
+        Tcl_Free(value);
 
 //        DBG(fprintf(stderr, "key=%s value=%s\n", key, value));
 
@@ -496,13 +496,13 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
             // mark the end of the string and remember as "continuation_value"
             curr++;
             int continuation_valuelen = curr - p;
-            char *continuation_value = strndup(p, curr - p);
+            char *continuation_value = tws_strndup(p, curr - p);
             continuation_value[curr - p - 1] = '\0';
             Tcl_Obj *continuation_valuePtr = Tcl_NewStringObj(continuation_value, continuation_valuelen);
 
             // append the continuation value to the previous value
             Tcl_AppendObjToObj(valuePtr, continuation_valuePtr);
-            free(continuation_value);
+            Tcl_Free(continuation_value);
 
             // skip "\r\n" or "\n" at most once
             if (curr + 1 < end && *curr == '\r' && *(curr + 1) == '\n') {
@@ -569,10 +569,20 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
     if (contentTypePtr) {
         int contentTypeLength;
         const char *content_type = Tcl_GetStringFromObj(contentTypePtr, &contentTypeLength);
-        // check if binary mime type: image/* and application/octet
-        if (contentTypeLength >= 16 && strncmp(content_type, "application/octet", 16) == 0) {
+        // check if binary mime type: application/* (except application/json and application/xml), image/*, audio/*, video/*
+        if (contentTypeLength >= 5 && content_type[0] == 't' && content_type[1] == 'e' && content_type[2] == 'x' && content_type[3] == 't' && content_type[4] == '/') {
+            base64_encode_it = 0;
+        } else if (contentTypeLength >= 16 && content_type[0] == 'a' && content_type[12] == 'j' && strncmp(content_type, "application/json", 16) == 0) {
+            base64_encode_it = 0;
+        } else if (contentTypeLength >= 15 && content_type[0] == 'a' && content_type[12] == 'x' && strncmp(content_type, "application/xml", 15) == 0) {
+            base64_encode_it = 0;
+        } else if (contentTypeLength >= 12 && content_type[0] == 'a' && content_type[11] == '/' && strncmp(content_type, "application/", 12) == 0) {
             base64_encode_it = 1;
-        } else if (contentTypeLength >= 6 && strncmp(content_type, "image/", 6) == 0) {
+        } else if (contentTypeLength >= 6 && content_type[0] == 'i' && content_type[5] == '/' && strncmp(content_type, "image/", 6) == 0) {
+            base64_encode_it = 1;
+        } else if (contentTypeLength >= 6 && content_type[0] == 'a' && content_type[5] == '/' && strncmp(content_type, "audio/", 6) == 0) {
+            base64_encode_it = 1;
+        } else if (contentTypeLength >= 6 && content_type[0] == 'v' && content_type[5] == '/' && strncmp(content_type, "video/", 6) == 0) {
             base64_encode_it = 1;
         }
     }
@@ -592,11 +602,11 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
         Tcl_Free(body);
     } else {
         // mark the end of the token and remember as "body"
-        char *body = strndup(curr, contentLength + 1);
+        char *body = tws_strndup(curr, contentLength + 1);
         body[contentLength] = '\0';
         Tcl_Obj *bodyPtr = Tcl_NewStringObj(body, contentLength);
         Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), bodyPtr);
-        free(body);
+        Tcl_Free(body);
     }
 
     return TCL_OK;

@@ -169,6 +169,7 @@ SSL_CTX *tws_GetInternalFromHostName(const char *name);
 int tws_RegisterRouterName(const char *name, tws_router_t *internal);
 int tws_UnregisterRouterName(const char *name);
 tws_router_t *tws_GetInternalFromRouterName(const char *name);
+char *tws_strndup(const char *s, size_t n);
 
 /*
  * Macros used to cast between pointers and integers (e.g. when storing an int

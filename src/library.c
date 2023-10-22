@@ -415,7 +415,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         return TCL_ERROR;
     }
 
-    // read "gzip_min_length" int option
+    // gzip_types
     Tcl_Obj *gzipTypesPtr;
     Tcl_Obj *gzipTypesKeyPtr = Tcl_NewStringObj("gzip_types", -1);
     Tcl_IncrRefCount(gzipTypesKeyPtr);
@@ -444,7 +444,6 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
             DBG(fprintf(stderr, "gzip_types: %s\n", gzip_type));
         }
     }
-
 
     Tcl_Obj *numThreadsPtr;
     Tcl_Obj *numThreadsKeyPtr = Tcl_NewStringObj("num_threads", -1);

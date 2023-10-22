@@ -253,3 +253,17 @@ void tws_DeleteRouterNameHT() {
     Tcl_DeleteHashTable(&tws_RouterNameToInternal_HT);
     Tcl_MutexUnlock(&tws_RouterNameToInternal_HT_Mutex);
 }
+
+char *tws_strndup(const char *s, size_t n) {
+    if (s == NULL) {
+        return NULL;
+    }
+    size_t l = strnlen(s, n);
+    char *result = (char *) Tcl_Alloc(l + 1);
+    if (result == NULL) {
+        return NULL;
+    }
+    memcpy(result, s, l);
+    result[l] = '\0';
+    return result;
+}

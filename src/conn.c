@@ -823,16 +823,16 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
                 // find the first ";" in contentType
                 char *p = memchr(contentType, ';', contentTypeLength);
                 if (p) {
-                    contentType = strndup(contentType, p - contentType);
+                    contentType = tws_strndup(contentType, p - contentType);
                 }
                 DBG(fprintf(stderr, "contentType: %s\n", contentType));
                 Tcl_HashEntry *entry = Tcl_FindHashEntry(&conn->server->gzip_types_HT, contentType);
                 if (!entry) {
-                    fprintf(stderr, "not found contentType: %s\n", contentType);
+                    DBG(fprintf(stderr, "not found contentType: %s\n", contentType));
                     gzip_p = 0;
                 }
                 if (p) {
-                    free((void *) contentType);
+                    Tcl_Free(contentType);
                 }
             }
         }

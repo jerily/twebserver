@@ -1,0 +1,58 @@
+lappend auto_path ..
+package require tcltest
+package require twebserver
+
+namespace import -force ::tcltest::test
+
+::tcltest::configure {*}$argv
+
+# tests are of the form:
+#   test <test_name> {<description>} {<actual>} {<expected>}
+
+test non_binary_mimetype_text_plain {} {
+    set request "GET / HTTP/1.1\r\nContent-Type: text/plain\r\n\r\nabc"
+    set req_dict [::twebserver::parse_request $request]
+    return [list [dict get $req_dict isBase64Encoded] [dict get $req_dict body]]
+} {0 abc}
+
+test non_binary_mimetype_text_html {} {
+    set request "GET / HTTP/1.1\r\nContent-Type: text/html\r\n\r\n<html>hello world</html>"
+    set req_dict [::twebserver::parse_request $request]
+    return [list [dict get $req_dict isBase64Encoded] [dict get $req_dict body]]
+} {0 {<html>hello world</html>}}
+
+test non_binary_mimetype_application_json {} {
+    set request "GET / HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{\"a\": 1, \"b\": 2}"
+    set req_dict [::twebserver::parse_request $request]
+    return [list [dict get $req_dict isBase64Encoded] [dict get $req_dict body]]
+} {0 {{"a": 1, "b": 2}}}
+
+test binary_mimetype_application_octet {} {
+    set request "GET / HTTP/1.1\r\nContent-Type: application/octet-stream\r\n\r\nabc"
+    set req_dict [::twebserver::parse_request $request]
+    return [list [dict get $req_dict isBase64Encoded] [dict get $req_dict body]]
+} {1 YWJj}
+
+test binary_mimetype_image_png {} {
+    set request "GET / HTTP/1.1\r\nContent-Type: image/png\r\n\r\nabc"
+    set req_dict [::twebserver::parse_request $request]
+    return [list [dict get $req_dict isBase64Encoded] [dict get $req_dict body]]
+} {1 YWJj}
+
+test request_headers_1 {} {
+    set request "GET / HTTP/1.1\r\nContent-Type: image/png\r\n\r\nabc"
+    set req_dict [::twebserver::parse_request $request]
+    return [dict get $req_dict headers]
+} {content-type image/png}
+
+test request_http_method {} {
+    set request "GET / HTTP/1.1\r\nContent-Type: image/png\r\n\r\nabc"
+    set req_dict [::twebserver::parse_request $request]
+    return [dict get $req_dict httpMethod]
+} {GET}
+
+test request_http_version {} {
+    set request "GET / HTTP/1.1\r\nContent-Type: image/png\r\n\r\nabc"
+    set req_dict [::twebserver::parse_request $request]
+    return [dict get $req_dict version]
+} {HTTP/1.1}
