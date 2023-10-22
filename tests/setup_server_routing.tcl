@@ -30,7 +30,7 @@ set init_script {
     proc post_example_handler {ctx req} {
         dict set res statusCode 200
         dict set res headers {Content-Type text/plain}
-        dict set res body "test message POST [dict get $req headers]"
+        dict set res body "test message POST headers=[dict get $req headers]"
         return $res
     }
 

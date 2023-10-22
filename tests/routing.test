@@ -134,7 +134,7 @@ test match-post-request {} -setup setup -cleanup cleanup -body {
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
     escape $response
-} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 18\n\ntest message POST}
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 26\n\ntest message POST headers=}
 
 test strict-do-not-match-post-request-with-trailing-backslash {} -setup setup -cleanup cleanup -body {
     global cmd
