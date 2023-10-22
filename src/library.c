@@ -1009,7 +1009,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     const char *option_path = NULL;
     const char *option_domain = NULL;
     const char *option_samesite = NULL;
-    int option_maxage = 0;
+    int option_maxage = -1;
     int option_httponly = 0;
     int option_partitioned = 0;
     Tcl_ArgvInfo ArgTable[] = {
@@ -1083,7 +1083,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     }
 
     // append Max-Age
-    if (option_maxage) {
+    if (option_maxage >= 0) {
         Tcl_AppendToObj(headerValuePtr, "; Max-Age=", 10);
         Tcl_Obj *option_maxage_ptr = Tcl_NewIntObj(option_maxage);
         Tcl_IncrRefCount(option_maxage_ptr);
