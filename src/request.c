@@ -582,6 +582,33 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
         } else if (content_type_length >= 15 && content_type[0] == 'a' && content_type[11] == '/' && content_type[12] == 'x' && strncmp(content_type, "application/xml", 15) == 0) {
             // application/xml
             base64_encode_it = 0;
+        } else if (content_type_length >= 19 && content_type[0] == 'm' && content_type[9] == '/' && content_type[10] == 'f' && strncmp(content_type, "multipart/form-data", 19) == 0) {
+            // multipart/form-data
+            base64_encode_it = 1;
+            // find semicolon
+            const char *p = content_type + 19;
+            const char *content_type_end = content_type + content_type_length;
+            while (p < content_type_end && *p != ';') {
+                p++;
+            }
+            // skip semicolon
+            p++;
+            // skip spaces
+            while (p < content_type_end && CHARTYPE(space, *p) != 0) {
+                p++;
+            }
+            // check character by character if we have "boundary="
+            if (p + 9 < content_type_end && *p == 'b' && *(p + 1) == 'o' && *(p + 2) == 'u' && *(p + 3) == 'n' && *(p + 4) == 'd' && *(p + 5) == 'a' && *(p + 6) == 'r' && *(p + 7) == 'y' && *(p + 8) == '=') {
+                // skip "boundary="
+                p += 9;
+                // check if we have a boundary
+                if (p < content_type_end) {
+                    // remember the boundary
+                    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("multipartBoundary", -1), Tcl_NewStringObj(p, content_type_end - p));
+                }
+            }
+
+
         } else if (content_type_length >= 12 && content_type[0] == 'a' && content_type[11] == '/' && strncmp(content_type, "application/", 12) == 0) {
             // application/*
             base64_encode_it = 1;

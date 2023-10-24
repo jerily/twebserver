@@ -43,7 +43,7 @@ set init_script {
     proc post_example_handler {ctx req} {
         dict set res statusCode 200
         dict set res headers {content-type text/plain}
-        dict set res body "test message POST [dict get $req headers]"
+        dict set res body "test message POST [dict get $req headers] multipartBoundary=[dict get $req multipartBoundary]"
         return $res
     }
 
