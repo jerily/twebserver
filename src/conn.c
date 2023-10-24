@@ -496,6 +496,9 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
         }
         break;
     }
+
+    fprintf(stderr, "total_read: %ld\n", total_read);
+
     Tcl_Free(buf);
     return TCL_OK;
 
@@ -536,6 +539,7 @@ int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle,
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
+
     Tcl_Obj *resultPtr = Tcl_NewDictObj();
     Tcl_IncrRefCount(resultPtr);
     if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, resultPtr)) {

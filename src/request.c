@@ -539,6 +539,221 @@ SetResult("headers parse error");
     return TCL_ERROR;
 }
 
+int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_length, Tcl_Obj *multipart_boundary_ptr, Tcl_Obj *resultPtr) {
+
+    // print first few 50 chars from body
+    fprintf(stderr, "body=%.*s\n", body_length > 50 ? 50 : body_length, body);
+
+    const char *end = body + body_length;
+
+    // parse the multipart/form-data body
+    int boundary_length;
+    const char *boundary = Tcl_GetStringFromObj(multipart_boundary_ptr, &boundary_length);
+
+    // find boundary start (bs)
+    const char *bs = body;
+    const char *end_minus_boundary_and_prefix = end - boundary_length - 2;
+    while (bs < end_minus_boundary_and_prefix) {
+        if (bs[0] == '-' && bs[1] == '-' && strncmp(bs + 2, boundary, boundary_length) == 0) {
+            break;
+        }
+        bs++;
+    }
+
+    // skip the boundary
+    bs += boundary_length + 2;
+
+    // skip "\r\n" or "\n"
+    if (bs + 1 < end && *bs == '\r' && *(bs + 1) == '\n') {
+        bs += 2;
+    } else if (bs < end && *bs == '\r') {
+        bs++;
+    } else if (bs < end && *bs == '\n') {
+        bs++;
+    }
+
+    // extract all fields and files
+    Tcl_Obj *multipart_form_data_fields_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(multipart_form_data_fields_ptr);
+    Tcl_Obj *multipart_form_data_files_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(multipart_form_data_files_ptr);
+    while (bs < end_minus_boundary_and_prefix) {
+        // find boundary end (be)
+        const char *be = bs;
+        while (be < end_minus_boundary_and_prefix) {
+            if (be[0] == '-' && be[1] == '-' && strncmp(be + 2, boundary, boundary_length) == 0) {
+                break;
+            }
+            be++;
+        }
+        if (be == bs) {
+            Tcl_DecrRefCount(multipart_form_data_fields_ptr);
+            Tcl_DecrRefCount(multipart_form_data_files_ptr);
+            return TCL_OK;
+        }
+
+        // look for and parse the "field_name" from the "Content-Disposition" header for this part, e.g.:
+        // "field1" from header ```Content-Disposition: form-data; name="field1"```
+        // or:
+        // "field2" from header ```Content-Disposition: form-data; name="field2"; filename="file1.txt"```
+
+        // find "Content-Disposition" header
+        const char *p = bs;
+        while (p < be && !(p[0] == 'C' && p[1] == 'o' && p[2] == 'n' && p[3] == 't' && p[4] == 'e' && p[5] == 'n' && p[6] == 't' && p[7] == '-' && p[8] == 'D' && p[9] == 'i' && p[10] == 's' && p[11] == 'p' && p[12] == 'o' && p[13] == 's' && p[14] == 'i' && p[15] == 't' && p[16] == 'i' && p[17] == 'o' && p[18] == 'n')) {
+            p++;
+        }
+
+        fprintf(stderr, "found Content-Disposition header\n");
+
+        // extract "field_name" from "Content-Disposition" header and flag it as filename or normal field
+        const char *field_name = NULL;
+        const char *field_name_end = NULL;
+        if (p < be) {
+            // skip "Content-Disposition: form-data; name="
+            p += 19;
+            // skip spaces
+            while (p < be && CHARTYPE(space, *p) != 0) {
+                p++;
+            }
+            // skip "name="
+            p += 5;
+            // skip spaces
+            while (p < be && CHARTYPE(space, *p) != 0) {
+                p++;
+            }
+            // skip '"'
+            if (p < be && *p == '"') {
+                p++;
+            }
+            field_name = p;
+            // find '"'
+            while (p < be && *p != '"') {
+                p++;
+            }
+            field_name_end = p;
+        }
+
+        // check if it is a filename
+        const char *filename = NULL;
+        const char *filename_end = NULL;
+        if (p < be) {
+            // skip '"'
+            p++;
+            // skip spaces
+            while (p < be && CHARTYPE(space, *p) != 0) {
+                p++;
+            }
+            // check "filename="
+            if (p < be && p[0] == 'f' && p[1] == 'i' && p[2] == 'l' && p[3] == 'e' && p[4] == 'n' && p[5] == 'a' && p[6] == 'm' && p[7] == 'e' && p[8] == '=') {
+                // skip "filename="
+            } else {
+                break;
+            }
+            p += 9;
+            // skip spaces
+            while (p < be && CHARTYPE(space, *p) != 0) {
+                p++;
+            }
+            // skip '"'
+            if (p < be && *p == '"') {
+                p++;
+            }
+            filename = p;
+            // find '"'
+            while (p < be && *p != '"') {
+                p++;
+            }
+            filename_end = p;
+        }
+
+        int filename_length = filename_end - filename;
+
+        // extract and save the part body as base64-encoded string in "multipart_form_data_ptr" as key-value pairs
+
+        // skip "\r\n" or "\n"
+        if (bs + 1 < end && *bs == '\r' && *(bs + 1) == '\n') {
+            bs += 2;
+        } else if (bs < end && *bs == '\r') {
+            bs++;
+        } else if (bs < end && *bs == '\n') {
+            bs++;
+        }
+
+        Tcl_Obj *value_ptr = NULL;
+        if (filename_length > 0) {
+            int block_length = be - bs;
+            char *block_body = Tcl_Alloc(block_length * 2);
+            size_t block_body_length;
+            if (base64_encode(bs, block_length, block_body, &block_body_length)) {
+                Tcl_DecrRefCount(multipart_form_data_fields_ptr);
+                Tcl_DecrRefCount(multipart_form_data_files_ptr);
+                Tcl_Free(block_body);
+                SetResult("tws_ParseMultipartFormData: base64_encode failed");
+                return TCL_ERROR;
+            }
+
+            if (TCL_OK != Tcl_DictObjPut(interp, multipart_form_data_files_ptr, Tcl_NewStringObj(field_name, field_name_end - field_name), Tcl_NewStringObj(block_body, block_body_length))) {
+                Tcl_DecrRefCount(multipart_form_data_fields_ptr);
+                Tcl_DecrRefCount(multipart_form_data_files_ptr);
+                Tcl_Free(block_body);
+                SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
+                return TCL_ERROR;
+            }
+
+            value_ptr = Tcl_NewStringObj(filename, filename_length);
+        } else {
+            value_ptr = Tcl_NewStringObj(bs, be - bs);
+        }
+
+        if (TCL_OK != Tcl_DictObjPut(interp, multipart_form_data_fields_ptr, Tcl_NewStringObj(field_name, field_name_end - field_name), value_ptr)) {
+            Tcl_DecrRefCount(multipart_form_data_fields_ptr);
+            Tcl_DecrRefCount(multipart_form_data_files_ptr);
+            SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
+            return TCL_ERROR;
+        }
+
+        // setup for next iteration
+        bs = be;
+        bs += boundary_length + 2;
+
+        // skip "\r\n" or "\n"
+        if (bs + 1 < end && *bs == '\r' && *(bs + 1) == '\n') {
+            bs += 2;
+        } else if (bs < end && *bs == '\r') {
+            bs++;
+        } else if (bs < end && *bs == '\n') {
+            bs++;
+        }
+    }
+
+    Tcl_Obj *multipart_form_data_fields_key_ptr = Tcl_NewStringObj("fields", -1);
+    Tcl_IncrRefCount(multipart_form_data_fields_key_ptr);
+    if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, multipart_form_data_fields_key_ptr, multipart_form_data_fields_ptr)) {
+        Tcl_DecrRefCount(multipart_form_data_fields_ptr);
+        Tcl_DecrRefCount(multipart_form_data_files_ptr);
+        Tcl_DecrRefCount(multipart_form_data_fields_key_ptr);
+        SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *multipart_form_data_files_key_ptr = Tcl_NewStringObj("files", -1);
+    Tcl_IncrRefCount(multipart_form_data_files_key_ptr);
+    if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, multipart_form_data_files_key_ptr, multipart_form_data_files_ptr)) {
+        Tcl_DecrRefCount(multipart_form_data_fields_ptr);
+        Tcl_DecrRefCount(multipart_form_data_files_ptr);
+        Tcl_DecrRefCount(multipart_form_data_fields_key_ptr);
+        Tcl_DecrRefCount(multipart_form_data_files_key_ptr);
+        SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
+        return TCL_ERROR;
+    }
+
+    Tcl_DecrRefCount(multipart_form_data_fields_ptr);
+    Tcl_DecrRefCount(multipart_form_data_files_ptr);
+    Tcl_DecrRefCount(multipart_form_data_fields_key_ptr);
+    Tcl_DecrRefCount(multipart_form_data_files_key_ptr);
+    return TCL_OK;
+}
+
 static int
 tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *resultPtr, Tcl_Obj *contentLengthPtr,
               Tcl_Obj *content_type_ptr) {
@@ -563,7 +778,7 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
         contentLength = end - curr;
     }
 
-    DBG(fprintf(stderr, "contentLength=%d\n", contentLength));
+    fprintf(stderr, "contentLength=%d\n", contentLength);
 
     int base64_encode_it = 0;
     if (content_type_ptr) {
