@@ -541,9 +541,6 @@ SetResult("headers parse error");
 
 int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_length, Tcl_Obj *multipart_boundary_ptr, Tcl_Obj *resultPtr) {
 
-    // print first few 50 chars from body
-    fprintf(stderr, "body=%.*s\n", body_length > 50 ? 50 : body_length, body);
-
     const char *end = body + body_length;
 
     // parse the multipart/form-data body

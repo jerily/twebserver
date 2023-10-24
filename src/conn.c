@@ -392,6 +392,8 @@ static void tws_HandleConn(tws_conn_t *conn) {
         DBG(ERR_print_errors_fp(stderr));
         return;
     } else {
+        int flags = fcntl(conn->client, F_GETFL, 0); // get the current flags of the client socket
+        fcntl(conn->client, F_SETFL, flags | O_NONBLOCK); // set the O_NONBLOCK flag on the client socket
 
         char c;
         int rc = SSL_peek(conn->ssl, &c, 1);
@@ -467,8 +469,17 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
     long total_read = 0;
     int rc;
     int bytes_read;
+
+    /*
+     * SSL_read() may return data in parts, so try to read
+     * until SSL_read() would return no data
+     */
+
+    int last = 0;
     for (;;) {
+        fprintf(stderr, "reading...\n");
         rc = SSL_read(conn->ssl, buf, max_buffer_size);
+        fprintf(stderr, "done reading... rc=%d\n", rc);
         if (rc > 0) {
             bytes_read = rc;
             Tcl_DStringAppend(dsPtr, buf, bytes_read);
@@ -476,28 +487,30 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
             if (total_read > max_request_read_bytes) {
                 goto failed_due_to_request_too_large;
             }
+            last = 1;
+            continue;
         } else {
+            // if last==1, then try one more iteration
+            if (last <= 0) {
+                break;
+            }
             int err = SSL_get_error(conn->ssl, rc);
+            DBG(fprintf(stderr, "SSL_read error: %s err=%d rc=%d\n", ssl_errors[err], err, rc));
             if (err == SSL_ERROR_WANT_READ) {
-                fprintf(stderr, "SSL_ERROR_WANT_READ\n");
-                bytes_read = rc;
-                Tcl_DStringAppend(dsPtr, buf, bytes_read);
-                total_read += bytes_read;
-                if (total_read > max_request_read_bytes) {
-                    goto failed_due_to_request_too_large;
-                }
+                DBG(fprintf(stderr, "SSL_ERROR_WANT_READ\n"));
+                last = 0;
                 continue;
             }
 
             Tcl_Free(buf);
-            tws_CloseConn(conn, 1);
+//            tws_CloseConn(conn, 1);
             SetResult("SSL_read error");
             return TCL_ERROR;
         }
-        break;
+//        break;
     }
 
-    fprintf(stderr, "total_read: %ld\n", total_read);
+    DBG(fprintf(stderr, "total_read: %ld\n", total_read));
 
     Tcl_Free(buf);
     return TCL_OK;
