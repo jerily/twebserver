@@ -547,7 +547,7 @@ static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const cha
 
     // find "Content-Disposition" header
     const char *p = bs;
-    while (p < be && !(p[0] == 'C' && p[1] == 'o' && p[2] == 'n' && p[3] == 't' && p[4] == 'e' && p[5] == 'n' && p[6] == 't' && p[7] == '-' && p[8] == 'D' && p[9] == 'i' && p[10] == 's' && p[11] == 'p' && p[12] == 'o' && p[13] == 's' && p[14] == 'i' && p[15] == 't' && p[16] == 'i' && p[17] == 'o' && p[18] == 'n')) {
+    while (p < be - 18 && !(p[0] == 'C' && p[1] == 'o' && p[2] == 'n' && p[3] == 't' && p[4] == 'e' && p[5] == 'n' && p[6] == 't' && p[7] == '-' && p[8] == 'D' && p[9] == 'i' && p[10] == 's' && p[11] == 'p' && p[12] == 'o' && p[13] == 's' && p[14] == 'i' && p[15] == 't' && p[16] == 'i' && p[17] == 'o' && p[18] == 'n')) {
         p++;
     }
 
@@ -558,7 +558,7 @@ static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const cha
     }
 
     // find "name="
-    while (p < be && !(p[0] == 'n' && p[1] == 'a' && p[2] == 'm' && p[3] == 'e' && p[4] == '=')) {
+    while (p < be - 5 && !(p[0] == 'n' && p[1] == 'a' && p[2] == 'm' && p[3] == 'e' && p[4] == '=')) {
         p++;
     }
 
@@ -598,7 +598,7 @@ static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const cha
     const char *filename_end = NULL;
     if (p < be) {
         // find "filename="
-        while (p < be && !(p[0] == 'f' && p[1] == 'i' && p[2] == 'l' && p[3] == 'e' && p[4] == 'n' && p[5] == 'a' && p[6] == 'm' && p[7] == 'e' && p[8] == '=')) {
+        while (p < be - 9 && !(p[0] == 'f' && p[1] == 'i' && p[2] == 'l' && p[3] == 'e' && p[4] == 'n' && p[5] == 'a' && p[6] == 'm' && p[7] == 'e' && p[8] == '=')) {
             p++;
         }
 
