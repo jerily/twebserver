@@ -20,7 +20,9 @@
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
 #include <sys/event.h>
 #else
+
 #include <sys/epoll.h>
+
 #endif
 
 #define MAX_EVENTS 10
@@ -57,6 +59,25 @@ long long current_time_in_millis() {
     return milliseconds;
 }
 
+
+enum {
+    TWS_MODE_BLOCKING,
+    TWS_MODE_NONBLOCKING
+};
+
+static int tws_SetBlockingMode(
+        int fd,
+        int mode            /* Either TWS_MODE_BLOCKING or TWS_MODE_NONBLOCKING. */
+) {
+    int flags = fcntl(fd, F_GETFL);
+
+    if (mode == TWS_MODE_BLOCKING) {
+        flags &= ~O_NONBLOCK;
+    } else {
+        flags |= O_NONBLOCK;
+    }
+    return fcntl(fd, F_SETFL, flags);
+}
 
 static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int *sock) {
     int server_fd;
@@ -124,6 +145,9 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     if (ssl == NULL) {
         return NULL;
     }
+
+    tws_SetBlockingMode(client, TWS_MODE_NONBLOCKING);
+
     SSL_set_fd(ssl, client);
     SSL_set_accept_state(ssl);
 
@@ -386,24 +410,28 @@ static void tws_HandleConn(tws_conn_t *conn) {
     tws_server_t *server = conn->server;
 
     ERR_clear_error();
-    if (SSL_accept(conn->ssl) <= 0) {
-        DBG(fprintf(stderr, "SSL_accept <= 0 client: %d\n", conn->client));
+
+    int rc;
+    do {
+        rc = SSL_accept(conn->ssl);
+    } while (rc <= 0 && SSL_get_error(conn->ssl, rc) == SSL_ERROR_WANT_READ);
+
+    if (rc <= 0) {
+        fprintf(stderr, "SSL_accept <= 0 client: %d\n", conn->client);
         tws_CloseConn(conn, 1);
-        DBG(ERR_print_errors_fp(stderr));
+        ERR_print_errors_fp(stderr);
         return;
     } else {
-        int flags = fcntl(conn->client, F_GETFL, 0); // get the current flags of the client socket
-        fcntl(conn->client, F_SETFL, flags | O_NONBLOCK); // set the O_NONBLOCK flag on the client socket
 
-        char c;
-        int rc = SSL_peek(conn->ssl, &c, 1);
-        if (rc <= 0) {
-            DBG(fprintf(stderr, "SSL_peek <= 0 client: %d sslerr: %s\n",
-                        conn->client, ssl_errors[SSL_get_error(conn->ssl, rc)]));
-            tws_CloseConn(conn, 1);
-            DBG(ERR_print_errors_fp(stderr));
-            return;
-        }
+//        char c;
+//        int rc = SSL_peek(conn->ssl, &c, 1);
+//        if (rc <= 0) {
+//            DBG(fprintf(stderr, "SSL_peek <= 0 client: %d sslerr: %s\n",
+//                        conn->client, ssl_errors[SSL_get_error(conn->ssl, rc)]));
+//            tws_CloseConn(conn, 1);
+//            DBG(ERR_print_errors_fp(stderr));
+//            return;
+//        }
 
         Tcl_Interp *interp;
         Tcl_Obj *cmdPtr;
@@ -462,6 +490,7 @@ static void tws_HandleConn(tws_conn_t *conn) {
 
 static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle, Tcl_DString *dsPtr) {
     DBG(fprintf(stderr, "ReadConn client: %d\n", conn->client));
+
     long max_request_read_bytes = conn->server->max_request_read_bytes;
     int max_buffer_size = conn->server->max_read_buffer_size;
 
@@ -475,11 +504,9 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
      * until SSL_read() would return no data
      */
 
-    int last = 0;
+    int last = 1;
     for (;;) {
-        fprintf(stderr, "reading...\n");
         rc = SSL_read(conn->ssl, buf, max_buffer_size);
-        fprintf(stderr, "done reading... rc=%d\n", rc);
         if (rc > 0) {
             bytes_read = rc;
             Tcl_DStringAppend(dsPtr, buf, bytes_read);
@@ -490,24 +517,24 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
             last = 1;
             continue;
         } else {
-            // if last==1, then try one more iteration
-            if (last <= 0) {
-                break;
-            }
             int err = SSL_get_error(conn->ssl, rc);
             DBG(fprintf(stderr, "SSL_read error: %s err=%d rc=%d\n", ssl_errors[err], err, rc));
             if (err == SSL_ERROR_WANT_READ) {
                 DBG(fprintf(stderr, "SSL_ERROR_WANT_READ\n"));
+                // if last==1, then try one more iteration
+                if (last <= 0 && total_read > 0) {
+                    break;
+                }
                 last = 0;
                 continue;
+            } else if (err == SSL_ERROR_ZERO_RETURN) {
+                break;
             }
 
             Tcl_Free(buf);
-//            tws_CloseConn(conn, 1);
             SetResult("SSL_read error");
             return TCL_ERROR;
         }
-//        break;
     }
 
     DBG(fprintf(stderr, "total_read: %ld\n", total_read));
@@ -545,7 +572,8 @@ int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
     return TCL_OK;
 }
 
-int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle, Tcl_Encoding encoding, Tcl_Obj **requestDictPtr) {
+int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle, Tcl_Encoding encoding,
+                  Tcl_Obj **requestDictPtr) {
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
     if (TCL_OK != tws_ReadConn(interp, conn, conn_handle, &ds)) {
