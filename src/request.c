@@ -583,6 +583,16 @@ int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_le
             }
             be++;
         }
+
+        const char *next_bs = be;
+
+        // skip "\r\n" or "\n" backwards
+        if (be - 2 >= bs && be[-2] == '\r' && be[-1] == '\n') {
+            be -= 2;
+        } else if (be - 1 >= bs && be[-1] == '\n') {
+            be -= 1;
+        }
+
         if (be == bs) {
             Tcl_DecrRefCount(multipart_form_data_fields_ptr);
             Tcl_DecrRefCount(multipart_form_data_files_ptr);
@@ -640,7 +650,7 @@ int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_le
             p++;
         }
 
-        fprintf(stderr, "field_name=%.*s\n", (int) (field_name_end - field_name), field_name);
+//        fprintf(stderr, "field_name=%.*s\n", (int) (field_name_end - field_name), field_name);
 
         // check if it is a filename
         const char *filename = NULL;
@@ -673,7 +683,7 @@ int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_le
             p++;
         }
 
-        fprintf(stderr, "filename=%.*s\n", (int) (filename_end - filename), filename);
+//        fprintf(stderr, "filename=%.*s\n", (int) (filename_end - filename), filename);
 
         int filename_length = filename_end - filename;
 
@@ -708,7 +718,7 @@ int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_le
                 return TCL_ERROR;
             }
 
-            if (TCL_OK != Tcl_DictObjPut(interp, multipart_form_data_files_ptr, Tcl_NewStringObj(field_name, field_name_end - field_name), Tcl_NewStringObj(block_body, block_body_length))) {
+            if (TCL_OK != Tcl_DictObjPut(interp, multipart_form_data_files_ptr, Tcl_NewStringObj(filename, filename_end - filename), Tcl_NewStringObj(block_body, block_body_length))) {
                 Tcl_DecrRefCount(multipart_form_data_fields_ptr);
                 Tcl_DecrRefCount(multipart_form_data_files_ptr);
                 Tcl_Free(block_body);
@@ -729,7 +739,7 @@ int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_le
         }
 
         // setup for next iteration
-        bs = be;
+        bs = next_bs;
         bs += boundary_length + 2;
 
         // skip "\r\n" or "\n"
