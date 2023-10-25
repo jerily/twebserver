@@ -1109,7 +1109,7 @@ static int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, T
     DBG(fprintf(stderr, "GetFormCmd\n"));
     CheckArgs(2, 2, 1, "request_dict");
 
-    fprintf(stderr, "req=%s\n", Tcl_GetString(objv[1]));
+//    fprintf(stderr, "req=%s\n", Tcl_GetString(objv[1]));
 
     Tcl_Obj *body_ptr = NULL;
     Tcl_Obj *body_key_ptr = Tcl_NewStringObj("body", -1);

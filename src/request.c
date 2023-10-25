@@ -600,20 +600,27 @@ int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_le
             p++;
         }
 
-        fprintf(stderr, "found Content-Disposition header\n");
+        // skip Content-Disposition part
+        if (p < be) {
+            p += 19;
+//            fprintf(stderr, "found Content-Disposition header\n");
+        }
+
+        // find "name="
+        while (p < be && !(p[0] == 'n' && p[1] == 'a' && p[2] == 'm' && p[3] == 'e' && p[4] == '=')) {
+            p++;
+        }
+
+        // skip "name="
+        if (p < be) {
+            p += 5;
+//            fprintf(stderr, "found name=\n");
+        }
 
         // extract "field_name" from "Content-Disposition" header and flag it as filename or normal field
         const char *field_name = NULL;
         const char *field_name_end = NULL;
         if (p < be) {
-            // skip "Content-Disposition: form-data; name="
-            p += 19;
-            // skip spaces
-            while (p < be && CHARTYPE(space, *p) != 0) {
-                p++;
-            }
-            // skip "name="
-            p += 5;
             // skip spaces
             while (p < be && CHARTYPE(space, *p) != 0) {
                 p++;
@@ -628,25 +635,25 @@ int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_le
                 p++;
             }
             field_name_end = p;
+
+            // skip '"'
+            p++;
         }
+
+        fprintf(stderr, "field_name=%.*s\n", (int) (field_name_end - field_name), field_name);
 
         // check if it is a filename
         const char *filename = NULL;
         const char *filename_end = NULL;
         if (p < be) {
-            // skip '"'
-            p++;
-            // skip spaces
-            while (p < be && CHARTYPE(space, *p) != 0) {
+            // find "filename="
+            while (p < be && !(p[0] == 'f' && p[1] == 'i' && p[2] == 'l' && p[3] == 'e' && p[4] == 'n' && p[5] == 'a' && p[6] == 'm' && p[7] == 'e' && p[8] == '=')) {
                 p++;
             }
-            // check "filename="
-            if (p < be && p[0] == 'f' && p[1] == 'i' && p[2] == 'l' && p[3] == 'e' && p[4] == 'n' && p[5] == 'a' && p[6] == 'm' && p[7] == 'e' && p[8] == '=') {
-                // skip "filename="
-            } else {
-                break;
-            }
+
+            // skip "filename="
             p += 9;
+
             // skip spaces
             while (p < be && CHARTYPE(space, *p) != 0) {
                 p++;
@@ -661,20 +668,32 @@ int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_le
                 p++;
             }
             filename_end = p;
+
+            // skip '"'
+            p++;
         }
+
+        fprintf(stderr, "filename=%.*s\n", (int) (filename_end - filename), filename);
 
         int filename_length = filename_end - filename;
 
         // extract and save the part body as base64-encoded string in "multipart_form_data_ptr" as key-value pairs
 
-        // skip "\r\n" or "\n"
-        if (bs + 1 < end && *bs == '\r' && *(bs + 1) == '\n') {
-            bs += 2;
-        } else if (bs < end && *bs == '\r') {
-            bs++;
-        } else if (bs < end && *bs == '\n') {
-            bs++;
+        // find the end of the part headers, they are denoted by "\r\n\r\n" or "\n\n"
+
+        // find "\r\n\r\n" or "\n\n"
+        const char *headers_end = bs;
+        while (headers_end < be) {
+            if (headers_end + 3 < be && headers_end[0] == '\r' && headers_end[1] == '\n' && headers_end[2] == '\r' && headers_end[3] == '\n') {
+                headers_end += 4;
+                break;
+            } else if (headers_end + 1 < be && headers_end[0] == '\n' && headers_end[1] == '\n') {
+                headers_end += 2;
+                break;
+            }
+            headers_end++;
         }
+        bs = headers_end;
 
         Tcl_Obj *value_ptr = NULL;
         if (filename_length > 0) {
