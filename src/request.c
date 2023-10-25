@@ -539,6 +539,143 @@ SetResult("headers parse error");
     return TCL_ERROR;
 }
 
+static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const char *be, Tcl_Obj *multipart_form_data_fields_ptr, Tcl_Obj *multipart_form_data_files_ptr) {
+    // look for and parse the "field_name" from the "Content-Disposition" header for this part, e.g.:
+    // "field1" from header ```Content-Disposition: form-data; name="field1"```
+    // or:
+    // "field2" from header ```Content-Disposition: form-data; name="field2"; filename="file1.txt"```
+
+    // find "Content-Disposition" header
+    const char *p = bs;
+    while (p < be && !(p[0] == 'C' && p[1] == 'o' && p[2] == 'n' && p[3] == 't' && p[4] == 'e' && p[5] == 'n' && p[6] == 't' && p[7] == '-' && p[8] == 'D' && p[9] == 'i' && p[10] == 's' && p[11] == 'p' && p[12] == 'o' && p[13] == 's' && p[14] == 'i' && p[15] == 't' && p[16] == 'i' && p[17] == 'o' && p[18] == 'n')) {
+        p++;
+    }
+
+    // skip Content-Disposition part
+    if (p < be) {
+        p += 19;
+//            fprintf(stderr, "found Content-Disposition header\n");
+    }
+
+    // find "name="
+    while (p < be && !(p[0] == 'n' && p[1] == 'a' && p[2] == 'm' && p[3] == 'e' && p[4] == '=')) {
+        p++;
+    }
+
+    // skip "name="
+    if (p < be) {
+        p += 5;
+//            fprintf(stderr, "found name=\n");
+    }
+
+    // extract "field_name" from "Content-Disposition" header and flag it as filename or normal field
+    const char *field_name = NULL;
+    const char *field_name_end = NULL;
+    if (p < be) {
+        // skip spaces
+        while (p < be && CHARTYPE(space, *p) != 0) {
+            p++;
+        }
+        // skip '"'
+        if (p < be && *p == '"') {
+            p++;
+        }
+        field_name = p;
+        // find '"'
+        while (p < be && *p != '"') {
+            p++;
+        }
+        field_name_end = p;
+
+        // skip '"'
+        p++;
+    }
+
+//        fprintf(stderr, "field_name=%.*s\n", (int) (field_name_end - field_name), field_name);
+
+    // check if it is a filename
+    const char *filename = NULL;
+    const char *filename_end = NULL;
+    if (p < be) {
+        // find "filename="
+        while (p < be && !(p[0] == 'f' && p[1] == 'i' && p[2] == 'l' && p[3] == 'e' && p[4] == 'n' && p[5] == 'a' && p[6] == 'm' && p[7] == 'e' && p[8] == '=')) {
+            p++;
+        }
+
+        // skip "filename="
+        p += 9;
+
+        // skip spaces
+        while (p < be && CHARTYPE(space, *p) != 0) {
+            p++;
+        }
+        // skip '"'
+        if (p < be && *p == '"') {
+            p++;
+        }
+        filename = p;
+        // find '"'
+        while (p < be && *p != '"') {
+            p++;
+        }
+        filename_end = p;
+
+        // skip '"'
+        p++;
+    }
+
+//        fprintf(stderr, "filename=%.*s\n", (int) (filename_end - filename), filename);
+
+    int filename_length = filename_end - filename;
+
+    // extract and save the part body as base64-encoded string in "multipart_form_data_ptr" as key-value pairs
+
+    // find the end of the part headers, they are denoted by "\r\n\r\n" or "\n\n"
+
+    // find "\r\n\r\n" or "\n\n"
+    const char *headers_end = bs;
+    while (headers_end < be) {
+        if (headers_end + 3 < be && headers_end[0] == '\r' && headers_end[1] == '\n' && headers_end[2] == '\r' && headers_end[3] == '\n') {
+            headers_end += 4;
+            break;
+        } else if (headers_end + 1 < be && headers_end[0] == '\n' && headers_end[1] == '\n') {
+            headers_end += 2;
+            break;
+        }
+        headers_end++;
+    }
+    bs = headers_end;
+
+    Tcl_Obj *value_ptr = NULL;
+    if (filename_length > 0) {
+        int block_length = be - bs;
+        char *block_body = Tcl_Alloc(block_length * 2);
+        size_t block_body_length;
+        if (base64_encode(bs, block_length, block_body, &block_body_length)) {
+            Tcl_Free(block_body);
+            SetResult("tws_ParseMultipartFormData: base64_encode failed");
+            return TCL_ERROR;
+        }
+
+        if (TCL_OK != Tcl_DictObjPut(interp, multipart_form_data_files_ptr, Tcl_NewStringObj(filename, filename_end - filename), Tcl_NewStringObj(block_body, block_body_length))) {
+            Tcl_Free(block_body);
+            SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
+            return TCL_ERROR;
+        }
+
+        value_ptr = Tcl_NewStringObj(filename, filename_length);
+    } else {
+        value_ptr = Tcl_NewStringObj(bs, be - bs);
+    }
+
+    if (TCL_OK != Tcl_DictObjPut(interp, multipart_form_data_fields_ptr, Tcl_NewStringObj(field_name, field_name_end - field_name), value_ptr)) {
+        SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
+        return TCL_ERROR;
+    }
+
+    return TCL_OK;
+}
+
 int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_length, Tcl_Obj *multipart_boundary_ptr, Tcl_Obj *resultPtr) {
 
     const char *end = body + body_length;
@@ -599,142 +736,9 @@ int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_le
             return TCL_OK;
         }
 
-        // look for and parse the "field_name" from the "Content-Disposition" header for this part, e.g.:
-        // "field1" from header ```Content-Disposition: form-data; name="field1"```
-        // or:
-        // "field2" from header ```Content-Disposition: form-data; name="field2"; filename="file1.txt"```
-
-        // find "Content-Disposition" header
-        const char *p = bs;
-        while (p < be && !(p[0] == 'C' && p[1] == 'o' && p[2] == 'n' && p[3] == 't' && p[4] == 'e' && p[5] == 'n' && p[6] == 't' && p[7] == '-' && p[8] == 'D' && p[9] == 'i' && p[10] == 's' && p[11] == 'p' && p[12] == 'o' && p[13] == 's' && p[14] == 'i' && p[15] == 't' && p[16] == 'i' && p[17] == 'o' && p[18] == 'n')) {
-            p++;
-        }
-
-        // skip Content-Disposition part
-        if (p < be) {
-            p += 19;
-//            fprintf(stderr, "found Content-Disposition header\n");
-        }
-
-        // find "name="
-        while (p < be && !(p[0] == 'n' && p[1] == 'a' && p[2] == 'm' && p[3] == 'e' && p[4] == '=')) {
-            p++;
-        }
-
-        // skip "name="
-        if (p < be) {
-            p += 5;
-//            fprintf(stderr, "found name=\n");
-        }
-
-        // extract "field_name" from "Content-Disposition" header and flag it as filename or normal field
-        const char *field_name = NULL;
-        const char *field_name_end = NULL;
-        if (p < be) {
-            // skip spaces
-            while (p < be && CHARTYPE(space, *p) != 0) {
-                p++;
-            }
-            // skip '"'
-            if (p < be && *p == '"') {
-                p++;
-            }
-            field_name = p;
-            // find '"'
-            while (p < be && *p != '"') {
-                p++;
-            }
-            field_name_end = p;
-
-            // skip '"'
-            p++;
-        }
-
-//        fprintf(stderr, "field_name=%.*s\n", (int) (field_name_end - field_name), field_name);
-
-        // check if it is a filename
-        const char *filename = NULL;
-        const char *filename_end = NULL;
-        if (p < be) {
-            // find "filename="
-            while (p < be && !(p[0] == 'f' && p[1] == 'i' && p[2] == 'l' && p[3] == 'e' && p[4] == 'n' && p[5] == 'a' && p[6] == 'm' && p[7] == 'e' && p[8] == '=')) {
-                p++;
-            }
-
-            // skip "filename="
-            p += 9;
-
-            // skip spaces
-            while (p < be && CHARTYPE(space, *p) != 0) {
-                p++;
-            }
-            // skip '"'
-            if (p < be && *p == '"') {
-                p++;
-            }
-            filename = p;
-            // find '"'
-            while (p < be && *p != '"') {
-                p++;
-            }
-            filename_end = p;
-
-            // skip '"'
-            p++;
-        }
-
-//        fprintf(stderr, "filename=%.*s\n", (int) (filename_end - filename), filename);
-
-        int filename_length = filename_end - filename;
-
-        // extract and save the part body as base64-encoded string in "multipart_form_data_ptr" as key-value pairs
-
-        // find the end of the part headers, they are denoted by "\r\n\r\n" or "\n\n"
-
-        // find "\r\n\r\n" or "\n\n"
-        const char *headers_end = bs;
-        while (headers_end < be) {
-            if (headers_end + 3 < be && headers_end[0] == '\r' && headers_end[1] == '\n' && headers_end[2] == '\r' && headers_end[3] == '\n') {
-                headers_end += 4;
-                break;
-            } else if (headers_end + 1 < be && headers_end[0] == '\n' && headers_end[1] == '\n') {
-                headers_end += 2;
-                break;
-            }
-            headers_end++;
-        }
-        bs = headers_end;
-
-        Tcl_Obj *value_ptr = NULL;
-        if (filename_length > 0) {
-            int block_length = be - bs;
-            char *block_body = Tcl_Alloc(block_length * 2);
-            size_t block_body_length;
-            if (base64_encode(bs, block_length, block_body, &block_body_length)) {
-                Tcl_DecrRefCount(multipart_form_data_fields_ptr);
-                Tcl_DecrRefCount(multipart_form_data_files_ptr);
-                Tcl_Free(block_body);
-                SetResult("tws_ParseMultipartFormData: base64_encode failed");
-                return TCL_ERROR;
-            }
-
-            if (TCL_OK != Tcl_DictObjPut(interp, multipart_form_data_files_ptr, Tcl_NewStringObj(filename, filename_end - filename), Tcl_NewStringObj(block_body, block_body_length))) {
-                Tcl_DecrRefCount(multipart_form_data_fields_ptr);
-                Tcl_DecrRefCount(multipart_form_data_files_ptr);
-                Tcl_Free(block_body);
-                SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
-                return TCL_ERROR;
-            }
-
-            value_ptr = Tcl_NewStringObj(filename, filename_length);
-        } else {
-            value_ptr = Tcl_NewStringObj(bs, be - bs);
-        }
-
-        if (TCL_OK != Tcl_DictObjPut(interp, multipart_form_data_fields_ptr, Tcl_NewStringObj(field_name, field_name_end - field_name), value_ptr)) {
+        if (TCL_OK != tws_ParseMultipartEntry(interp, bs, be, multipart_form_data_fields_ptr, multipart_form_data_files_ptr)) {
             Tcl_DecrRefCount(multipart_form_data_fields_ptr);
             Tcl_DecrRefCount(multipart_form_data_files_ptr);
-            SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
             return TCL_ERROR;
         }
 
