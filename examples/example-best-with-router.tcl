@@ -42,7 +42,7 @@ set init_script {
 
     proc post_example_handler {ctx req} {
         set form [::twebserver::get_form $req]
-        puts form=$form
+        # puts form=$form
         dict set res statusCode 200
         dict set res headers {content-type text/plain}
         dict set res body "test message POST [dict get $req headers] multipartBoundary=[dict get $req multipartBoundary] fields=[dict get $form fields]"
