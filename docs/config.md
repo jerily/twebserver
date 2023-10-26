@@ -9,7 +9,7 @@
 * **keepidle** - the time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes (Default: 10)
 * **keepintvl** - the time (in seconds) between individual keepalive probes (Default: 5)
 * **keepcnt** - The maximum number of keepalive probes TCP should send before dropping the connection (Default: 3)
-* **num_threads** - the number of threads to use (Default: 10)
+* **num_threads** - the number of threads to use (Default: 0)
 * **thread_stacksize** - the stack size for each thread in bytes (Default: 0) 0 means use the default OS thread stack size
 * **thread_max_concurrent_conns** - the maximum number of concurrent connections per thread (Default: 0)
 This is set to preserve memory usage.
