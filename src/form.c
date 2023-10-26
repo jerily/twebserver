@@ -257,19 +257,80 @@ static int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int 
 static int tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *multivalue_fields_ptr, const char *key, const char *value, int value_length) {
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
 
-    Tcl_Obj *keyPtr = Tcl_NewStringObj(key, value - key - 1);
-    Tcl_Obj *valuePtr = Tcl_NewStringObj("", 0);
-    if (TCL_OK != tws_UrlDecode(interp, encoding, value, value_length, valuePtr)) {
+    Tcl_Obj *key_ptr = Tcl_NewStringObj(key, value - key - 1);
+    Tcl_IncrRefCount(key_ptr);
+    Tcl_Obj *value_ptr = Tcl_NewStringObj("", 0);
+    Tcl_IncrRefCount(value_ptr);
+    if (TCL_OK != tws_UrlDecode(interp, encoding, value, value_length, value_ptr)) {
+        Tcl_DecrRefCount(value_ptr);
+        Tcl_DecrRefCount(key_ptr);
         SetResult("AddUrlEncodedFormField: urldecode error");
         return TCL_ERROR;
     }
-    if (TCL_OK != Tcl_DictObjPut(interp, fields_ptr, keyPtr, valuePtr)) {
+
+    Tcl_Obj *existing_value_ptr;
+    if (TCL_OK != Tcl_DictObjGet(interp, fields_ptr, key_ptr, &existing_value_ptr)) {
+        Tcl_DecrRefCount(value_ptr);
+        Tcl_DecrRefCount(key_ptr);
+        SetResult("AddUrlEncodedFormField: dict get error");
+        return TCL_ERROR;
+    }
+    if (existing_value_ptr) {
+        // check if "key" already exists in "multivalueFields"
+        Tcl_Obj *multi_value_ptr;
+        if (TCL_OK != Tcl_DictObjGet(interp, multivalue_fields_ptr, key_ptr, &multi_value_ptr)) {
+            Tcl_DecrRefCount(value_ptr);
+            Tcl_DecrRefCount(key_ptr);
+            SetResult("AddUrlEncodedFormField: dict get error");
+            return TCL_ERROR;
+        }
+        int should_decr_ref_count = 0;
+        if (!multi_value_ptr) {
+            // it does not exist, create a new list and add the existing value from queryStringParameters
+            multi_value_ptr = Tcl_NewListObj(0, NULL);
+            Tcl_IncrRefCount(multi_value_ptr);
+            if (TCL_OK != Tcl_ListObjAppendElement(interp, multi_value_ptr, existing_value_ptr)) {
+                Tcl_DecrRefCount(value_ptr);
+                Tcl_DecrRefCount(key_ptr);
+                Tcl_DecrRefCount(multi_value_ptr);
+                SetResult("AddUrlEncodedFormField: list append error");
+                return TCL_ERROR;
+            }
+            should_decr_ref_count = 1;
+        }
+        // append the new value to the list
+        if (TCL_OK != Tcl_ListObjAppendElement(interp, multi_value_ptr, value_ptr)) {
+            Tcl_DecrRefCount(value_ptr);
+            Tcl_DecrRefCount(key_ptr);
+            if (should_decr_ref_count) {
+                Tcl_DecrRefCount(multi_value_ptr);
+            }
+            SetResult("AddUrlEncodedFormField: list append error");
+            return TCL_ERROR;
+        }
+        if (TCL_OK != Tcl_DictObjPut(interp, multivalue_fields_ptr, key_ptr, multi_value_ptr)) {
+            Tcl_DecrRefCount(value_ptr);
+            Tcl_DecrRefCount(key_ptr);
+            if (should_decr_ref_count) {
+                Tcl_DecrRefCount(multi_value_ptr);
+            }
+            SetResult("AddQueryStringParameter: dict put error");
+            return TCL_ERROR;
+        }
+        if (should_decr_ref_count) {
+            Tcl_DecrRefCount(multi_value_ptr);
+        }
+    }
+
+    if (TCL_OK != Tcl_DictObjPut(interp, fields_ptr, key_ptr, value_ptr)) {
         SetResult("AddUrlEncodedFormField: dict write error");
         return TCL_ERROR;
     }
 }
 
 static int tws_ParseUrlEncodedForm(Tcl_Interp *interp, Tcl_Obj *body_ptr, Tcl_Obj *result_ptr) {
+    DBG(fprintf(stderr, "ParseUrlEncodedForm\n"));
+
     int body_length;
     const char *body = Tcl_GetStringFromObj(body_ptr, &body_length);
 
@@ -389,26 +450,42 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
         }
     } else {
         // check if "content-type" is "application/x-form-urlencoded"
-        Tcl_Obj *content_type_ptr = NULL;
-        Tcl_Obj *content_type_key_ptr = Tcl_NewStringObj("content-type", -1);
-        Tcl_IncrRefCount(content_type_key_ptr);
-        if (TCL_OK != Tcl_DictObjGet(interp, objv[1], content_type_key_ptr, &content_type_ptr)) {
-            Tcl_DecrRefCount(content_type_key_ptr);
+
+        Tcl_Obj *headers_ptr = NULL;
+        Tcl_Obj *headers_key_ptr = Tcl_NewStringObj("headers", -1);
+        Tcl_IncrRefCount(headers_key_ptr);
+        if (TCL_OK != Tcl_DictObjGet(interp, objv[1], headers_key_ptr, &headers_ptr)) {
+            Tcl_DecrRefCount(headers_key_ptr);
             Tcl_DecrRefCount(result_ptr);
-            SetResult("get_form: error reading content-type from request dict");
+            SetResult("get_form: error reading headers from request dict");
             return TCL_ERROR;
         }
-        Tcl_DecrRefCount(content_type_key_ptr);
+        Tcl_DecrRefCount(headers_key_ptr);
 
-        if (content_type_ptr) {
-            int content_type_len;
-            const char *content_type = Tcl_GetStringFromObj(content_type_ptr, &content_type_len);
-            if (content_type_len >= 33 && strncmp(content_type, "application/x-www-form-urlencoded", 33) == 0) {
-                // parse urlencoded form data
-                if (TCL_OK != tws_ParseUrlEncodedForm(interp, body_ptr, result_ptr)) {
-                    Tcl_DecrRefCount(result_ptr);
-                    SetResult("get_form: error parsing urlencoded form data");
-                    return TCL_ERROR;
+        if (headers_ptr) {
+            Tcl_Obj *content_type_ptr = NULL;
+            Tcl_Obj *content_type_key_ptr = Tcl_NewStringObj("content-type", -1);
+            Tcl_IncrRefCount(content_type_key_ptr);
+            if (TCL_OK != Tcl_DictObjGet(interp, headers_ptr, content_type_key_ptr, &content_type_ptr)) {
+                Tcl_DecrRefCount(content_type_key_ptr);
+                Tcl_DecrRefCount(result_ptr);
+                SetResult("get_form: error reading content-type from request dict");
+                return TCL_ERROR;
+            }
+            Tcl_DecrRefCount(content_type_key_ptr);
+
+            if (content_type_ptr) {
+                int content_type_length;
+                const char *content_type = Tcl_GetStringFromObj(content_type_ptr, &content_type_length);
+
+                if (content_type_length >= 33 && strncmp(content_type, "application/x-www-form-urlencoded", 33) == 0) {
+                    // parse urlencoded form data
+                    if (TCL_OK != tws_ParseUrlEncodedForm(interp, body_ptr, result_ptr)) {
+                        Tcl_DecrRefCount(headers_ptr);
+                        Tcl_DecrRefCount(result_ptr);
+                        SetResult("get_form: error parsing urlencoded form data");
+                        return TCL_ERROR;
+                    }
                 }
             }
         }
