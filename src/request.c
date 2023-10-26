@@ -784,31 +784,22 @@ int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_le
     return TCL_OK;
 }
 
-static int
-tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *resultPtr, Tcl_Obj *contentLengthPtr,
-              Tcl_Obj *content_type_ptr) {
-    int contentLength;
-    if (contentLengthPtr) {
-        if (Tcl_GetIntFromObj(interp, contentLengthPtr, &contentLength) != TCL_OK) {
-            SetResult("Content-Length must be an integer");
-            return TCL_ERROR;
-        }
+int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *headersPtr, Tcl_Obj *resultPtr) {
 
-        // check if we have enough bytes in the body
-        if (end - curr < contentLength) {
-            contentLength = end - curr;
-        }
-    } else {
-        if (curr == end) {
-            Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(0));
-            Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj("", 0));
-            return TCL_OK;
-        }
-
-        contentLength = end - curr;
+    Tcl_Obj *content_type_ptr;
+    Tcl_Obj *content_type_key_ptr = Tcl_NewStringObj("content-type", -1);
+    Tcl_IncrRefCount(content_type_key_ptr);
+    if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, content_type_key_ptr, &content_type_ptr)) {
+        Tcl_DecrRefCount(headersPtr);
+        Tcl_DecrRefCount(content_type_key_ptr);
+        return TCL_ERROR;
     }
+    Tcl_DecrRefCount(content_type_key_ptr);
+    Tcl_DecrRefCount(headersPtr);
 
-    fprintf(stderr, "contentLength=%d\n", contentLength);
+
+    int content_length = end - curr;
+
 
     int base64_encode_it = 0;
     if (content_type_ptr) {
@@ -872,9 +863,9 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
 
     if (base64_encode_it) {
         // base64 encode the body and remember as "body"
-        char *body = Tcl_Alloc(contentLength * 2);
+        char *body = Tcl_Alloc(content_length * 2);
         size_t bodyLength;
-        if (base64_encode(curr, contentLength, body, &bodyLength)) {
+        if (base64_encode(curr, content_length, body, &bodyLength)) {
             Tcl_Free(body);
             SetResult("base64_encode failed");
             return TCL_ERROR;
@@ -884,9 +875,9 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
         Tcl_Free(body);
     } else {
         // mark the end of the token and remember as "body"
-        char *body = tws_strndup(curr, contentLength + 1);
-        body[contentLength] = '\0';
-        Tcl_Obj *bodyPtr = Tcl_NewStringObj(body, contentLength);
+        char *body = tws_strndup(curr, content_length + 1);
+        body[content_length] = '\0';
+        Tcl_Obj *bodyPtr = Tcl_NewStringObj(body, content_length);
         Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), bodyPtr);
         Tcl_Free(body);
     }
@@ -894,7 +885,7 @@ tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *re
     return TCL_OK;
 }
 
-int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsPtr, Tcl_Obj *dictPtr) {
+int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsPtr, Tcl_Obj *dictPtr, int *offset) {
 
 //    String version;
 //    String path;
@@ -930,34 +921,9 @@ int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsP
     Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("headers", -1), headersPtr);
     Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("multiValueHeaders", -1), multiValueHeadersPtr);
 
-    // get "Content-Length" header
-    Tcl_Obj *contentLengthPtr;
-    Tcl_Obj *contentLengthKeyPtr = Tcl_NewStringObj("content-length", -1);
-    Tcl_IncrRefCount(contentLengthKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentLengthKeyPtr, &contentLengthPtr)) {
-        Tcl_DecrRefCount(multiValueHeadersPtr);
-        Tcl_DecrRefCount(headersPtr);
-        Tcl_DecrRefCount(contentLengthKeyPtr);
-        return TCL_ERROR;
-    }
-    Tcl_DecrRefCount(contentLengthKeyPtr);
+//    tws_ParseBody(interp, curr, end, dictPtr, contentLengthPtr, contentTypePtr);
 
-    Tcl_Obj *contentTypePtr;
-    Tcl_Obj *contentTypeKeyPtr = Tcl_NewStringObj("content-type", -1);
-    Tcl_IncrRefCount(contentTypeKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentTypeKeyPtr, &contentTypePtr)) {
-        Tcl_DecrRefCount(multiValueHeadersPtr);
-        Tcl_DecrRefCount(headersPtr);
-        Tcl_DecrRefCount(contentTypeKeyPtr);
-        return TCL_ERROR;
-    }
-    Tcl_DecrRefCount(contentTypeKeyPtr);
-
-    Tcl_DecrRefCount(multiValueHeadersPtr);
-    Tcl_DecrRefCount(headersPtr);
-
-    tws_ParseBody(interp, curr, end, dictPtr, contentLengthPtr, contentTypePtr);
-
+    *offset = curr - request;
     return TCL_OK;
 }
 
@@ -980,9 +946,10 @@ int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
     Tcl_DStringAppend(&ds, request, length);
+    const char *p = NULL;
     Tcl_Obj *resultPtr = Tcl_NewDictObj();
     Tcl_IncrRefCount(resultPtr);
-    if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, resultPtr)) {
+    if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, resultPtr, &p)) {
         Tcl_DecrRefCount(resultPtr);
         Tcl_DStringFree(&ds);
         return TCL_ERROR;

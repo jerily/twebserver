@@ -22,6 +22,7 @@
 #else
 
 #include <sys/epoll.h>
+#include <sys/ioctl.h>
 
 #endif
 
@@ -417,7 +418,8 @@ static void tws_HandleConn(tws_conn_t *conn) {
     } while (rc <= 0 && SSL_get_error(conn->ssl, rc) == SSL_ERROR_WANT_READ);
 
     if (rc <= 0) {
-        fprintf(stderr, "SSL_accept <= 0 client: %d\n", conn->client);
+        int err = SSL_get_error(conn->ssl, rc);
+        fprintf(stderr, "SSL_accept <= 0 client: %d err=%s\n", conn->client, ssl_errors[err]);
         tws_CloseConn(conn, 1);
         ERR_print_errors_fp(stderr);
         return;
@@ -488,11 +490,13 @@ static void tws_HandleConn(tws_conn_t *conn) {
     }
 }
 
-static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle, Tcl_DString *dsPtr) {
+#define MIN(x,y) ((x) < (y) ? (x) : (y))
+
+static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle, Tcl_DString *dsPtr, int size) {
     DBG(fprintf(stderr, "ReadConn client: %d\n", conn->client));
 
     long max_request_read_bytes = conn->server->max_request_read_bytes;
-    int max_buffer_size = conn->server->max_read_buffer_size;
+    int max_buffer_size = size == 0 ? conn->server->max_read_buffer_size : MIN(size, conn->server->max_read_buffer_size);
 
     char *buf = (char *) Tcl_Alloc(max_buffer_size);
     long total_read = 0;
@@ -504,7 +508,7 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
      * until SSL_read() would return no data
      */
 
-    int last = 1;
+    int again_after_error_want_read = 1;
     for (;;) {
         rc = SSL_read(conn->ssl, buf, max_buffer_size);
         if (rc > 0) {
@@ -514,30 +518,45 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
             if (total_read > max_request_read_bytes) {
                 goto failed_due_to_request_too_large;
             }
-            last = 1;
             continue;
         } else {
             int err = SSL_get_error(conn->ssl, rc);
-            DBG(fprintf(stderr, "SSL_read error: %s err=%d rc=%d\n", ssl_errors[err], err, rc));
-            if (err == SSL_ERROR_WANT_READ) {
+            if (err == SSL_ERROR_NONE) {
+                break;
+            } else if (err == SSL_ERROR_WANT_READ) {
                 DBG(fprintf(stderr, "SSL_ERROR_WANT_READ\n"));
-                // if last==1, then try one more iteration
-                if (last <= 0 && total_read > 0) {
-                    break;
+
+                if (again_after_error_want_read) {
+                    again_after_error_want_read--;
+                    continue;
                 }
-                last = 0;
-                continue;
-            } else if (err == SSL_ERROR_ZERO_RETURN) {
+
+                int available = 0;
+                if (ioctl(conn->client, FIONREAD, &available) == -1) {
+                    return TCL_ERROR;
+                }
+
+                if (available > 0) {
+//                    fprintf(stderr, "available: %d\n", available);
+                    continue;
+                }
+
+                if (total_read == 0 || total_read < size) {
+                    // TODO: put a timeout here
+                    continue;
+                }
+                break;
+            } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
                 break;
             }
+
+            DBG(fprintf(stderr, "SSL_read error: %s err=%d rc=%d\n", ssl_errors[err], err, rc));
 
             Tcl_Free(buf);
             SetResult("SSL_read error");
             return TCL_ERROR;
         }
     }
-
-    DBG(fprintf(stderr, "total_read: %ld\n", total_read));
 
     Tcl_Free(buf);
     return TCL_OK;
@@ -563,7 +582,7 @@ int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
 
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
-    if (TCL_OK != tws_ReadConn(interp, conn, conn_handle, &ds)) {
+    if (TCL_OK != tws_ReadConn(interp, conn, conn_handle, &ds, 0)) {
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
@@ -576,14 +595,15 @@ int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle,
                   Tcl_Obj **requestDictPtr) {
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
-    if (TCL_OK != tws_ReadConn(interp, conn, conn_handle, &ds)) {
+    if (TCL_OK != tws_ReadConn(interp, conn, conn_handle, &ds, 0)) {
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
 
+    int offset = 0;
     Tcl_Obj *resultPtr = Tcl_NewDictObj();
     Tcl_IncrRefCount(resultPtr);
-    if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, resultPtr)) {
+    if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, resultPtr, &offset)) {
         Tcl_DecrRefCount(resultPtr);
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
@@ -601,6 +621,37 @@ int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle,
     Tcl_DecrRefCount(headersKeyPtr);
 
     if (headersPtr) {
+
+        // get "Content-Length" header
+        Tcl_Obj *contentLengthPtr;
+        Tcl_Obj *contentLengthKeyPtr = Tcl_NewStringObj("content-length", -1);
+        Tcl_IncrRefCount(contentLengthKeyPtr);
+        if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentLengthKeyPtr, &contentLengthPtr)) {
+            Tcl_DecrRefCount(headersPtr);
+            Tcl_DecrRefCount(contentLengthKeyPtr);
+            return TCL_ERROR;
+        }
+        Tcl_DecrRefCount(contentLengthKeyPtr);
+
+        if (contentLengthPtr) {
+            int content_length;
+            if (TCL_OK != Tcl_GetIntFromObj(interp, contentLengthPtr, &content_length)) {
+                Tcl_DecrRefCount(headersPtr);
+                return TCL_ERROR;
+            }
+
+            int remaining = Tcl_DStringLength(&ds) - offset;
+            if (content_length - remaining > 0) {
+                if (TCL_OK != tws_ReadConn(interp, conn, conn_handle, &ds, content_length)) {
+                    Tcl_DecrRefCount(resultPtr);
+                    Tcl_DStringFree(&ds);
+                    return TCL_ERROR;
+                }
+            }
+            const char *remaining_ptr = Tcl_DStringValue(&ds) + offset;
+            tws_ParseBody(interp, remaining_ptr, Tcl_DStringValue(&ds) + Tcl_DStringLength(&ds), headersPtr, resultPtr);
+        }
+
         if (conn->server->keepalive) {
             if (TCL_OK != tws_ParseConnectionKeepalive(interp, headersPtr, &conn->keepalive)) {
                 Tcl_DecrRefCount(resultPtr);
@@ -670,7 +721,6 @@ int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
     const char *reply = Tcl_GetStringFromObj(objv[2], &length);
     int rc = SSL_write(conn->ssl, reply, length);
     if (rc <= 0) {
-//        int err = SSL_get_error(conn->ssl, rc);
         tws_CloseConn(conn, 1);
         SetResult("write_conn: SSL_write error");
         return TCL_ERROR;
@@ -681,6 +731,11 @@ int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
 }
 
 int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr, Tcl_Encoding encoding) {
+
+    if (!conn->server) {
+        SetResult("ReturnConn called on deleted conn");
+        return TCL_ERROR;
+    }
 
     Tcl_Obj *statusCodePtr;
     Tcl_Obj *statusCodeKeyPtr = Tcl_NewStringObj("statusCode", -1);
@@ -946,7 +1001,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_DStringFree(&ds);
 
     if (rc <= 0) {
-        DBG(fprintf(stderr, "return_conn: SSL_write error (reply): %s\n", ssl_errors[SSL_get_error(conn->ssl, rc)]));
+        fprintf(stderr, "return_conn: SSL_write error (reply): %s\n", ssl_errors[SSL_get_error(conn->ssl, rc)]);
         tws_CloseConn(conn, 1);
         SetResult("return_conn: SSL_write error (reply)");
         return TCL_ERROR;
@@ -1061,6 +1116,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 #else
     dataPtr->epoll_fd = epoll_create1(0);
 #endif
+
     Tcl_IncrRefCount(dataPtr->cmdPtr);
 
     DBG(fprintf(stderr, "created interp=%p\n", dataPtr->interp));
@@ -1286,6 +1342,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
         return TCL_ERROR;
     }
 #endif
+
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     // Add the server socket to the kqueue set
