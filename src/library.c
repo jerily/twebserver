@@ -11,6 +11,7 @@
 #include "request.h"
 #include "router.h"
 #include "crypto.h"
+#include "form.h"
 
 #include <sys/socket.h> // for SOMAXCONN
 #include <stdio.h>
@@ -1102,92 +1103,6 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
 
     Tcl_SetObjResult(interp, responseDictPtr);
     Tcl_DecrRefCount(responseDictPtr);
-    return TCL_OK;
-}
-
-static int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "GetFormCmd\n"));
-    CheckArgs(2, 2, 1, "request_dict");
-
-//    fprintf(stderr, "req=%s\n", Tcl_GetString(objv[1]));
-
-    Tcl_Obj *body_ptr = NULL;
-    Tcl_Obj *body_key_ptr = Tcl_NewStringObj("body", -1);
-    Tcl_IncrRefCount(body_key_ptr);
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[1], body_key_ptr, &body_ptr)) {
-        Tcl_DecrRefCount(body_key_ptr);
-        SetResult("get_form: error reading body from request dict");
-        return TCL_ERROR;
-    }
-
-    Tcl_Obj *multipart_boundary_ptr = NULL;
-    Tcl_Obj *multipart_boundary_key_ptr = Tcl_NewStringObj("multipartBoundary", -1);
-    Tcl_IncrRefCount(multipart_boundary_key_ptr);
-    if (TCL_OK != Tcl_DictObjGet(interp, objv[1], multipart_boundary_key_ptr, &multipart_boundary_ptr)) {
-        Tcl_DecrRefCount(body_key_ptr);
-        Tcl_DecrRefCount(multipart_boundary_key_ptr);
-        SetResult("get_form: error reading multipart_boundary from request dict");
-        return TCL_ERROR;
-    }
-
-    Tcl_Obj *result_ptr = Tcl_NewDictObj();
-    Tcl_IncrRefCount(result_ptr);
-    if (multipart_boundary_ptr) {
-        DBG(fprintf(stderr, "multipart form data with boundary=%s\n", Tcl_GetString(multipart_boundary_ptr)));
-
-        int body_b64_length;
-        const char *body_b64 = Tcl_GetStringFromObj(body_ptr, &body_b64_length);
-
-        char *body = Tcl_Alloc(3 * body_b64_length / 4 + 2);
-        size_t body_length;
-        if (base64_decode(body_b64, body_b64_length, body, &body_length)) {
-            Tcl_Free(body);
-            SetResult("base64_decode failed");
-            return TCL_ERROR;
-        }
-
-        if (TCL_OK != tws_ParseMultipartFormData(interp, body, body_length, multipart_boundary_ptr, result_ptr)) {
-            Tcl_DecrRefCount(body_key_ptr);
-            Tcl_DecrRefCount(multipart_boundary_key_ptr);
-            Tcl_DecrRefCount(result_ptr);
-            SetResult("get_form: error parsing multipart form data");
-            return TCL_ERROR;
-        }
-    } else {
-        // check if "content-type" is "application/x-form-urlencoded"
-        Tcl_Obj *content_type_ptr = NULL;
-        Tcl_Obj *content_type_key_ptr = Tcl_NewStringObj("content-type", -1);
-        Tcl_IncrRefCount(content_type_key_ptr);
-        if (TCL_OK != Tcl_DictObjGet(interp, objv[1], content_type_key_ptr, &content_type_ptr)) {
-            Tcl_DecrRefCount(body_key_ptr);
-            Tcl_DecrRefCount(multipart_boundary_key_ptr);
-            Tcl_DecrRefCount(content_type_key_ptr);
-            Tcl_DecrRefCount(result_ptr);
-            SetResult("get_form: error reading content-type from request dict");
-            return TCL_ERROR;
-        }
-
-        if (content_type_ptr) {
-            int content_type_len;
-            const char *content_type = Tcl_GetStringFromObj(content_type_ptr, &content_type_len);
-            if (content_type_len >= 33 && !strncmp(content_type, "application/x-www-form-urlencoded", 33)) {
-                // todo: parse urlencoded form data
-//                if (TCL_OK != tws_ParseUrlEncodedForm(interp, body_ptr, result_ptr)) {
-//                    Tcl_DecrRefCount(body_key_ptr);
-//                    Tcl_DecrRefCount(multipart_boundary_key_ptr);
-//                    Tcl_DecrRefCount(content_type_key_ptr);
-//                    Tcl_DecrRefCount(result_ptr);
-//                    SetResult("get_form: error parsing urlencoded form data");
-//                    return TCL_ERROR;
-//                }
-            }
-        }
-    }
-
-    Tcl_SetObjResult(interp, result_ptr);
-    Tcl_DecrRefCount(body_key_ptr);
-    Tcl_DecrRefCount(multipart_boundary_key_ptr);
-    Tcl_SetObjResult(interp, result_ptr);
     return TCL_OK;
 }
 
