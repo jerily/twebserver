@@ -4,7 +4,7 @@
 ### High-Level Commands
 
 * **::twebserver::create_server** *config_dict* *request_processor_proc* *?thread_init_script?*
-    - returns a handle to a server, see [Server Configuration](docs/config.md) for configuration parameters
+    - returns a handle to a server, see [Server Configuration](config.md) for configuration parameters
   ```tcl
   set server_handle [::twebserver::create_server [dict create] process_conn]
   ```
@@ -32,7 +32,7 @@
   ```
 * **::twebserver::add_route** *?-prefix?* *?-nocase?* *?-strict?* *router* *method* *path* *handler_proc*
     - adds a route to a router, the handler_proc should accept two arguments: ```context_dict``` and ```request_dict```.
-      See [Routing](docs/routing.md) for more information.
+      See [Routing](routing.md) for more information.
   ```tcl
   proc example_handler {ctx req} {
     set response_dict [dict create]
@@ -46,7 +46,7 @@
 * **::twebserver::add_middleware** *?-enter_proc enter_proc_name?* *?-leave_proc leave_proc_name?* *router*
     - adds middleware to a router, the enter_proc_name should accept two arguments: ```context_dict``` and ```request_dict```.
       The leave_proc_name should accept three arguments: ```context_dict```, ```request_dict```, and ```response_dict```.
-      See [Middleware](docs/middleware.md) for more information.
+      See [Middleware](middleware.md) for more information.
       ```tcl
       proc example_enter {ctx req} {
         puts "entering example"
