@@ -6,6 +6,7 @@
 
 #include "form.h"
 #include "base64.h"
+#include "request.h"
 
 
 static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const char *be, Tcl_Obj *multipart_form_data_fields_ptr, Tcl_Obj *multipart_form_data_files_ptr) {
@@ -253,6 +254,72 @@ static int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int 
     return TCL_OK;
 }
 
+static int tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *form_fields_ptr, const char *key, const char *value, int value_length) {
+    Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
+
+    Tcl_Obj *keyPtr = Tcl_NewStringObj(key, value - key - 1);
+    Tcl_Obj *valuePtr = Tcl_NewStringObj("", 0);
+    if (TCL_OK != tws_UrlDecode(interp, encoding, value, value_length, valuePtr)) {
+        SetResult("AddUrlEncodedFormField: urldecode error");
+        return TCL_ERROR;
+    }
+    if (TCL_OK != Tcl_DictObjPut(interp, form_fields_ptr, keyPtr, valuePtr)) {
+        SetResult("AddUrlEncodedFormField: dict write error");
+        return TCL_ERROR;
+    }
+}
+
+static int tws_ParseUrlEncodedForm(Tcl_Interp *interp, Tcl_Obj *body_ptr, Tcl_Obj *result_ptr) {
+    int body_length;
+    const char *body = Tcl_GetStringFromObj(body_ptr, &body_length);
+
+    Tcl_Obj *form_fields_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(form_fields_ptr);
+
+    const char *p = body;
+    const char *end = body + body_length;
+
+    while (p < end) {
+        const char *key = p;
+        const char *value = NULL;
+        while (p < end && *p != '=') {
+            p++;
+        }
+        if (p == end) {
+            Tcl_DecrRefCount(form_fields_ptr);
+            SetResult("ParseUrlEncodedForm: malformed urlencoded form data");
+            return TCL_ERROR;
+        }
+        value = p + 1;
+        while (p < end && *p != '&') {
+            p++;
+        }
+        if (p == end) {
+            if (TCL_OK != tws_AddUrlEncodedFormField(interp, form_fields_ptr, key, value, p - value)) {
+                Tcl_DecrRefCount(form_fields_ptr);
+                SetResult("ParseUrlEncodedForm: dict write error");
+                return TCL_ERROR;
+            }
+            break;
+        }
+        if (TCL_OK != tws_AddUrlEncodedFormField(interp, form_fields_ptr, key, value, p - value)) {
+            Tcl_DecrRefCount(form_fields_ptr);
+            SetResult("ParseUrlEncodedForm: dict write error");
+            return TCL_ERROR;
+        }
+        p++;
+    }
+
+    if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("fields", -1), form_fields_ptr)) {
+        Tcl_DecrRefCount(form_fields_ptr);
+        SetResult("ParseUrlEncodedForm: urlencoded form data dict write error");
+        return TCL_ERROR;
+    }
+
+    Tcl_DecrRefCount(form_fields_ptr);
+    return TCL_OK;
+}
+
 int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "GetFormCmd\n"));
     CheckArgs(2, 2, 1, "request_dict");
@@ -267,16 +334,22 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
         SetResult("get_form: error reading body from request dict");
         return TCL_ERROR;
     }
+    Tcl_DecrRefCount(body_key_ptr);
+
+    if (!body_ptr) {
+        SetResult("get_form: no body in request dict");
+        return TCL_ERROR;
+    }
 
     Tcl_Obj *multipart_boundary_ptr = NULL;
     Tcl_Obj *multipart_boundary_key_ptr = Tcl_NewStringObj("multipartBoundary", -1);
     Tcl_IncrRefCount(multipart_boundary_key_ptr);
     if (TCL_OK != Tcl_DictObjGet(interp, objv[1], multipart_boundary_key_ptr, &multipart_boundary_ptr)) {
-        Tcl_DecrRefCount(body_key_ptr);
         Tcl_DecrRefCount(multipart_boundary_key_ptr);
         SetResult("get_form: error reading multipart_boundary from request dict");
         return TCL_ERROR;
     }
+    Tcl_DecrRefCount(multipart_boundary_key_ptr);
 
     Tcl_Obj *result_ptr = Tcl_NewDictObj();
     Tcl_IncrRefCount(result_ptr);
@@ -289,14 +362,13 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
         char *body = Tcl_Alloc(3 * body_b64_length / 4 + 2);
         size_t body_length;
         if (base64_decode(body_b64, body_b64_length, body, &body_length)) {
+            Tcl_DecrRefCount(result_ptr);
             Tcl_Free(body);
             SetResult("base64_decode failed");
             return TCL_ERROR;
         }
 
         if (TCL_OK != tws_ParseMultipartFormData(interp, body, body_length, multipart_boundary_ptr, result_ptr)) {
-            Tcl_DecrRefCount(body_key_ptr);
-            Tcl_DecrRefCount(multipart_boundary_key_ptr);
             Tcl_DecrRefCount(result_ptr);
             SetResult("get_form: error parsing multipart form data");
             return TCL_ERROR;
@@ -307,34 +379,28 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
         Tcl_Obj *content_type_key_ptr = Tcl_NewStringObj("content-type", -1);
         Tcl_IncrRefCount(content_type_key_ptr);
         if (TCL_OK != Tcl_DictObjGet(interp, objv[1], content_type_key_ptr, &content_type_ptr)) {
-            Tcl_DecrRefCount(body_key_ptr);
-            Tcl_DecrRefCount(multipart_boundary_key_ptr);
             Tcl_DecrRefCount(content_type_key_ptr);
             Tcl_DecrRefCount(result_ptr);
             SetResult("get_form: error reading content-type from request dict");
             return TCL_ERROR;
         }
+        Tcl_DecrRefCount(content_type_key_ptr);
 
         if (content_type_ptr) {
             int content_type_len;
             const char *content_type = Tcl_GetStringFromObj(content_type_ptr, &content_type_len);
-            if (content_type_len >= 33 && !strncmp(content_type, "application/x-www-form-urlencoded", 33)) {
-                // todo: parse urlencoded form data
-//                if (TCL_OK != tws_ParseUrlEncodedForm(interp, body_ptr, result_ptr)) {
-//                    Tcl_DecrRefCount(body_key_ptr);
-//                    Tcl_DecrRefCount(multipart_boundary_key_ptr);
-//                    Tcl_DecrRefCount(content_type_key_ptr);
-//                    Tcl_DecrRefCount(result_ptr);
-//                    SetResult("get_form: error parsing urlencoded form data");
-//                    return TCL_ERROR;
-//                }
+            if (content_type_len >= 33 && strncmp(content_type, "application/x-www-form-urlencoded", 33) == 0) {
+                // parse urlencoded form data
+                if (TCL_OK != tws_ParseUrlEncodedForm(interp, body_ptr, result_ptr)) {
+                    Tcl_DecrRefCount(result_ptr);
+                    SetResult("get_form: error parsing urlencoded form data");
+                    return TCL_ERROR;
+                }
             }
         }
     }
 
     Tcl_SetObjResult(interp, result_ptr);
-    Tcl_DecrRefCount(body_key_ptr);
-    Tcl_DecrRefCount(multipart_boundary_key_ptr);
-    Tcl_SetObjResult(interp, result_ptr);
+    Tcl_DecrRefCount(result_ptr);
     return TCL_OK;
 }

@@ -918,7 +918,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         // check if content type is in gzip_types_HT
         if (contentTypePtr) {
             int contentTypeLength;
-            const char *contentType = Tcl_GetStringFromObj(contentTypePtr, &contentTypeLength);
+            char *contentType = Tcl_GetStringFromObj(contentTypePtr, &contentTypeLength);
             if (contentTypeLength > 0) {
                 // find the first ";" in contentType
                 char *p = memchr(contentType, ';', contentTypeLength);
