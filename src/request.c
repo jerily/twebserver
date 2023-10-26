@@ -760,6 +760,23 @@ int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
+
+    Tcl_Obj *headersPtr;
+    Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
+    Tcl_IncrRefCount(headersKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, resultPtr, headersKeyPtr, &headersPtr)) {
+        Tcl_DecrRefCount(headersKeyPtr);
+        Tcl_DecrRefCount(resultPtr);
+        Tcl_DStringFree(&ds);
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(headersKeyPtr);
+
+    if (headersPtr) {
+        const char *remaining_ptr = Tcl_DStringValue(&ds) + offset;
+        tws_ParseBody(interp, remaining_ptr, Tcl_DStringValue(&ds) + Tcl_DStringLength(&ds), headersPtr, resultPtr);
+    }
+
     Tcl_SetObjResult(interp, resultPtr);
     Tcl_DecrRefCount(resultPtr);
     Tcl_DStringFree(&ds);
