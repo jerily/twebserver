@@ -139,32 +139,83 @@ int tws_UrlEncode(Tcl_Interp *interp, int enc_flags, const char *value, int valu
     return TCL_OK;
 }
 
-static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Obj *queryStringParametersPtr,
-                                       Tcl_Obj *multivalueQueryStringParametersPtr, const char *key, const char *value,
+static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Obj *query_string_parameters_ptr,
+                                       Tcl_Obj *multivalue_query_string_parameters_ptr, const char *key, const char *value,
                                        int value_length) {
+
     // check if "key" already exists in "queryStringParameters"
-    Tcl_Obj *keyPtr = Tcl_NewStringObj(key, value - key - 1);
-    Tcl_Obj *valuePtr = Tcl_NewStringObj("", 0);
-    if (TCL_OK != tws_UrlDecode(interp, encoding, value, value_length, valuePtr)) {
-        SetResult("query string urldecode error");
+    Tcl_Obj *key_ptr = Tcl_NewStringObj(key, value - key - 1);
+    Tcl_IncrRefCount(key_ptr);
+    Tcl_Obj *value_ptr = Tcl_NewStringObj("", 0);
+    Tcl_IncrRefCount(value_ptr);
+    if (TCL_OK != tws_UrlDecode(interp, encoding, value, value_length, value_ptr)) {
+        Tcl_DecrRefCount(value_ptr);
+        Tcl_DecrRefCount(key_ptr);
+        SetResult("AddQueryStringParameter: urldecode error");
         return TCL_ERROR;
     }
-    Tcl_Obj *existingValuePtr;
-    Tcl_DictObjGet(interp, queryStringParametersPtr, keyPtr, &existingValuePtr);
-    if (existingValuePtr) {
+    Tcl_Obj *existing_value_ptr;
+    if (TCL_OK != Tcl_DictObjGet(interp, query_string_parameters_ptr, key_ptr, &existing_value_ptr)) {
+        Tcl_DecrRefCount(value_ptr);
+        Tcl_DecrRefCount(key_ptr);
+        SetResult("AddQueryStringParameter: dict get error");
+        return TCL_ERROR;
+    }
+    if (existing_value_ptr) {
         // check if "key" already exists in "multivalueQueryStringParameters"
-        Tcl_Obj *multiValuePtr;
-        Tcl_DictObjGet(interp, multivalueQueryStringParametersPtr, keyPtr, &multiValuePtr);
-        if (!multiValuePtr) {
+        Tcl_Obj *multi_value_ptr;
+        if (TCL_OK != Tcl_DictObjGet(interp, multivalue_query_string_parameters_ptr, key_ptr, &multi_value_ptr)) {
+            Tcl_DecrRefCount(value_ptr);
+            Tcl_DecrRefCount(key_ptr);
+            SetResult("AddQueryStringParameter: dict get error");
+            return TCL_ERROR;
+        }
+        int should_decr_ref_count = 0;
+        if (!multi_value_ptr) {
             // it does not exist, create a new list and add the existing value from queryStringParameters
-            multiValuePtr = Tcl_NewListObj(0, NULL);
-            Tcl_ListObjAppendElement(interp, multiValuePtr, existingValuePtr);
+            multi_value_ptr = Tcl_NewListObj(0, NULL);
+            Tcl_IncrRefCount(multi_value_ptr);
+            if (TCL_OK != Tcl_ListObjAppendElement(interp, multi_value_ptr, existing_value_ptr)) {
+                Tcl_DecrRefCount(value_ptr);
+                Tcl_DecrRefCount(key_ptr);
+                Tcl_DecrRefCount(multi_value_ptr);
+                SetResult("AddQueryStringParameter: list append error");
+                return TCL_ERROR;
+            }
+            should_decr_ref_count = 1;
         }
         // append the new value to the list
-        Tcl_ListObjAppendElement(interp, multiValuePtr, valuePtr);
-        Tcl_DictObjPut(interp, multivalueQueryStringParametersPtr, keyPtr, multiValuePtr);
+        if (TCL_OK != Tcl_ListObjAppendElement(interp, multi_value_ptr, value_ptr)) {
+            Tcl_DecrRefCount(value_ptr);
+            Tcl_DecrRefCount(key_ptr);
+            if (should_decr_ref_count) {
+                Tcl_DecrRefCount(multi_value_ptr);
+            }
+            SetResult("AddQueryStringParameter: list append error");
+            return TCL_ERROR;
+        }
+        if (TCL_OK != Tcl_DictObjPut(interp, multivalue_query_string_parameters_ptr, key_ptr, multi_value_ptr)) {
+            Tcl_DecrRefCount(value_ptr);
+            Tcl_DecrRefCount(key_ptr);
+            if (should_decr_ref_count) {
+                Tcl_DecrRefCount(multi_value_ptr);
+            }
+            SetResult("AddQueryStringParameter: dict put error");
+            return TCL_ERROR;
+        }
+        if (should_decr_ref_count) {
+            Tcl_DecrRefCount(multi_value_ptr);
+        }
     }
-    Tcl_DictObjPut(interp, queryStringParametersPtr, keyPtr, valuePtr);
+    if (TCL_OK != Tcl_DictObjPut(interp, query_string_parameters_ptr, key_ptr, value_ptr)) {
+        Tcl_DecrRefCount(value_ptr);
+        Tcl_DecrRefCount(key_ptr);
+        SetResult("AddQueryStringParameter: dict put error");
+        return TCL_ERROR;
+    }
+
+    Tcl_DecrRefCount(value_ptr);
+    Tcl_DecrRefCount(key_ptr);
     return TCL_OK;
 }
 
