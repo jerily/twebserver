@@ -708,8 +708,7 @@ int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj
         Tcl_Free(body);
     } else {
         // mark the end of the token and remember as "body"
-        char *body = tws_strndup(curr, content_length + 1);
-        body[content_length] = '\0';
+        char *body = tws_strndup(curr, content_length);
         Tcl_Obj *bodyPtr = Tcl_NewStringObj(body, content_length);
         Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), bodyPtr);
         Tcl_Free(body);

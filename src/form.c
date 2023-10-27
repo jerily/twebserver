@@ -132,17 +132,21 @@ static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const cha
             SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
             return TCL_ERROR;
         }
+        Tcl_Free(block_body);
 
         value_ptr = Tcl_NewStringObj(filename, filename_length);
     } else {
         value_ptr = Tcl_NewStringObj(bs, be - bs);
     }
+    Tcl_IncrRefCount(value_ptr);
 
     if (TCL_OK != Tcl_DictObjPut(interp, multipart_form_data_fields_ptr, Tcl_NewStringObj(field_name, field_name_end - field_name), value_ptr)) {
+        Tcl_DecrRefCount(value_ptr);
         SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
         return TCL_ERROR;
     }
 
+    Tcl_DecrRefCount(value_ptr);
     return TCL_OK;
 }
 
@@ -235,22 +239,20 @@ static int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int 
         SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
         return TCL_ERROR;
     }
+    Tcl_DecrRefCount(multipart_form_data_fields_key_ptr);
 
     Tcl_Obj *multipart_form_data_files_key_ptr = Tcl_NewStringObj("files", -1);
     Tcl_IncrRefCount(multipart_form_data_files_key_ptr);
     if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, multipart_form_data_files_key_ptr, multipart_form_data_files_ptr)) {
         Tcl_DecrRefCount(multipart_form_data_fields_ptr);
         Tcl_DecrRefCount(multipart_form_data_files_ptr);
-        Tcl_DecrRefCount(multipart_form_data_fields_key_ptr);
-        Tcl_DecrRefCount(multipart_form_data_files_key_ptr);
         SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
         return TCL_ERROR;
     }
+    Tcl_DecrRefCount(multipart_form_data_files_key_ptr);
 
     Tcl_DecrRefCount(multipart_form_data_fields_ptr);
     Tcl_DecrRefCount(multipart_form_data_files_ptr);
-    Tcl_DecrRefCount(multipart_form_data_fields_key_ptr);
-    Tcl_DecrRefCount(multipart_form_data_files_key_ptr);
     return TCL_OK;
 }
 
