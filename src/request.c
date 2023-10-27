@@ -433,21 +433,39 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, Tcl_Encoding encoding, const
 static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *headersPtr, Tcl_Obj *multiValueHeadersPtr, Tcl_Obj *keyPtr,
                          Tcl_Obj *valuePtr) {
     Tcl_Obj *existingValuePtr;
-    Tcl_DictObjGet(interp, headersPtr, keyPtr, &existingValuePtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, keyPtr, &existingValuePtr)) {
+        SetResult("AddHeader: dict get error");
+        return TCL_ERROR;
+    }
     if (existingValuePtr) {
         // check if "key" already exists in "multiValueHeaders"
         Tcl_Obj *multiValuePtr;
-        Tcl_DictObjGet(interp, multiValueHeadersPtr, keyPtr, &multiValuePtr);
+        if (TCL_OK != Tcl_DictObjGet(interp, multiValueHeadersPtr, keyPtr, &multiValuePtr)) {
+            SetResult("AddHeader: dict get error");
+            return TCL_ERROR;
+        }
         if (!multiValuePtr) {
             // it does not exist, create a new list and add the existing value from headers
             multiValuePtr = Tcl_NewListObj(0, NULL);
-            Tcl_ListObjAppendElement(interp, multiValuePtr, existingValuePtr);
+            if (TCL_OK != Tcl_ListObjAppendElement(interp, multiValuePtr, existingValuePtr)) {
+                SetResult("AddHeader: list append error");
+                return TCL_ERROR;
+            }
         }
         // append the new value to the list
-        Tcl_ListObjAppendElement(interp, multiValuePtr, valuePtr);
-        Tcl_DictObjPut(interp, multiValueHeadersPtr, keyPtr, multiValuePtr);
+        if (TCL_OK != Tcl_ListObjAppendElement(interp, multiValuePtr, valuePtr)) {
+            SetResult("AddHeader: list append error");
+            return TCL_ERROR;
+        }
+        if (TCL_OK != Tcl_DictObjPut(interp, multiValueHeadersPtr, keyPtr, multiValuePtr)) {
+            SetResult("AddHeader: dict put error");
+            return TCL_ERROR;
+        }
     }
-    Tcl_DictObjPut(interp, headersPtr, keyPtr, valuePtr);
+    if (TCL_OK != Tcl_DictObjPut(interp, headersPtr, keyPtr, valuePtr)) {
+        SetResult("AddHeader: dict put error");
+        return TCL_ERROR;
+    }
     return TCL_OK;
 }
 
@@ -469,14 +487,14 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
 
         // mark the end of the token and remember as "key"
         curr++;
-        int keylen = curr - p - 1;
-        char *key = tws_strndup(p, curr - p);
+        size_t keylen = curr - p - 1;
+        char *key = tws_strndup(p, keylen);
         // lowercase "key"
         for (int i = 0; i < keylen; i++) {
             key[i] = tolower(key[i]);
         }
-        key[curr - p - 1] = '\0';
         Tcl_Obj *keyPtr = Tcl_NewStringObj(key, keylen);
+        Tcl_IncrRefCount(keyPtr);
         Tcl_Free(key);
 
         // skip spaces
@@ -492,13 +510,13 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
 
         // mark the end of the token and remember as "value"
         curr++;
-        int valuelen = curr - p - 1;
-        char *value = tws_strndup(p, curr - p);
-        value[curr - p - 1] = '\0';
+        size_t valuelen = curr - p - 1;
+        char *value = tws_strndup(p, valuelen);
         Tcl_Obj *valuePtr = Tcl_NewStringObj(value, valuelen);
+        Tcl_IncrRefCount(valuePtr);
         Tcl_Free(value);
 
-//        DBG(fprintf(stderr, "key=%s value=%s\n", key, value));
+        DBG(fprintf(stderr, "key=%s value=%s\n", key, value));
 
         // skip spaces until end of line denoted by "\r\n" or "\n"
         while (curr < end && CHARTYPE(space, *curr) != 0 && *curr != '\r' && *curr != '\n') {
@@ -508,8 +526,12 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         // check if we reached the end
         if (curr == end) {
             if (TCL_OK != tws_AddHeader(interp, headersPtr, multiValueHeadersPtr, keyPtr, valuePtr)) {
+                Tcl_DecrRefCount(keyPtr);
+                Tcl_DecrRefCount(valuePtr);
                 goto done;
             }
+            Tcl_DecrRefCount(keyPtr);
+            Tcl_DecrRefCount(valuePtr);
             break;
         }
 
@@ -525,14 +547,18 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         // check if we reached the end
         if (curr == end) {
             if (TCL_OK != tws_AddHeader(interp, headersPtr, multiValueHeadersPtr, keyPtr, valuePtr)) {
+                Tcl_DecrRefCount(keyPtr);
+                Tcl_DecrRefCount(valuePtr);
                 goto done;
             }
+            Tcl_DecrRefCount(keyPtr);
+            Tcl_DecrRefCount(valuePtr);
             break;
         }
 
         // check if the line starts with a space, if so, it is a continuation of the previous header
         while (curr < end && *curr == ' ') {
-            fprintf(stderr, "continuation curr=%p end=%p intchar=%d\n", curr, end, (int) curr[0]);
+            DBG(fprintf(stderr, "continuation curr=%p end=%p intchar=%d\n", curr, end, (int) curr[0]));
             // skip spaces
             while (curr < end && CHARTYPE(space, *curr) != 0) {
                 curr++;
@@ -546,13 +572,13 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
 
             // mark the end of the string and remember as "continuation_value"
             curr++;
-            int continuation_valuelen = curr - p;
-            char *continuation_value = tws_strndup(p, curr - p);
-            continuation_value[curr - p - 1] = '\0';
+            size_t continuation_valuelen = curr - p - 1;
+            char *continuation_value = tws_strndup(p, continuation_valuelen);
             Tcl_Obj *continuation_valuePtr = Tcl_NewStringObj(continuation_value, continuation_valuelen);
-
+            Tcl_IncrRefCount(continuation_valuePtr);
             // append the continuation value to the previous value
             Tcl_AppendObjToObj(valuePtr, continuation_valuePtr);
+            Tcl_DecrRefCount(continuation_valuePtr);
             Tcl_Free(continuation_value);
 
             // skip "\r\n" or "\n" at most once
@@ -567,8 +593,12 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         }
 
         if (TCL_OK != tws_AddHeader(interp, headersPtr, multiValueHeadersPtr, keyPtr, valuePtr)) {
+            Tcl_DecrRefCount(keyPtr);
+            Tcl_DecrRefCount(valuePtr);
             goto done;
         }
+        Tcl_DecrRefCount(keyPtr);
+        Tcl_DecrRefCount(valuePtr);
 
         // check if we reached a blank line
         if (curr + 1 < end && *curr == '\r' && *(curr + 1) == '\n') {
@@ -726,6 +756,8 @@ int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsP
     }
     Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("headers", -1), headersPtr);
     Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("multiValueHeaders", -1), multiValueHeadersPtr);
+    Tcl_DecrRefCount(multiValueHeadersPtr);
+    Tcl_DecrRefCount(headersPtr);
 
 //    tws_ParseBody(interp, curr, end, dictPtr, contentLengthPtr, contentTypePtr);
 
@@ -772,10 +804,11 @@ int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
     }
     Tcl_DecrRefCount(headersKeyPtr);
 
-    if (headersPtr) {
-        const char *remaining_ptr = Tcl_DStringValue(&ds) + offset;
-        tws_ParseBody(interp, remaining_ptr, Tcl_DStringValue(&ds) + Tcl_DStringLength(&ds), headersPtr, resultPtr);
-    }
+    // TODO: parse body
+//    if (headersPtr) {
+//        const char *remaining_ptr = Tcl_DStringValue(&ds) + offset;
+//        tws_ParseBody(interp, remaining_ptr, Tcl_DStringValue(&ds) + Tcl_DStringLength(&ds), headersPtr, resultPtr);
+//    }
 
     Tcl_SetObjResult(interp, resultPtr);
     Tcl_DecrRefCount(resultPtr);

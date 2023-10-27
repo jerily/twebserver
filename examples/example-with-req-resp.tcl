@@ -20,9 +20,21 @@ proc process_request {request_dict} {
 proc process_conn {conn addr port} {
     #puts "connection from $addr:$port on $conn"
     if { [catch {
-        set request_dict [::twebserver::parse_conn $conn]
-        set response_dict [process_request $request_dict]
-        ::twebserver::return_conn $conn $response_dict
+        if {1} {
+            set request_dict [::twebserver::parse_conn $conn]
+            #puts request_dict=$request_dict
+            set response_dict [process_request $request_dict]
+            #puts response_dict=$response_dict
+            ::twebserver::return_conn $conn $response_dict
+        } else {
+            set request [::twebserver::read_conn $conn]
+            set request_dict [::twebserver::parse_request $request]
+            #puts request_dict=$request_dict
+            ::twebserver::write_conn $conn "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nHello World\r\n"
+            ::twebserver::close_conn $conn
+            #::twebserver::return_conn $conn [dict create statusCode 200 body {hello world}]
+        }
+
     } errmsg] } {
         puts "error: $errmsg"
     }

@@ -657,6 +657,17 @@ int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle,
             }
             const char *remaining_ptr = Tcl_DStringValue(&ds) + offset;
             tws_ParseBody(interp, remaining_ptr, Tcl_DStringValue(&ds) + Tcl_DStringLength(&ds), headersPtr, resultPtr);
+        } else {
+            if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(0))) {
+                Tcl_DecrRefCount(resultPtr);
+                Tcl_DStringFree(&ds);
+                return TCL_ERROR;
+            }
+            if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj("", -1))) {
+                Tcl_DecrRefCount(resultPtr);
+                Tcl_DStringFree(&ds);
+                return TCL_ERROR;
+            }
         }
 
         if (conn->server->keepalive) {
@@ -759,6 +770,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         SetResult("statusCode not found");
         return TCL_ERROR;
     }
+
     Tcl_Obj *headersPtr;
     Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
     Tcl_IncrRefCount(headersKeyPtr);
@@ -791,6 +803,12 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(bodyKeyPtr);
+
+    if (!bodyPtr) {
+        tws_CloseConn(conn, 1);
+        SetResult("body not found");
+        return TCL_ERROR;
+    }
 
     Tcl_Obj *isBase64EncodedPtr;
     Tcl_Obj *isBase64EncodedKeyPtr = Tcl_NewStringObj("isBase64Encoded", -1);
@@ -897,7 +915,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
             }
         }
     } else {
-        body = Tcl_GetStringFromObj(bodyPtr, &body_length);
+        body = (char *) Tcl_GetStringFromObj(bodyPtr, &body_length);
     }
 
     int gzip_p = conn->server->gzip
