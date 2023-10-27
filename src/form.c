@@ -447,9 +447,11 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
 
         if (TCL_OK != tws_ParseMultipartFormData(interp, body, body_length, multipart_boundary_ptr, result_ptr)) {
             Tcl_DecrRefCount(result_ptr);
+            Tcl_Free(body);
             SetResult("get_form: error parsing multipart form data");
             return TCL_ERROR;
         }
+        Tcl_Free(body);
     } else {
         // check if "content-type" is "application/x-form-urlencoded"
 
