@@ -626,13 +626,10 @@ int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj
     Tcl_Obj *content_type_key_ptr = Tcl_NewStringObj("content-type", -1);
     Tcl_IncrRefCount(content_type_key_ptr);
     if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, content_type_key_ptr, &content_type_ptr)) {
-        Tcl_DecrRefCount(headersPtr);
         Tcl_DecrRefCount(content_type_key_ptr);
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(content_type_key_ptr);
-    Tcl_DecrRefCount(headersPtr);
-
 
     int content_length = end - curr;
 
@@ -804,11 +801,10 @@ int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
     }
     Tcl_DecrRefCount(headersKeyPtr);
 
-    // TODO: parse body
-//    if (headersPtr) {
-//        const char *remaining_ptr = Tcl_DStringValue(&ds) + offset;
-//        tws_ParseBody(interp, remaining_ptr, Tcl_DStringValue(&ds) + Tcl_DStringLength(&ds), headersPtr, resultPtr);
-//    }
+    if (headersPtr) {
+        const char *remaining_ptr = Tcl_DStringValue(&ds) + offset;
+        tws_ParseBody(interp, remaining_ptr, Tcl_DStringValue(&ds) + Tcl_DStringLength(&ds), headersPtr, resultPtr);
+    }
 
     Tcl_SetObjResult(interp, resultPtr);
     Tcl_DecrRefCount(resultPtr);
