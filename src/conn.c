@@ -82,15 +82,19 @@ static int tws_SetBlockingMode(
 
 static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int *sock) {
     int server_fd;
-    struct sockaddr_in addr;
+    struct sockaddr_in6 server_addr;
 
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    // create an IPv6 TCP socket
+    server_fd = socket(AF_INET6, SOCK_STREAM, 0);
     if (server_fd < 0) {
         SetResult("Unable to create socket");
+        return TCL_ERROR;
+    }
+
+    // disable IPV6_V6ONLY option
+    int optval = 0;
+    if (setsockopt(server_fd, IPPROTO_IPV6, IPV6_V6ONLY, &optval, sizeof(optval)) == -1) {
+        SetResult("Unable to set IPV6_V6ONLY");
         return TCL_ERROR;
     }
 
@@ -126,7 +130,13 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
 #endif
     }
 
-    if (bind(server_fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
+    // bind the socket to the wildcard address and port 3005
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin6_family = AF_INET6;
+    server_addr.sin6_addr = in6addr_any;
+    server_addr.sin6_port = htons(port);
+
+    if (bind(server_fd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
         SetResult("Unable to bind");
         return TCL_ERROR;
     }
@@ -141,7 +151,7 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
     return TCL_OK;
 }
 
-tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
+tws_conn_t *tws_NewConn(tws_server_t *server, int client, char client_ip[INET6_ADDRSTRLEN]) {
     SSL *ssl = SSL_new(server->sslCtx);
     if (ssl == NULL) {
         return NULL;
@@ -162,6 +172,7 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client) {
     conn->todelete = 0;
     conn->prevPtr = NULL;
     conn->nextPtr = NULL;
+    memcpy(conn->client_ip, client_ip, INET6_ADDRSTRLEN);
 
     if (server->num_threads > 0) {
         conn->threadId = conn->server->conn_thread_ids[conn->client % conn->server->num_threads];
@@ -449,15 +460,11 @@ static void tws_HandleConn(tws_conn_t *conn) {
             cmdPtr = server->cmdPtr;
         }
 
-        struct sockaddr_in addr;
-        unsigned int len = sizeof(addr);
-        getpeername(conn->client, (struct sockaddr *) &addr, &len);
-
         if (server->num_threads == 0) {
             Tcl_MutexLock(&tws_Eval_Mutex);
         }
         Tcl_Obj *const connPtr = Tcl_NewStringObj(conn->conn_handle, -1);
-        Tcl_Obj *const addrPtr = Tcl_NewStringObj(inet_ntoa(addr.sin_addr), -1);
+        Tcl_Obj *const addrPtr = Tcl_NewStringObj(conn->client_ip, -1);
         Tcl_Obj *const portPtr = Tcl_NewIntObj(server->accept_ctx->port);
         Tcl_Obj *const cmdobjv[] = {cmdPtr, connPtr, addrPtr, portPtr, NULL};
 
@@ -1269,16 +1276,21 @@ void tws_AcceptConn(void *data, int mask) {
 #endif
             // new incoming connection
 
-            struct sockaddr_in addr;
-            unsigned int len = sizeof(addr);
-            int client = accept(server->accept_ctx->server_fd, (struct sockaddr *) &addr, &len);
-            DBG(fprintf(stderr, "client: %d, addr: %s\n", client, inet_ntoa(addr.sin_addr)));
+            struct sockaddr_in6 client_addr;
+            unsigned int len = sizeof(client_addr);
+            int client = accept(server->accept_ctx->server_fd, (struct sockaddr *) &client_addr, &len);
+            DBG(fprintf(stderr, "client: %d, addr: %s\n", client, inet_ntoa(client_addr.sin_addr)));
             if (client < 0) {
                 DBG(fprintf(stderr, "Unable to accept"));
                 return;
             }
 
-            tws_conn_t *conn = tws_NewConn(server, client);
+            // get the client IP address
+            char client_ip[INET6_ADDRSTRLEN];
+            inet_ntop(AF_INET6, &client_addr.sin6_addr, client_ip, sizeof(client_ip));
+            DBG(fprintf(stderr, "Client connected from %s\n", client_ip));
+
+            tws_conn_t *conn = tws_NewConn(server, client, client_ip);
             if (conn == NULL) {
                 shutdown(client, SHUT_WR);
                 shutdown(client, SHUT_RD);

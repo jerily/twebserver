@@ -45,7 +45,7 @@ set init_script {
         #puts form=$form
         dict set res statusCode 200
         dict set res headers {content-type text/plain}
-        dict set res body "test message POST [dict get $req headers] fields=[dict get $form fields]"
+        dict set res body "test message POST addr=[dict get $ctx addr] headers=[dict get $req headers] fields=[dict get $form fields]"
         return $res
     }
 

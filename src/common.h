@@ -10,6 +10,7 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <ctype.h>
+#include <arpa/inet.h>
 
 #define XSTR(s) STR(s)
 #define STR(s) #s
@@ -91,6 +92,7 @@ typedef struct tws_conn_t_ {
     // plus the 0x prefix plus the conn prefix "_TWS_CONN_" plus the null terminator
     // that gives us 28 characters. We are making it 30 just to be on the safe side.
     char conn_handle[30];
+    char client_ip[INET6_ADDRSTRLEN];
 } tws_conn_t;
 
 typedef struct {
