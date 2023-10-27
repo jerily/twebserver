@@ -1,0 +1,56 @@
+package require tcltest
+package require twebserver
+
+namespace import -force ::tcltest::test
+
+::tcltest::configure {*}$argv
+
+set server_file "setup_server_routing.tcl"
+set server_port 12345
+set client_port 54321
+set control_port 11111
+set dir [file dirname [info script]]
+
+proc sleep {ms} {
+    after $ms [list set ::sleep 1]
+    vwait ::sleep
+    unset ::sleep
+}
+
+proc setup {} {
+    global server_pid
+    global dir
+    global server_file
+    set server_pid [exec -ignorestderr -- tclsh [file join $dir ${server_file}] &]
+    sleep 100
+}
+
+proc cleanup {} {
+    global server_pid
+    exec -ignorestderr -- kill $server_pid 2> /dev/null
+    #global control_port
+    #set sock [socket localhost $control_port]
+    #close $sock
+}
+
+proc escape {str} {
+    return [string map {\r {\r} \n {\n}} $str]
+}
+
+test ipv4-only {} -setup setup -cleanup cleanup -body {
+    global cmd
+    set request "GET /addr HTTP/1.1\n\n"
+    set cmd "openssl s_client -4 -connect localhost:${server_port} -servername localhost -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
+    escape $response
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 21\n\naddr=::ffff:127.0.0.1}
+
+sleep 100
+
+test ipv6-only {} -setup setup -cleanup cleanup -body {
+    global cmd
+    set request "GET /addr HTTP/1.1\n\n"
+    set cmd "openssl s_client -6 -connect ip6-localhost:${server_port} -servername localhost -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
+    escape $response
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 8\n\naddr=::1}
