@@ -47,12 +47,13 @@ tclsh8.6 examples/example-best-with-router.tcl
 
 Install go and gohttpbench:
 ```
-brew install go
+# linux: apt install golang-go
+# macOS: brew install go
 go install github.com/parkghost/gohttpbench@latest
 export PATH="$PATH:$(go env GOPATH)/bin"
 ```
 
-With keepalive - Intel i9 CPU @ 3.60GHz with 64GB RAM: 
+With keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM: 
 ```
 gohttpbench -v 10 -n 100000 -c 10 -t 1000 -k "https://localhost:4433/blog/12345/sayhi"
 
@@ -67,7 +68,7 @@ Time per request:       0.012 [ms] (mean, across all concurrent requests)
 HTML Transfer rate:     4341.56 [Kbytes/sec] received
 ```
 
-Without keepalive - Intel i9 CPU @ 3.60GHz with 64GB RAM:
+Without keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM:
 ```
 gohttpbench -v 10 -n 100000 -c 10 -t 1000 "https://localhost:4433/blog/12345/sayhi"
 
