@@ -7,6 +7,7 @@
 #include "conn.h"
 #include "router.h"
 #include "path_regexp/path_regexp.h"
+#include "request.h"
 #include <string.h>
 
 enum {
@@ -164,39 +165,16 @@ static int tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code
     return TCL_OK;
 }
 
-static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "RouterProcessConnCmd\n"));
-    CheckArgs(4, 4, 1, "conn_handle addr port");
-
-    tws_router_t *router_ptr = (tws_router_t *) clientData;
-
-    const char *conn_handle = Tcl_GetString(objv[1]);
-    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
-    if (!conn) {
-        SetResult("router_process_conn: conn handle not found");
-        return TCL_ERROR;
-    }
+static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_t *conn, Tcl_Obj *req_dict_ptr) {
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
-    Tcl_Obj *req_dict_ptr;
-    if (TCL_OK != tws_ParseConn(interp, conn, conn_handle, encoding, &req_dict_ptr)) {
-        // fprintf(stderr, "router_process_conn: parse_conn failed with error: %s\n", Tcl_GetString(Tcl_GetObjResult(interp)));
-        if (TCL_OK != tws_ReturnError(interp, conn, 400, "Bad Request", encoding)) {
-            tws_CloseConn(conn, 1);
-            SetResult("router_process_conn: return_error failed");
-            return TCL_ERROR;
-        }
-        tws_CloseConn(conn, 1);
-//        SetResult("router_process_conn: parse_conn failed");
-        return TCL_ERROR;
-    }
 
     Tcl_Obj *ctx_dict_ptr = Tcl_NewDictObj();
     Tcl_IncrRefCount(ctx_dict_ptr);
 
     Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("router", -1), Tcl_NewStringObj(router_ptr->handle, -1));
-    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("conn", -1), objv[1]);
-    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("addr", -1), objv[2]);
-    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("port", -1), objv[3]);
+    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("conn", -1), Tcl_NewStringObj(conn->conn_handle, -1));
+    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("addr", -1), Tcl_NewStringObj(conn->client_ip, -1));
+    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("port", -1), Tcl_NewIntObj(conn->server->accept_ctx->port));
 
     tws_route_t *route_ptr = router_ptr->firstRoutePtr;
     while (route_ptr != NULL) {
@@ -216,10 +194,12 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
             tws_middleware_t *middleware_ptr = router_ptr->firstMiddlewarePtr;
             while (middleware_ptr != NULL) {
                 if (middleware_ptr->enter_proc_ptr) {
+                    fprintf(stderr, "req: %s\n", Tcl_GetString(req_dict_ptr));
                     Tcl_Obj *const proc_objv[] = {middleware_ptr->enter_proc_ptr, ctx_dict_ptr, req_dict_ptr};
                     if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
                         if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
                             tws_CloseConn(conn, 1);
+                            Tcl_DecrRefCount(req_dict_ptr);
                             SetResult("router_process_conn: return_error failed");
                             return TCL_ERROR;
                         }
@@ -310,6 +290,180 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
         SetResult("router_process_conn: close_conn failed");
         return TCL_ERROR;
     }
+    return TCL_OK;
+}
+
+static int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
+
+    Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
+    Tcl_Obj *req_dict_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(req_dict_ptr);
+    if (TCL_OK != tws_ParseRequest(interp, encoding, &conn->ds, req_dict_ptr, &conn->offset)) {
+        Tcl_DecrRefCount(req_dict_ptr);
+        return TCL_ERROR;
+    }
+
+    // get content-length from header
+
+    Tcl_Obj *headersPtr;
+    Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
+    Tcl_IncrRefCount(headersKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, req_dict_ptr, headersKeyPtr, &headersPtr)) {
+        Tcl_DecrRefCount(req_dict_ptr);
+        Tcl_DecrRefCount(headersKeyPtr);
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(headersKeyPtr);
+
+    if (headersPtr) {
+        // get "Content-Length" header
+        Tcl_Obj *contentLengthPtr;
+        Tcl_Obj *contentLengthKeyPtr = Tcl_NewStringObj("content-length", -1);
+        Tcl_IncrRefCount(contentLengthKeyPtr);
+        if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentLengthKeyPtr, &contentLengthPtr)) {
+            Tcl_DecrRefCount(req_dict_ptr);
+            Tcl_DecrRefCount(contentLengthKeyPtr);
+            return TCL_ERROR;
+        }
+        Tcl_DecrRefCount(contentLengthKeyPtr);
+
+        if (contentLengthPtr) {
+            if (TCL_OK != Tcl_GetIntFromObj(interp, contentLengthPtr, &conn->content_length)) {
+                Tcl_DecrRefCount(req_dict_ptr);
+                return TCL_ERROR;
+            }
+        }
+    }
+    conn->requestDictPtr = req_dict_ptr;
+    return TCL_OK;
+}
+
+static int tws_ParseBottomPart(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *req_dict_ptr) {
+    Tcl_Obj *headersPtr;
+    Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
+    Tcl_IncrRefCount(headersKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, req_dict_ptr, headersKeyPtr, &headersPtr)) {
+        Tcl_DecrRefCount(headersKeyPtr);
+        goto handle_error;
+    }
+    Tcl_DecrRefCount(headersKeyPtr);
+
+    if (headersPtr) {
+        if (conn->content_length > 0) {
+            const char *remaining_unprocessed_ptr = Tcl_DStringValue(&conn->ds) + conn->offset;
+            const char *end = Tcl_DStringValue(&conn->ds) + Tcl_DStringLength(&conn->ds);
+            tws_ParseBody(interp, remaining_unprocessed_ptr, end, headersPtr, conn->requestDictPtr);
+        } else {
+            if (TCL_OK != Tcl_DictObjPut(interp, req_dict_ptr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(0))) {
+                goto handle_error;
+            }
+            if (TCL_OK != Tcl_DictObjPut(interp, req_dict_ptr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj("", -1))) {
+                goto handle_error;
+            }
+        }
+
+        if (conn->server->keepalive) {
+            if (TCL_OK != tws_ParseConnectionKeepalive(interp, headersPtr, &conn->keepalive)) {
+                goto handle_error;
+            }
+        }
+
+        if (conn->server->gzip) {
+            if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
+                goto handle_error;
+            }
+        }
+    }
+
+    return TCL_OK;
+        handle_error:
+    return TCL_ERROR;
+}
+
+static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
+    DBG(fprintf(stderr, "HandleRecv: %s\n", conn->conn_handle));
+
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(conn->dataKeyPtr, sizeof(tws_thread_data_t));
+
+    if (conn->requestDictPtr == NULL && Tcl_DStringLength(&conn->ds) > 0) {
+        // parse top part of request - headers
+        tws_ParseTopPart(dataPtr->interp, conn);
+    }
+
+    int remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
+    int ret = tws_ReadConnAsync(dataPtr->interp, conn, &conn->ds, conn->content_length - remaining_unprocessed);
+    if (TWS_AGAIN == ret) {
+        if (conn->requestDictPtr == NULL) {
+            return 0;
+        }
+    } else if (TWS_ERROR == ret) {
+        if (conn->requestDictPtr != NULL) {
+            Tcl_DecrRefCount(conn->requestDictPtr);
+            conn->requestDictPtr = NULL;
+        }
+        return 1;
+    }
+
+    DBG(fprintf(stderr, "rubicon\n"));
+
+    if (conn->requestDictPtr == NULL) {
+        // parse top part of request - headers
+        tws_ParseTopPart(dataPtr->interp, conn);
+    }
+
+    Tcl_Obj *req_dict_ptr = conn->requestDictPtr;
+    conn->requestDictPtr = NULL;
+
+    fprintf(stderr, "req: %s\n", Tcl_GetString(req_dict_ptr));
+
+    tws_ParseBottomPart(dataPtr->interp, conn, req_dict_ptr);
+
+    if (TCL_OK != tws_DoRouting(dataPtr->interp, router_ptr, conn, req_dict_ptr)) {
+        fprintf(stderr, "DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
+    }
+
+    done:
+    Tcl_DecrRefCount(req_dict_ptr);
+    return 1;
+}
+
+static int tws_HandleRecvEventInThread(Tcl_Event *evPtr, int flags) {
+    tws_router_event_t *routerEvPtr = (tws_router_event_t *) evPtr;
+    tws_router_t *router = (tws_router_t *) routerEvPtr->routerClientData;
+    tws_conn_t *conn = (tws_conn_t *) routerEvPtr->connClientData;
+    DBG(fprintf(stderr, "HandleRecvEventInThread: %s\n", conn->conn_handle));
+    int result = tws_HandleRecv(router, conn);
+    Tcl_ThreadAlert(conn->threadId);
+    return result;
+}
+
+static void tws_ThreadQueueRecvEvent(tws_router_t *router_ptr, tws_conn_t *conn) {
+    DBG(fprintf(stderr, "ThreadQueueRecvEvent - threadId: %p\n", conn->threadId));
+    tws_router_event_t *routerEvPtr = (tws_router_event_t *) Tcl_Alloc(sizeof(tws_router_event_t));
+    routerEvPtr->proc = tws_HandleRecvEventInThread;
+    routerEvPtr->nextPtr = NULL;
+    routerEvPtr->routerClientData = (ClientData *) router_ptr;
+    routerEvPtr->connClientData = (ClientData *) conn;
+    Tcl_QueueEvent((Tcl_Event *) routerEvPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(conn->threadId);
+    DBG(fprintf(stderr, "ThreadQueueRecvEvent done - threadId: %p\n", conn->threadId));
+}
+
+static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "RouterProcessConnCmd\n"));
+    CheckArgs(4, 4, 1, "conn_handle addr port");
+
+    tws_router_t *router_ptr = (tws_router_t *) clientData;
+
+    const char *conn_handle = Tcl_GetString(objv[1]);
+    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
+    if (!conn) {
+        SetResult("router_process_conn: conn handle not found");
+        return TCL_ERROR;
+    }
+
+    tws_ThreadQueueRecvEvent(router_ptr, conn);
+
     return TCL_OK;
 }
 

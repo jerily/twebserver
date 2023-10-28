@@ -93,6 +93,12 @@ typedef struct tws_conn_t_ {
     // that gives us 28 characters. We are making it 30 just to be on the safe side.
     char conn_handle[30];
     char client_ip[INET6_ADDRSTRLEN];
+
+    Tcl_DString ds;
+    Tcl_ThreadDataKey *dataKeyPtr;
+    Tcl_Obj *requestDictPtr;
+    int offset;
+    int content_length;
 } tws_conn_t;
 
 typedef struct {
@@ -100,6 +106,13 @@ typedef struct {
     Tcl_Event *nextPtr;    /* Next in list of pending events, or NULL. */
     ClientData *clientData; // The pointer to the client data
 } tws_event_t;
+
+typedef struct {
+    Tcl_EventProc *proc;    /* Function to call to service this event. */
+    Tcl_Event *nextPtr;    /* Next in list of pending events, or NULL. */
+    ClientData *routerClientData; // The pointer to the router client data
+    ClientData *connClientData; // The pointer to the conn client data
+} tws_router_event_t;
 
 typedef struct {
     Tcl_Interp *interp;
@@ -149,6 +162,12 @@ typedef struct {
     tws_middleware_t *lastMiddlewarePtr;
     char handle[40];
 } tws_router_t;
+
+enum {
+    TWS_DONE,
+    TWS_ERROR,
+    TWS_AGAIN
+};
 
 void tws_InitServerNameHT();
 void tws_DeleteServerNameHT();

@@ -173,6 +173,11 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client, char client_ip[INET6_A
     conn->prevPtr = NULL;
     conn->nextPtr = NULL;
     memcpy(conn->client_ip, client_ip, INET6_ADDRSTRLEN);
+    Tcl_DStringInit(&conn->ds);
+    conn->dataKeyPtr = &dataKey;
+    conn->requestDictPtr = NULL;
+    conn->offset = 0;
+    conn->content_length = 0;
 
     if (server->num_threads > 0) {
         conn->threadId = conn->server->conn_thread_ids[conn->client % conn->server->num_threads];
@@ -208,6 +213,7 @@ static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *data
     }
 
     SSL_free(conn->ssl);
+    Tcl_DStringFree(&conn->ds);
     Tcl_Free((char *) conn);
 
     dataPtr->numConns--;
@@ -386,6 +392,9 @@ static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
 int tws_CloseConn(tws_conn_t *conn, int force) {
     DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force,
                 conn->keepalive, conn->created_file_handler_p));
+
+    Tcl_DStringTrunc(&conn->ds, 0);
+
     if (force) {
         if (tws_UnregisterConnName(conn->conn_handle)) {
             tws_ShutdownConn(conn, force);
@@ -549,7 +558,7 @@ static void tws_HandleConn(tws_conn_t *conn) {
 
 #define MIN(x,y) ((x) < (y) ? (x) : (y))
 
-static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle, Tcl_DString *dsPtr, int size) {
+static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr, int size) {
     DBG(fprintf(stderr, "ReadConn client: %d\n", conn->client));
 
     long max_request_read_bytes = conn->server->max_request_read_bytes;
@@ -616,6 +625,75 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
 
 }
 
+int tws_ReadConnAsync(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr, int size) {
+    DBG(fprintf(stderr, "ReadConn client: %d\n", conn->client));
+
+    long max_request_read_bytes = conn->server->max_request_read_bytes;
+    int max_buffer_size = size == 0 ? conn->server->max_read_buffer_size : MIN(size, conn->server->max_read_buffer_size);
+
+    char *buf = (char *) Tcl_Alloc(max_buffer_size);
+    long total_read = 0;
+    int rc;
+    int bytes_read;
+
+    /*
+     * SSL_read() may return data in parts, so try to read
+     * until SSL_read() would return no data
+     */
+
+    int again_after_error_want_read = 3;
+    for (;;) {
+        rc = SSL_read(conn->ssl, buf, max_buffer_size);
+        if (rc > 0) {
+            bytes_read = rc;
+            Tcl_DStringAppend(dsPtr, buf, bytes_read);
+            total_read += bytes_read;
+            if (total_read > max_request_read_bytes) {
+                goto failed_due_to_request_too_large;
+            }
+            continue;
+        } else {
+            int err = SSL_get_error(conn->ssl, rc);
+            if (err == SSL_ERROR_NONE) {
+                break;
+            } else if (err == SSL_ERROR_WANT_READ) {
+                DBG(fprintf(stderr, "SSL_ERROR_WANT_READ\n"));
+
+//                if (total_read == 0) {
+//                    // TODO: put a timeout here
+//                    continue;
+//                }
+
+                if (again_after_error_want_read && total_read < size) {
+                    again_after_error_want_read--;
+                    continue;
+                }
+
+                Tcl_Free(buf);
+                return TWS_AGAIN;
+
+            } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
+                break;
+            }
+
+            DBG(fprintf(stderr, "SSL_read error: %s err=%d rc=%d\n", ssl_errors[err], err, rc));
+
+            Tcl_Free(buf);
+            return TWS_ERROR;
+        }
+    }
+
+    Tcl_Free(buf);
+    return TWS_DONE;
+
+    failed_due_to_request_too_large:
+    Tcl_Free(buf);
+    tws_CloseConn(conn, 2);
+    SetResult("request too large");
+    return TWS_ERROR;
+
+}
+
 int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "ReadConnCmd\n"));
     CheckArgs(2, 2, 1, "conn_handle");
@@ -629,7 +707,7 @@ int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
 
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
-    if (TCL_OK != tws_ReadConn(interp, conn, conn_handle, &ds, 0)) {
+    if (TCL_OK != tws_ReadConn(interp, conn, &ds, 0)) {
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
@@ -642,7 +720,7 @@ int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle,
                   Tcl_Obj **requestDictPtr) {
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
-    if (TCL_OK != tws_ReadConn(interp, conn, conn_handle, &ds, 0)) {
+    if (TCL_OK != tws_ReadConn(interp, conn, &ds, 0)) {
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
@@ -674,8 +752,9 @@ int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle,
         Tcl_Obj *contentLengthKeyPtr = Tcl_NewStringObj("content-length", -1);
         Tcl_IncrRefCount(contentLengthKeyPtr);
         if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentLengthKeyPtr, &contentLengthPtr)) {
-            Tcl_DecrRefCount(headersPtr);
             Tcl_DecrRefCount(contentLengthKeyPtr);
+            Tcl_DecrRefCount(resultPtr);
+            Tcl_DStringFree(&ds);
             return TCL_ERROR;
         }
         Tcl_DecrRefCount(contentLengthKeyPtr);
@@ -683,13 +762,14 @@ int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle,
         if (contentLengthPtr) {
             int content_length;
             if (TCL_OK != Tcl_GetIntFromObj(interp, contentLengthPtr, &content_length)) {
-                Tcl_DecrRefCount(headersPtr);
+                Tcl_DecrRefCount(resultPtr);
+                Tcl_DStringFree(&ds);
                 return TCL_ERROR;
             }
 
             int remaining = Tcl_DStringLength(&ds) - offset;
             if (content_length - remaining > 0) {
-                if (TCL_OK != tws_ReadConn(interp, conn, conn_handle, &ds, content_length)) {
+                if (TCL_OK != tws_ReadConn(interp, conn, &ds, content_length)) {
                     Tcl_DecrRefCount(resultPtr);
                     Tcl_DStringFree(&ds);
                     return TCL_ERROR;
