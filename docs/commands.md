@@ -92,6 +92,16 @@
   ::twebserver::return_conn $conn $response_dict
   ```
 
+* **::twebserver::get_form** *request_dict*
+    - parses a form from a request dictionary
+    The returned dictionary includes the following:
+      - **fields** - a dictionary of fields
+      - **multiValueFields** - a dictionary of fields (with multiple values)
+      - **files** - a dictionary of files
+  ```tcl
+  set form_dict [::twebserver::get_form $request_dict]
+  ```
+
 ### Low-level Commands
 
 * **::twebserver::read_conn** *conn*

@@ -9,7 +9,71 @@
 #include "request.h"
 
 
-static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const char *be, Tcl_Obj *multipart_form_data_fields_ptr, Tcl_Obj *multipart_form_data_files_ptr) {
+static int
+tws_AddMultipartFormField(Tcl_Interp *interp, Tcl_Obj *mp_form_fields_ptr, Tcl_Obj *mp_form_multivalue_fields_ptr,
+                          Tcl_Obj *field_name_ptr, Tcl_Obj *field_value_ptr) {
+
+    // check if "field_name" already exists in "fields"
+    Tcl_Obj *existing_value_ptr;
+    if (TCL_OK != Tcl_DictObjGet(interp, mp_form_fields_ptr, field_name_ptr, &existing_value_ptr)) {
+        SetResult("AddMultipartFormField: dict get error");
+        return TCL_ERROR;
+    }
+
+    if (existing_value_ptr) {
+        // check if "field_name" already exists in "multiValueFields"
+        Tcl_Obj *multi_value_ptr;
+        if (TCL_OK != Tcl_DictObjGet(interp, mp_form_multivalue_fields_ptr, field_name_ptr, &multi_value_ptr)) {
+            SetResult("AddMultipartFormField: dict get error");
+            return TCL_ERROR;
+        }
+
+        int should_decr_ref_count = 0;
+        if (!multi_value_ptr) {
+            // it does not exist, create a new list and add the existing value from fields
+            multi_value_ptr = Tcl_NewListObj(0, NULL);
+            Tcl_IncrRefCount(multi_value_ptr);
+            if (TCL_OK != Tcl_ListObjAppendElement(interp, multi_value_ptr, existing_value_ptr)) {
+                Tcl_DecrRefCount(multi_value_ptr);
+                SetResult("AddMultipartFormField: list append error");
+                return TCL_ERROR;
+            }
+            should_decr_ref_count = 1;
+        }
+
+        // append the new value to the list
+        if (TCL_OK != Tcl_ListObjAppendElement(interp, multi_value_ptr, field_value_ptr)) {
+            if (should_decr_ref_count) {
+                Tcl_DecrRefCount(multi_value_ptr);
+            }
+            SetResult("AddMultipartFormField: list append error");
+            return TCL_ERROR;
+        }
+
+        if (TCL_OK != Tcl_DictObjPut(interp, mp_form_multivalue_fields_ptr, field_name_ptr, multi_value_ptr)) {
+            if (should_decr_ref_count) {
+                Tcl_DecrRefCount(multi_value_ptr);
+            }
+            SetResult("AddMultipartFormField: dict put error");
+            return TCL_ERROR;
+        }
+
+        if (should_decr_ref_count) {
+            Tcl_DecrRefCount(multi_value_ptr);
+        }
+    } else {
+        if (TCL_OK != Tcl_DictObjPut(interp, mp_form_fields_ptr, field_name_ptr,
+                                     field_value_ptr)) {
+            SetResult("tws_ParseMultipartForm: multipart/form-data dict write error");
+            return TCL_ERROR;
+        }
+    }
+
+    return TCL_OK;
+}
+
+static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const char *be, Tcl_Obj *mp_form_fields_ptr,
+                                   Tcl_Obj *mp_form_files_ptr, Tcl_Obj *mp_form_multivalue_fields_ptr) {
     // look for and parse the "field_name" from the "Content-Disposition" header for this part, e.g.:
     // "field1" from header ```Content-Disposition: form-data; name="field1"```
     // or:
@@ -17,7 +81,10 @@ static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const cha
 
     // find "Content-Disposition" header
     const char *p = bs;
-    while (p < be - 18 && !(p[0] == 'C' && p[1] == 'o' && p[2] == 'n' && p[3] == 't' && p[4] == 'e' && p[5] == 'n' && p[6] == 't' && p[7] == '-' && p[8] == 'D' && p[9] == 'i' && p[10] == 's' && p[11] == 'p' && p[12] == 'o' && p[13] == 's' && p[14] == 'i' && p[15] == 't' && p[16] == 'i' && p[17] == 'o' && p[18] == 'n')) {
+    while (p < be - 18 &&
+           !(p[0] == 'C' && p[1] == 'o' && p[2] == 'n' && p[3] == 't' && p[4] == 'e' && p[5] == 'n' && p[6] == 't' &&
+             p[7] == '-' && p[8] == 'D' && p[9] == 'i' && p[10] == 's' && p[11] == 'p' && p[12] == 'o' &&
+             p[13] == 's' && p[14] == 'i' && p[15] == 't' && p[16] == 'i' && p[17] == 'o' && p[18] == 'n')) {
         p++;
     }
 
@@ -68,7 +135,8 @@ static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const cha
     const char *filename_end = NULL;
     if (p < be) {
         // find "filename="
-        while (p < be - 9 && !(p[0] == 'f' && p[1] == 'i' && p[2] == 'l' && p[3] == 'e' && p[4] == 'n' && p[5] == 'a' && p[6] == 'm' && p[7] == 'e' && p[8] == '=')) {
+        while (p < be - 9 && !(p[0] == 'f' && p[1] == 'i' && p[2] == 'l' && p[3] == 'e' && p[4] == 'n' && p[5] == 'a' &&
+                               p[6] == 'm' && p[7] == 'e' && p[8] == '=')) {
             p++;
         }
 
@@ -105,7 +173,8 @@ static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const cha
     // find "\r\n\r\n" or "\n\n"
     const char *headers_end = bs;
     while (headers_end < be) {
-        if (headers_end + 3 < be && headers_end[0] == '\r' && headers_end[1] == '\n' && headers_end[2] == '\r' && headers_end[3] == '\n') {
+        if (headers_end + 3 < be && headers_end[0] == '\r' && headers_end[1] == '\n' && headers_end[2] == '\r' &&
+            headers_end[3] == '\n') {
             headers_end += 4;
             break;
         } else if (headers_end + 1 < be && headers_end[0] == '\n' && headers_end[1] == '\n') {
@@ -116,41 +185,50 @@ static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const cha
     }
     bs = headers_end;
 
-    Tcl_Obj *value_ptr = NULL;
+    Tcl_Obj *field_value_ptr = NULL;
     if (filename_length > 0) {
         int block_length = be - bs;
         char *block_body = Tcl_Alloc(block_length * 2);
         size_t block_body_length;
         if (base64_encode(bs, block_length, block_body, &block_body_length)) {
             Tcl_Free(block_body);
-            SetResult("tws_ParseMultipartFormData: base64_encode failed");
+            SetResult("tws_ParseMultipartForm: base64_encode failed");
             return TCL_ERROR;
         }
 
-        if (TCL_OK != Tcl_DictObjPut(interp, multipart_form_data_files_ptr, Tcl_NewStringObj(filename, filename_end - filename), Tcl_NewStringObj(block_body, block_body_length))) {
+        if (TCL_OK != Tcl_DictObjPut(interp, mp_form_files_ptr, Tcl_NewStringObj(filename, filename_end - filename),
+                                     Tcl_NewStringObj(block_body, block_body_length))) {
             Tcl_Free(block_body);
-            SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
+            SetResult("tws_ParseMultipartForm: multipart/form-data dict write error");
             return TCL_ERROR;
         }
         Tcl_Free(block_body);
 
-        value_ptr = Tcl_NewStringObj(filename, filename_length);
+        field_value_ptr = Tcl_NewStringObj(filename, filename_length);
     } else {
-        value_ptr = Tcl_NewStringObj(bs, be - bs);
+        field_value_ptr = Tcl_NewStringObj(bs, be - bs);
     }
-    Tcl_IncrRefCount(value_ptr);
+    Tcl_IncrRefCount(field_value_ptr);
 
-    if (TCL_OK != Tcl_DictObjPut(interp, multipart_form_data_fields_ptr, Tcl_NewStringObj(field_name, field_name_end - field_name), value_ptr)) {
-        Tcl_DecrRefCount(value_ptr);
-        SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
+
+    Tcl_Obj *field_name_ptr = Tcl_NewStringObj(field_name, field_name_end - field_name);
+    Tcl_IncrRefCount(field_name_ptr);
+    if (TCL_OK != tws_AddMultipartFormField(interp, mp_form_fields_ptr, mp_form_multivalue_fields_ptr, field_name_ptr,
+                                            field_value_ptr)) {
+        Tcl_DecrRefCount(field_name_ptr);
+        Tcl_DecrRefCount(field_value_ptr);
+        SetResult("tws_ParseMultipartForm: multipart form dict write error (adding field)");
         return TCL_ERROR;
     }
 
-    Tcl_DecrRefCount(value_ptr);
+    Tcl_DecrRefCount(field_name_ptr);
+    Tcl_DecrRefCount(field_value_ptr);
     return TCL_OK;
 }
 
-static int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int body_length, Tcl_Obj *multipart_boundary_ptr, Tcl_Obj *resultPtr) {
+static int
+tws_ParseMultipartForm(Tcl_Interp *interp, const char *body, int body_length, Tcl_Obj *multipart_boundary_ptr,
+                       Tcl_Obj *resultPtr) {
 
     const char *end = body + body_length;
 
@@ -181,10 +259,12 @@ static int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int 
     }
 
     // extract all fields and files
-    Tcl_Obj *multipart_form_data_fields_ptr = Tcl_NewDictObj();
-    Tcl_IncrRefCount(multipart_form_data_fields_ptr);
-    Tcl_Obj *multipart_form_data_files_ptr = Tcl_NewDictObj();
-    Tcl_IncrRefCount(multipart_form_data_files_ptr);
+    Tcl_Obj *mp_form_fields_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(mp_form_fields_ptr);
+    Tcl_Obj *mp_form_multivalue_fields_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(mp_form_multivalue_fields_ptr);
+    Tcl_Obj *mp_form_files_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(mp_form_files_ptr);
     while (bs < end_minus_boundary_and_prefix) {
         // find boundary end (be)
         const char *be = bs;
@@ -205,14 +285,17 @@ static int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int 
         }
 
         if (be == bs) {
-            Tcl_DecrRefCount(multipart_form_data_fields_ptr);
-            Tcl_DecrRefCount(multipart_form_data_files_ptr);
+            Tcl_DecrRefCount(mp_form_multivalue_fields_ptr);
+            Tcl_DecrRefCount(mp_form_fields_ptr);
+            Tcl_DecrRefCount(mp_form_files_ptr);
             return TCL_OK;
         }
 
-        if (TCL_OK != tws_ParseMultipartEntry(interp, bs, be, multipart_form_data_fields_ptr, multipart_form_data_files_ptr)) {
-            Tcl_DecrRefCount(multipart_form_data_fields_ptr);
-            Tcl_DecrRefCount(multipart_form_data_files_ptr);
+        if (TCL_OK != tws_ParseMultipartEntry(interp, bs, be, mp_form_fields_ptr, mp_form_files_ptr,
+                                              mp_form_multivalue_fields_ptr)) {
+            Tcl_DecrRefCount(mp_form_multivalue_fields_ptr);
+            Tcl_DecrRefCount(mp_form_fields_ptr);
+            Tcl_DecrRefCount(mp_form_files_ptr);
             return TCL_ERROR;
         }
 
@@ -230,33 +313,51 @@ static int tws_ParseMultipartFormData(Tcl_Interp *interp, const char *body, int 
         }
     }
 
-    Tcl_Obj *multipart_form_data_fields_key_ptr = Tcl_NewStringObj("fields", -1);
-    Tcl_IncrRefCount(multipart_form_data_fields_key_ptr);
-    if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, multipart_form_data_fields_key_ptr, multipart_form_data_fields_ptr)) {
-        Tcl_DecrRefCount(multipart_form_data_fields_ptr);
-        Tcl_DecrRefCount(multipart_form_data_files_ptr);
-        Tcl_DecrRefCount(multipart_form_data_fields_key_ptr);
-        SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
+    Tcl_Obj *mp_form_fields_key_ptr = Tcl_NewStringObj("fields", -1);
+    Tcl_IncrRefCount(mp_form_fields_key_ptr);
+    if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, mp_form_fields_key_ptr, mp_form_fields_ptr)) {
+        Tcl_DecrRefCount(mp_form_multivalue_fields_ptr);
+        Tcl_DecrRefCount(mp_form_fields_ptr);
+        Tcl_DecrRefCount(mp_form_files_ptr);
+        Tcl_DecrRefCount(mp_form_fields_key_ptr);
+        SetResult("tws_ParseMultipartForm: multipart form dict write error (fields)");
         return TCL_ERROR;
     }
-    Tcl_DecrRefCount(multipart_form_data_fields_key_ptr);
+    Tcl_DecrRefCount(mp_form_fields_key_ptr);
 
-    Tcl_Obj *multipart_form_data_files_key_ptr = Tcl_NewStringObj("files", -1);
-    Tcl_IncrRefCount(multipart_form_data_files_key_ptr);
-    if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, multipart_form_data_files_key_ptr, multipart_form_data_files_ptr)) {
-        Tcl_DecrRefCount(multipart_form_data_fields_ptr);
-        Tcl_DecrRefCount(multipart_form_data_files_ptr);
-        SetResult("tws_ParseMultipartFormData: multipart/form-data dict write error");
+    Tcl_Obj *mp_form_multivalue_fields_key_ptr = Tcl_NewStringObj("multiValueFields", -1);
+    Tcl_IncrRefCount(mp_form_multivalue_fields_key_ptr);
+    if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, mp_form_multivalue_fields_key_ptr, mp_form_multivalue_fields_ptr)) {
+        Tcl_DecrRefCount(mp_form_multivalue_fields_ptr);
+        Tcl_DecrRefCount(mp_form_fields_ptr);
+        Tcl_DecrRefCount(mp_form_files_ptr);
+        Tcl_DecrRefCount(mp_form_multivalue_fields_key_ptr);
+        SetResult("tws_ParseMultipartForm: multipart form dict write error (multiValueFields)");
         return TCL_ERROR;
     }
-    Tcl_DecrRefCount(multipart_form_data_files_key_ptr);
+    Tcl_DecrRefCount(mp_form_multivalue_fields_key_ptr);
 
-    Tcl_DecrRefCount(multipart_form_data_fields_ptr);
-    Tcl_DecrRefCount(multipart_form_data_files_ptr);
+    Tcl_Obj *mp_form_files_key_ptr = Tcl_NewStringObj("files", -1);
+    Tcl_IncrRefCount(mp_form_files_key_ptr);
+    if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, mp_form_files_key_ptr, mp_form_files_ptr)) {
+        Tcl_DecrRefCount(mp_form_multivalue_fields_ptr);
+        Tcl_DecrRefCount(mp_form_fields_ptr);
+        Tcl_DecrRefCount(mp_form_files_ptr);
+        Tcl_DecrRefCount(mp_form_files_key_ptr);
+        SetResult("tws_ParseMultipartForm: multipart form dict write error (files)");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(mp_form_files_key_ptr);
+
+    Tcl_DecrRefCount(mp_form_multivalue_fields_ptr);
+    Tcl_DecrRefCount(mp_form_fields_ptr);
+    Tcl_DecrRefCount(mp_form_files_ptr);
     return TCL_OK;
 }
 
-static int tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *multivalue_fields_ptr, const char *key, const char *value, int value_length) {
+static int
+tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *multivalue_fields_ptr, const char *key,
+                           const char *value, int value_length) {
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
 
     Tcl_Obj *key_ptr = Tcl_NewStringObj(key, value - key - 1);
@@ -278,7 +379,7 @@ static int tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, T
         return TCL_ERROR;
     }
     if (existing_value_ptr) {
-        // check if "key" already exists in "multivalueFields"
+        // check if "key" already exists in "multiValueFields"
         Tcl_Obj *multi_value_ptr;
         if (TCL_OK != Tcl_DictObjGet(interp, multivalue_fields_ptr, key_ptr, &multi_value_ptr)) {
             Tcl_DecrRefCount(value_ptr);
@@ -361,7 +462,8 @@ static int tws_ParseUrlEncodedForm(Tcl_Interp *interp, Tcl_Obj *body_ptr, Tcl_Ob
             p++;
         }
         if (p == end) {
-            if (TCL_OK != tws_AddUrlEncodedFormField(interp, fields_ptr, multivalue_fields_ptr, key, value, p - value)) {
+            if (TCL_OK !=
+                tws_AddUrlEncodedFormField(interp, fields_ptr, multivalue_fields_ptr, key, value, p - value)) {
                 Tcl_DecrRefCount(fields_ptr);
                 Tcl_DecrRefCount(multivalue_fields_ptr);
                 SetResult("ParseUrlEncodedForm: dict write error");
@@ -385,7 +487,7 @@ static int tws_ParseUrlEncodedForm(Tcl_Interp *interp, Tcl_Obj *body_ptr, Tcl_Ob
         return TCL_ERROR;
     }
 
-    if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("multivalueFields", -1), multivalue_fields_ptr)) {
+    if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("multiValueFields", -1), multivalue_fields_ptr)) {
         Tcl_DecrRefCount(fields_ptr);
         Tcl_DecrRefCount(multivalue_fields_ptr);
         SetResult("ParseUrlEncodedForm: urlencoded form data dict write error");
@@ -445,7 +547,7 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
             return TCL_ERROR;
         }
 
-        if (TCL_OK != tws_ParseMultipartFormData(interp, body, body_length, multipart_boundary_ptr, result_ptr)) {
+        if (TCL_OK != tws_ParseMultipartForm(interp, body, body_length, multipart_boundary_ptr, result_ptr)) {
             Tcl_DecrRefCount(result_ptr);
             Tcl_Free(body);
             SetResult("get_form: error parsing multipart form data");
