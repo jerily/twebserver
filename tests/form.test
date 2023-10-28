@@ -1,0 +1,80 @@
+package require tcltest
+package require twebserver
+
+namespace import -force ::tcltest::test
+
+::tcltest::configure {*}$argv
+
+set server_file "setup_server_routing.tcl"
+set server_port 12345
+set client_port 54321
+set control_port 11111
+set dir [file dirname [info script]]
+
+proc sleep {ms} {
+    after $ms [list set ::sleep 1]
+    vwait ::sleep
+    unset ::sleep
+}
+
+proc setup {} {
+    global server_pid
+    global dir
+    global server_file
+    set server_pid [exec -ignorestderr -- tclsh [file join $dir ${server_file}] &]
+    sleep 100
+}
+
+proc cleanup {} {
+    global server_pid
+    exec -ignorestderr -- kill $server_pid 2> /dev/null
+    #global control_port
+    #set sock [socket localhost $control_port]
+    #close $sock
+}
+
+proc escape {str} {
+    return [string map {\r {\r} \n {\n}} $str]
+}
+
+if {0} {
+test empty-post-request-1 {} -setup setup -cleanup cleanup -body {
+    global cmd
+    set request "POST /form-example HTTP/1.1\n\n"
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
+    escape $response
+} -result {}
+
+test empty-post-request-2 {} -setup setup -cleanup cleanup -body {
+    global cmd
+    set request "POST /form-example HTTP/1.1\nContent-Length: 0\n\n"
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
+    escape $response
+} -result {}
+}
+
+test check-headers-parsing-1 {} -setup setup -cleanup cleanup -body {
+    global cmd
+    set request "POST /form-example HTTP/1.1\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 15\r\n\r\nmsg=hello&to=me"
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
+    escape $response
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 131\n\ntest message POST headers=content-type application/x-www-form-urlencoded content-length 15 fields=msg hello to me multiValueFields=}
+
+test check-headers-parsing-2 {} -setup setup -cleanup cleanup -body {
+    global cmd
+    set request "POST /form-example HTTP/1.1\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 15\n\nmsg=hello&to=me"
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
+    escape $response
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 131\n\ntest message POST headers=content-type application/x-www-form-urlencoded content-length 15 fields=msg hello to me multiValueFields=}
+
+test urlencoded-form-with-multi-value-fields-1 {} -setup setup -cleanup cleanup -body {
+    global cmd
+    set request "POST /form-example HTTP/1.1\nContent-Type: application/x-www-form-urlencoded\nContent-Length: 22\n\nmsg=hello&to=me&to=you"
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
+    escape $response
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 143\n\ntest message POST headers=content-type application/x-www-form-urlencoded content-length 22 fields=msg hello to you multiValueFields=to {me you}}

@@ -12,6 +12,7 @@ set init_script {
     ::twebserver::add_route -strict $router GET /qwerty/:user_id/sayhi get_qwerty_handler
     ::twebserver::add_route -strict $router GET /addr get_addr_handler
     ::twebserver::add_route -strict $router POST /example post_example_handler
+    ::twebserver::add_route -strict $router POST /form-example post_form_handler
     ::twebserver::add_route $router GET "*" catchall_handler
     ::twebserver::add_route $router POST "*" catchall_handler
 
@@ -32,6 +33,15 @@ set init_script {
         dict set res statusCode 200
         dict set res headers {Content-Type text/plain}
         dict set res body "test message POST headers=[dict get $req headers]"
+        return $res
+    }
+
+    proc post_form_handler {ctx req} {
+        #puts req=$req
+        set form [::twebserver::get_form $req]
+        dict set res statusCode 200
+        dict set res headers {Content-Type text/plain}
+        dict set res body "test message POST headers=[dict get $req headers] fields=[dict get $form fields] multiValueFields=[dict get $form multiValueFields]"
         return $res
     }
 

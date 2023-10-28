@@ -482,7 +482,8 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
             curr++;
         }
         if (curr == end) {
-            goto done;
+            SetResult("ParseHeaders: no header key");
+            return TCL_ERROR;
         }
 
         // mark the end of the token and remember as "key"
@@ -509,8 +510,9 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         }
 
         // mark the end of the token and remember as "value"
-        curr++;
-        size_t valuelen = curr - p - 1;
+//        curr++;
+
+        size_t valuelen = curr - p;
         char *value = tws_strndup(p, valuelen);
         Tcl_Obj *valuePtr = Tcl_NewStringObj(value, valuelen);
         Tcl_IncrRefCount(valuePtr);
@@ -528,12 +530,16 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
             if (TCL_OK != tws_AddHeader(interp, headersPtr, multiValueHeadersPtr, keyPtr, valuePtr)) {
                 Tcl_DecrRefCount(keyPtr);
                 Tcl_DecrRefCount(valuePtr);
-                goto done;
+                SetResult("ParseHeaders: failed adding header (1)");
+                return TCL_ERROR;
             }
             Tcl_DecrRefCount(keyPtr);
             Tcl_DecrRefCount(valuePtr);
             break;
         }
+
+        // print 3 chars from curr
+//        fprintf(stderr, "here1: curr[0]=%c curr[1]=%c curr[2]=%c\n", curr[0], curr[1], curr[2]);
 
         // skip "\r\n" or "\n" at most once
         if (curr + 1 < end && *curr == '\r' && *(curr + 1) == '\n') {
@@ -549,7 +555,8 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
             if (TCL_OK != tws_AddHeader(interp, headersPtr, multiValueHeadersPtr, keyPtr, valuePtr)) {
                 Tcl_DecrRefCount(keyPtr);
                 Tcl_DecrRefCount(valuePtr);
-                goto done;
+                SetResult("ParseHeaders: failed adding header (2)");
+                return TCL_ERROR;
             }
             Tcl_DecrRefCount(keyPtr);
             Tcl_DecrRefCount(valuePtr);
@@ -595,10 +602,14 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         if (TCL_OK != tws_AddHeader(interp, headersPtr, multiValueHeadersPtr, keyPtr, valuePtr)) {
             Tcl_DecrRefCount(keyPtr);
             Tcl_DecrRefCount(valuePtr);
-            goto done;
+            SetResult("ParseHeaders: failed adding header (3)");
+            return TCL_ERROR;
         }
         Tcl_DecrRefCount(keyPtr);
         Tcl_DecrRefCount(valuePtr);
+
+        // print 3 chars from curr
+//        fprintf(stderr, "here2: curr[0]=%c curr[1]=%c curr[2]=%c\n", curr[0], curr[1], curr[2]);
 
         // check if we reached a blank line
         if (curr + 1 < end && *curr == '\r' && *(curr + 1) == '\n') {
@@ -615,9 +626,6 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
     *currPtr = curr;
     return TCL_OK;
 
-    done:
-SetResult("headers parse error");
-    return TCL_ERROR;
 }
 
 int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *headersPtr, Tcl_Obj *resultPtr) {
@@ -750,6 +758,7 @@ int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsP
         Tcl_DecrRefCount(headersPtr);
         return TCL_ERROR;
     }
+
     Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("headers", -1), headersPtr);
     Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("multiValueHeaders", -1), multiValueHeadersPtr);
     Tcl_DecrRefCount(multiValueHeadersPtr);
