@@ -37,14 +37,13 @@ proc escape {str} {
     return [string map {\r {\r} \n {\n}} $str]
 }
 
-if {0} {
 test empty-post-request-1 {} -setup setup -cleanup cleanup -body {
     global cmd
     set request "POST /form-example HTTP/1.1\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
     escape $response
-} -result {}
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 52\n\ntest message POST headers= fields= multiValueFields=}
 
 test empty-post-request-2 {} -setup setup -cleanup cleanup -body {
     global cmd
@@ -52,8 +51,7 @@ test empty-post-request-2 {} -setup setup -cleanup cleanup -body {
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
     escape $response
-} -result {}
-}
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 68\n\ntest message POST headers=content-length 0 fields= multiValueFields=}
 
 test check-headers-parsing-1 {} -setup setup -cleanup cleanup -body {
     global cmd

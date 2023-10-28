@@ -285,10 +285,7 @@ tws_ParseMultipartForm(Tcl_Interp *interp, const char *body, int body_length, Tc
         }
 
         if (be == bs) {
-            Tcl_DecrRefCount(mp_form_multivalue_fields_ptr);
-            Tcl_DecrRefCount(mp_form_fields_ptr);
-            Tcl_DecrRefCount(mp_form_files_ptr);
-            return TCL_OK;
+            break;
         }
 
         if (TCL_OK != tws_ParseMultipartEntry(interp, bs, be, mp_form_fields_ptr, mp_form_files_ptr,
@@ -557,6 +554,8 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
     } else {
         // check if "content-type" is "application/x-form-urlencoded"
 
+        int success = 0;
+
         Tcl_Obj *headers_ptr = NULL;
         Tcl_Obj *headers_key_ptr = Tcl_NewStringObj("headers", -1);
         Tcl_IncrRefCount(headers_key_ptr);
@@ -592,7 +591,23 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
                         SetResult("get_form: error parsing urlencoded form data");
                         return TCL_ERROR;
                     }
+                    success = 1;
                 }
+            }
+        }
+
+        if (!success) {
+            // add empty fields, multiValueFields to form dictionary
+
+            if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("fields", -1), Tcl_NewDictObj())) {
+                Tcl_DecrRefCount(result_ptr);
+                SetResult("get_form: error writing empty fields to form dict");
+                return TCL_ERROR;
+            }
+            if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("multiValueFields", -1), Tcl_NewDictObj())) {
+                Tcl_DecrRefCount(result_ptr);
+                SetResult("get_form: error writing empty fields to form dict");
+                return TCL_ERROR;
             }
         }
     }

@@ -515,7 +515,7 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
      * until SSL_read() would return no data
      */
 
-    int again_after_error_want_read = 1;
+    int again_after_error_want_read = 3;
     for (;;) {
         rc = SSL_read(conn->ssl, buf, max_buffer_size);
         if (rc > 0) {
@@ -533,13 +533,13 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
             } else if (err == SSL_ERROR_WANT_READ) {
                 DBG(fprintf(stderr, "SSL_ERROR_WANT_READ\n"));
 
-                if (again_after_error_want_read) {
-                    again_after_error_want_read--;
+                if (total_read == 0) {
+                    // TODO: put a timeout here
                     continue;
                 }
 
-                if (total_read == 0 || total_read < size) {
-                    // TODO: put a timeout here
+                if (again_after_error_want_read && total_read < size) {
+                    again_after_error_want_read--;
                     continue;
                 }
                 break;
