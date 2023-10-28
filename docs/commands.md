@@ -148,7 +148,21 @@
 
 #### Crypto
 
+Use [tink-tcl](https://github.com/jerily/tink-tcl) for cryptographic APIs.
+These commands are provided for convenience. 
+
 * **::twebserver::random_bytes** *num_bytes*
     - generates random bytes of length ```num_bytes```
+* **::twebserver::sha1** *bytes*
+    - generates a sha1 hash of ```bytes```
 * **::twebserver::sha256** *bytes*
     - generates a sha256 hash of ```bytes```
+* **::twebserver::sha512** *bytes*
+    - generates a sha412 hash of ```bytes```
+
+#### Hex
+
+* **::twebserver::hex_encode** *bytes*
+    - encodes a string in hex
+* **::twebserver::hex_decode** *hex_encoded_string*
+    - decodes a hex encoded string

@@ -1,0 +1,18 @@
+lappend auto_path ..
+package require tcltest
+package require twebserver
+
+namespace import -force ::tcltest::test
+
+::tcltest::configure {*}$argv
+
+# tests are of the form:
+#   test <test_name> {<description>} {<actual>} {<expected>}
+
+test hex_encode_ok {} {::twebserver::hex_encode "abc 123"} {61626320313233}
+test hex_encode_empty {} {::twebserver::hex_encode ""} {}
+test hex_encode_wrong_args {} -body {::twebserver::hex_encode} -returnCodes error -result {wrong # args: should be "::twebserver::hex_encode bytes"}
+
+test hex_decode_ok {} {::twebserver::hex_decode "61626320313233"} {abc 123}
+test hex_decode_empty {} {::twebserver::hex_decode ""} {}
+test hex_decode_wrong_args {} -body {::twebserver::hex_decode} -returnCodes error -result {wrong # args: should be "::twebserver::hex_decode hex_encoded_string"}

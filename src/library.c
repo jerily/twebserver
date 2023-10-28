@@ -1152,11 +1152,14 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::info_conn", tws_InfoConnCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::parse_request", tws_ParseRequestCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::parse_conn", tws_ParseConnCmd, NULL, NULL);
+
     Tcl_CreateObjCommand(interp, "::twebserver::encode_uri_component", tws_EncodeURIComponentCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::decode_uri_component", tws_DecodeURIComponentCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::encode_query", tws_EncodeQueryCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::base64_encode", tws_Base64EncodeCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::base64_decode", tws_Base64DecodeCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::hex_encode", tws_HexEncodeCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::hex_decode", tws_HexDecodeCmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::create_router", tws_CreateRouterCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_route", tws_AddRouteCmd, NULL, NULL);
@@ -1168,7 +1171,9 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::add_cookie", tws_AddCookieCmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::random_bytes", tws_RandomBytesCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::sha1", tws_Sha1Cmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::sha256", tws_Sha256Cmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::sha512", tws_Sha512Cmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::get_form", tws_GetFormCmd, NULL, NULL);
 

@@ -1,0 +1,14 @@
+lappend auto_path ..
+package require tcltest
+package require twebserver
+
+namespace import -force ::tcltest::test
+
+::tcltest::configure {*}$argv
+
+# tests are of the form:
+#   test <test_name> {<description>} {<actual>} {<expected>}
+
+test sha1_ok {} {::twebserver::hex_encode [::twebserver::sha1 "abc 123"]} {E2D0A343442BA7BD2C0537659A05E61668575F2B}
+test sha256_ok {} {::twebserver::hex_encode [::twebserver::sha256 "abc 123"]} {58384E9216293C79C817A333C0098482F2D59F826CAC1E3DAE7A8B904C1EA3A4}
+test sha512_ok {} {::twebserver::hex_encode [::twebserver::sha512 "abc 123"]} {AF5C7E6E0028BCE466814D8B8F5651DDD82497B6F006BDD818194E14903114A6549ED4EF5E2480591F1E13F3BC0BB8879C3B8F7750349AAECD0F7EE11331C052}
