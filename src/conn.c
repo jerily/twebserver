@@ -538,16 +538,6 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_h
                     continue;
                 }
 
-                int available = 0;
-                if (ioctl(conn->client, FIONREAD, &available) == -1) {
-                    return TCL_ERROR;
-                }
-
-                if (available > 0) {
-//                    fprintf(stderr, "available: %d\n", available);
-                    continue;
-                }
-
                 if (total_read == 0 || total_read < size) {
                     // TODO: put a timeout here
                     continue;
