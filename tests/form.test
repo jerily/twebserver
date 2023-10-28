@@ -78,3 +78,11 @@ test urlencoded-form-with-multi-value-fields-1 {} -setup setup -cleanup cleanup 
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
     escape $response
 } -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 143\n\ntest message POST headers=content-type application/x-www-form-urlencoded content-length 22 fields=msg hello to you multiValueFields=to {me you}}
+
+test multipart-form-1 {} -setup setup -cleanup cleanup -body {
+    global cmd
+    set request "POST /form-example HTTP/1.1\nContent-Type: multipart/form-data; boundary=---------------------------9051914041544843365972754266\nContent-Length: 476\n\n-----------------------------9051914041544843365972754266\nContent-Disposition: form-data; name=\"text\"\n\ntext default\n-----------------------------9051914041544843365972754266\nContent-Disposition: form-data; name=\"file1\"; filename=\"a.txt\"\nContent-Type: text/plain\n\nContent of a.txt.\n-----------------------------9051914041544843365972754266\nContent-Disposition: form-data; name=\"file2\"; filename=\"a.html\"\nContent-Type: text/html\n\n<!DOCTYPE html><title>Content of a.html.</title>"
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
+    escape $response
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 215\n\ntest message POST headers=content-type {multipart/form-data; boundary=---------------------------9051914041544843365972754266} content-length 476 fields=text {text default} file1 a.txt file2 a.html multiValueFields=}
