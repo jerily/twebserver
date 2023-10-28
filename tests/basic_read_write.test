@@ -38,7 +38,6 @@ proc escape {str} {
 }
 
 test basic-1 {simple tls1_3 openssl s_client request} -setup setup -cleanup cleanup -body {
-    global cmd
     set request "GET / HTTP/1.1\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
@@ -48,7 +47,6 @@ test basic-1 {simple tls1_3 openssl s_client request} -setup setup -cleanup clea
 sleep 100
 
 test basic-2 {simple tls1_2 openssl s_client request} -setup setup -cleanup cleanup -body {
-    global cmd
     set request "GET /example HTTP/1.1\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_2 << $request 2> /dev/null]
@@ -58,7 +56,6 @@ test basic-2 {simple tls1_2 openssl s_client request} -setup setup -cleanup clea
 sleep 100
 
 test basic-3 {whatever request} -setup setup -cleanup cleanup -body {
-    global cmd
     set request "whatever"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_2 << $request 2> /dev/null]
@@ -69,7 +66,6 @@ sleep 100
 
 # Reconnects to the same server 5 times using the same session ID, this can be used as a test that session caching is working.
 test session-resumption-tls1_2 {reconnect with tls1.2} -setup setup -cleanup cleanup -body {
-    global cmd
     set request "whatever"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -tls1_2 -reconnect"
     set msg [exec -ignorestderr -keepnewline -- {*}${cmd} << $request 2> /dev/null]
@@ -80,7 +76,6 @@ test session-resumption-tls1_2 {reconnect with tls1.2} -setup setup -cleanup cle
 sleep 100
 
 test session-resumption-tls1_3 {session resumption with tls1.3} -setup setup -cleanup cleanup -body {
-    global cmd
     set request "whatever"
 
     file delete -force /tmp/sess.pem
