@@ -36,38 +36,14 @@ TCL Web Server (HTTPS) Extension
 
 ## Examples
 
-### Try it out without threads
-
-Run the example:
-```bash
-tclsh8.6 ../examples/example-with-req-resp.tcl
-```
-
-Try a few requests:
-```bash
-# simple get request
-curl -k https://localhost:4433
-# json post request
-curl -k -X POST -H "Content-Type: application/json" --data '{"message": "hello world"}' https://localhost:4433
-# isBase64Encoded
-curl -k -X POST -H 'content-type: image/jpeg' --data-binary @../examples/Google_2015_logo.png https://localhost:4433
-# multivalue headers
-curl -k -X POST -H "Content-Type: application/json" -H "X-Custom-Header: asdf" -H "X-Custom-Header: qwerty" --data '{"message": "hello world"}' https://localhost:4433
-# query string parameters
-curl -k -X POST -H "Content-Type: application/json" -H "X-Custom-Header: this is a test" -H "X-Custom-Header: hello world" --data '{"message": "hello world"}' 'https://localhost:4433/example?a=1&b=2&c=this+is+a+test'
-# multivalue query string parameters
-curl -k -X POST -H "Content-Type: application/json" -H "X-Custom-Header: this is a test" -H "X-Custom-Header: hello world" --data '{"message": "hello world"}' 'https://localhost:4433/exampl
-e?a=1&b=2&c=this+is+a+test&c=blah+blah'
-```
-
-### Try it out with threads
-
-Run the example:
-```bash
-tclsh8.6 ../examples/example-best-with-native-threads.tcl
-```
+* [Threads & Routing & Middleware example](examples/example-best-with-router.tcl)
 
 ## Benchmark
+
+Start the server:
+```
+tclsh8.6 examples/example-best-with-router.tcl
+```
 
 Install go and gohttpbench:
 ```
@@ -76,32 +52,32 @@ go install github.com/parkghost/gohttpbench@latest
 export PATH="$PATH:$(go env GOPATH)/bin"
 ```
 
-With keepalive (example-best-with-native-threads.tcl - uses parse_conn/return_conn): 
+With keepalive - Intel i9 CPU @ 3.60GHz with 64GB RAM: 
 ```
-gohttpbench -v 10 -n 100000 -c 10 -t 10 -k "https://localhost:4433/example?a=1&b=2"
+gohttpbench -v 10 -n 100000 -c 10 -t 1000 -k "https://localhost:4433/blog/12345/sayhi"
 
 Concurrency Level:      10
-Time taken for tests:   1.51 seconds
+Time taken for tests:   1.17 seconds
 Complete requests:      100000
 Failed requests:        0
-HTML transferred:       23700000 bytes
-Requests per second:    66290.23 [#/sec] (mean)
-Time per request:       0.151 [ms] (mean)
-Time per request:       0.015 [ms] (mean, across all concurrent requests)
-HTML Transfer rate:     15342.21 [Kbytes/sec] received
+HTML transferred:       5200000 bytes
+Requests per second:    85497.45 [#/sec] (mean)
+Time per request:       0.117 [ms] (mean)
+Time per request:       0.012 [ms] (mean, across all concurrent requests)
+HTML Transfer rate:     4341.56 [Kbytes/sec] received
 ```
 
-Without keepalive (example-best-with-native-threads.tcl - uses parse_conn/return_conn):
+Without keepalive - Intel i9 CPU @ 3.60GHz with 64GB RAM:
 ```
-gohttpbench -v 10 -n 100000 -c 10 -t 10 "https://localhost:4433/example?a=1&b=2"
+gohttpbench -v 10 -n 100000 -c 10 -t 1000 "https://localhost:4433/blog/12345/sayhi"
 
 Concurrency Level:      10
-Time taken for tests:   10.00 seconds
-Complete requests:      35832
+Time taken for tests:   23.95 seconds
+Complete requests:      100000
 Failed requests:        0
-HTML transferred:       8313024 bytes
-Requests per second:    3583.20 [#/sec] (mean)
-Time per request:       2.791 [ms] (mean)
-Time per request:       0.279 [ms] (mean, across all concurrent requests)
-HTML Transfer rate:     811.80 [Kbytes/sec] received
+HTML transferred:       5200000 bytes
+Requests per second:    4175.56 [#/sec] (mean)
+Time per request:       2.395 [ms] (mean)
+Time per request:       0.239 [ms] (mean, across all concurrent requests)
+HTML Transfer rate:     212.04 [Kbytes/sec] received
 ```
