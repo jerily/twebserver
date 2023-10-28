@@ -228,7 +228,7 @@ static void tws_DeleteFileHandler(int fd) {
     struct kevent ev;
     EV_SET(&ev, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
     if (kevent(dataPtr->epoll_fd, &ev, 1, NULL, 0, NULL) == -1) {
-        DBG(fprintf(stderr, "tws_DeleteFileHandler: kevent failed, fd: %d\n", fd));
+        DBG(fprintf(stderr, "DeleteFileHandler: kevent failed, fd: %d\n", fd));
     }
 #else
     // Remove the server socket from the epoll set
@@ -236,7 +236,7 @@ static void tws_DeleteFileHandler(int fd) {
     ev.events = EPOLLIN;
     ev.data.fd = fd;
     if (epoll_ctl(dataPtr->epoll_fd, EPOLL_CTL_DEL, fd, &ev) == -1) {
-        DBG(fprintf(stderr, "tws_DeleteFileHandler: epoll_ctl failed, fd: %d\n", fd));
+        DBG(fprintf(stderr, "DeleteFileHandler: epoll_ctl failed, fd: %d\n", fd));
     }
 #endif
 }
@@ -244,7 +244,7 @@ static void tws_DeleteFileHandler(int fd) {
 static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
-    DBG(fprintf(stderr, "tws_DeleteFileHandlerForKeepaliveConn client=%d\n", conn->client));
+    DBG(fprintf(stderr, "DeleteFileHandlerForKeepaliveConn client=%d\n", conn->client));
     tws_DeleteFileHandler(conn->client);
 //    Tcl_DeleteFileHandler(conn->client);
     tws_FreeConn(conn);
@@ -255,7 +255,7 @@ static void tws_KeepaliveConnHandler(void *data, int mask);
 
 static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     if (conn->todelete) {
-        DBG(fprintf(stderr, "tws_ShutdownConn - already marked for deletion\n"));
+        DBG(fprintf(stderr, "ShutdownConn - already marked for deletion\n"));
         return;
     }
     int shutdown_client = 1;
@@ -302,7 +302,7 @@ static void tws_CleanupConnections(ClientData clientData) {
     tws_server_t *server = (tws_server_t *) clientData;
 
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
-    DBG(fprintf(stderr, "tws_CleanupConnections currentThreadId=%p\n", currentThreadId));
+    DBG(fprintf(stderr, "CleanupConnections currentThreadId=%p\n", currentThreadId));
 
     long long milliseconds = current_time_in_millis();
 
@@ -321,16 +321,16 @@ static void tws_CleanupConnections(ClientData clientData) {
         }
 
         if (curr_conn->todelete) {
-            DBG(fprintf(stderr, "tws_CleanupConnections - deleting conn - client: %d\n", curr_conn->client));
+            DBG(fprintf(stderr, "CleanupConnections - deleting conn - client: %d\n", curr_conn->client));
 
             tws_FreeConnWithThreadData(curr_conn, dataPtr);
 
-            DBG(fprintf(stderr, "tws_CleanupConnections - deleted conn - client: %d\n", curr_conn->client));
+            DBG(fprintf(stderr, "CleanupConnections - deleted conn - client: %d\n", curr_conn->client));
         } else {
             long long elapsed = milliseconds - curr_conn->latest_millis;
             if (elapsed > curr_conn->server->conn_timeout_millis) {
                 if (tws_UnregisterConnName(curr_conn->conn_handle)) {
-                    DBG(fprintf(stderr, "tws_CleanupConnections - mark connection for deletion\n"));
+                    DBG(fprintf(stderr, "CleanupConnections - mark connection for deletion\n"));
                     // ShutdownConn needed to trigger tws_DeleteFileHandlerForKeepaliveConn
                     tws_ShutdownConn(curr_conn, 2);
                     // if keepalive, tws_DeleteFileHandlerForKeepaliveConn will free the connection
@@ -359,7 +359,7 @@ static void tws_CreateFileHandler(int fd, ClientData clientData) {
     struct kevent ev;
     EV_SET(&ev, fd, EVFILT_READ, EV_ADD, 0, 0, clientData);
     if (kevent(dataPtr->epoll_fd, &ev, 1, NULL, 0, NULL) == -1) {
-        DBG(fprintf(stderr, "tws_CreateFileHandler: kevent failed, fd: %d\n", fd));
+        DBG(fprintf(stderr, "CreateFileHandler: kevent failed, fd: %d\n", fd));
     }
 #else
     // Add the server socket to the epoll set
@@ -368,16 +368,16 @@ static void tws_CreateFileHandler(int fd, ClientData clientData) {
     ev.data.fd = fd;
     ev.data.ptr = clientData;
     if (epoll_ctl(dataPtr->epoll_fd, EPOLL_CTL_ADD, fd, &ev) == -1) {
-        DBG(fprintf(stderr, "tws_CreateFileHandler: epoll_ctl failed, fd: %d\n", fd));
+        DBG(fprintf(stderr, "CreateFileHandler: epoll_ctl failed, fd: %d\n", fd));
     }
 #endif
 }
 
 static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
-    DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn\n"));
+    DBG(fprintf(stderr, "CreateFileHandlerForKeepaliveConn\n"));
     tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
-    DBG(fprintf(stderr, "tws_CreateFileHandlerForKeepaliveConn conn=%p client=%d\n", conn, conn->client));
+    DBG(fprintf(stderr, "CreateFileHandlerForKeepaliveConn conn=%p client=%d\n", conn, conn->client));
     tws_CreateFileHandler(conn->client, conn);
 //    Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
     return 1;
@@ -418,23 +418,9 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     return TCL_OK;
 }
 
-static void tws_HandleConn(tws_conn_t *conn) {
+static int tws_HandleProcessing(tws_conn_t *conn) {
+    DBG(fprintf(stderr, "HandleProcessingEventInThread: %s\n", conn->conn_handle));
     tws_server_t *server = conn->server;
-
-    ERR_clear_error();
-
-    int rc;
-    do {
-        rc = SSL_accept(conn->ssl);
-    } while (rc <= 0 && SSL_get_error(conn->ssl, rc) == SSL_ERROR_WANT_READ);
-
-    if (rc <= 0) {
-        int err = SSL_get_error(conn->ssl, rc);
-        fprintf(stderr, "SSL_accept <= 0 client: %d err=%s\n", conn->client, ssl_errors[err]);
-        tws_CloseConn(conn, 1);
-        ERR_print_errors_fp(stderr);
-        return;
-    } else {
 
 //        char c;
 //        int rc = SSL_peek(conn->ssl, &c, 1);
@@ -446,46 +432,35 @@ static void tws_HandleConn(tws_conn_t *conn) {
 //            return;
 //        }
 
-        Tcl_Interp *interp;
-        Tcl_Obj *cmdPtr;
-        if (server->num_threads > 0) {
-            // Get a pointer to the thread data for the current thread
-            tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
-            // Get the interp from the thread data
-            interp = dataPtr->interp;
-            cmdPtr = dataPtr->cmdPtr;
-        } else {
-            // Get the interp from the main thread
-            interp = server->accept_ctx->interp;
-            cmdPtr = server->cmdPtr;
-        }
+    tws_thread_data_t *dataPtr;
+    Tcl_Interp *interp;
+    Tcl_Obj *cmdPtr;
+    if (server->num_threads > 0) {
+        // Get a pointer to the thread data for the current thread
+        dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+        // Get the interp from the thread data
+        interp = dataPtr->interp;
+        cmdPtr = dataPtr->cmdPtr;
+    } else {
+        // Get the interp from the main thread
+        interp = server->accept_ctx->interp;
+        cmdPtr = server->cmdPtr;
+        Tcl_MutexLock(&tws_Eval_Mutex);
+    }
 
-        if (server->num_threads == 0) {
-            Tcl_MutexLock(&tws_Eval_Mutex);
-        }
-        Tcl_Obj *const connPtr = Tcl_NewStringObj(conn->conn_handle, -1);
-        Tcl_Obj *const addrPtr = Tcl_NewStringObj(conn->client_ip, -1);
-        Tcl_Obj *const portPtr = Tcl_NewIntObj(server->accept_ctx->port);
-        Tcl_Obj *const cmdobjv[] = {cmdPtr, connPtr, addrPtr, portPtr, NULL};
+    Tcl_Obj *const connPtr = Tcl_NewStringObj(conn->conn_handle, -1);
+    Tcl_Obj *const addrPtr = Tcl_NewStringObj(conn->client_ip, -1);
+    Tcl_Obj *const portPtr = Tcl_NewIntObj(server->accept_ctx->port);
+    Tcl_Obj *const cmdobjv[] = {cmdPtr, connPtr, addrPtr, portPtr, NULL};
 
-        Tcl_IncrRefCount(connPtr);
-        Tcl_IncrRefCount(addrPtr);
-        Tcl_IncrRefCount(portPtr);
-        Tcl_ResetResult(interp);
-        if (TCL_OK != Tcl_EvalObjv(interp, 4, cmdobjv, TCL_EVAL_INVOKE)) {
-            fprintf(stderr, "error evaluating script sock=%d\n", conn->client);
-            fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(interp)));
-            fprintf(stderr, "%s\n", Tcl_GetVar2(interp, "::errorInfo", NULL, TCL_GLOBAL_ONLY));
-            Tcl_DecrRefCount(connPtr);
-            Tcl_DecrRefCount(addrPtr);
-            Tcl_DecrRefCount(portPtr);
-
-            if (server->num_threads == 0) {
-                Tcl_MutexUnlock(&tws_Eval_Mutex);
-            }
-
-            return;
-        }
+    Tcl_IncrRefCount(connPtr);
+    Tcl_IncrRefCount(addrPtr);
+    Tcl_IncrRefCount(portPtr);
+    Tcl_ResetResult(interp);
+    if (TCL_OK != Tcl_EvalObjv(interp, 4, cmdobjv, TCL_EVAL_INVOKE)) {
+        fprintf(stderr, "error evaluating script sock=%d\n", conn->client);
+        fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(interp)));
+        fprintf(stderr, "%s\n", Tcl_GetVar2(interp, "::errorInfo", NULL, TCL_GLOBAL_ONLY));
         Tcl_DecrRefCount(connPtr);
         Tcl_DecrRefCount(addrPtr);
         Tcl_DecrRefCount(portPtr);
@@ -494,7 +469,82 @@ static void tws_HandleConn(tws_conn_t *conn) {
             Tcl_MutexUnlock(&tws_Eval_Mutex);
         }
 
+        return 1;
     }
+    Tcl_DecrRefCount(connPtr);
+    Tcl_DecrRefCount(addrPtr);
+    Tcl_DecrRefCount(portPtr);
+
+
+    if (server->num_threads > 0) {
+        Tcl_MutexUnlock(dataPtr->mutex);
+    } else {
+        Tcl_MutexUnlock(&tws_Eval_Mutex);
+    }
+
+    return 1;
+}
+
+static int tws_HandleProcessingEventInThread(Tcl_Event *evPtr, int flags) {
+    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
+    return tws_HandleProcessing(conn);
+}
+
+static void tws_ThreadQueueProcessingEvent(tws_conn_t *conn) {
+    DBG(fprintf(stderr, "ThreadQueueConnEvent - threadId: %p\n", conn->threadId));
+    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    connEvPtr->proc = tws_HandleProcessingEventInThread;
+    connEvPtr->nextPtr = NULL;
+    connEvPtr->clientData = (ClientData *) conn;
+    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(conn->threadId);
+    DBG(fprintf(stderr, "ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
+}
+
+static int tws_HandleHandshake(tws_conn_t *conn) {
+    ERR_clear_error();
+    int rc = SSL_accept(conn->ssl);
+    if (rc <= 0) {
+        int err = SSL_get_error(conn->ssl, rc);
+        if (err == SSL_ERROR_WANT_READ) {
+            DBG(fprintf(stderr, "HandleHandshake: SSL_ERROR_WANT_READ\n"));
+            return 0;
+        }
+        fprintf(stderr, "SSL_accept <= 0 client: %d err=%s\n", conn->client, ssl_errors[err]);
+        tws_CloseConn(conn, 1);
+        ERR_print_errors_fp(stderr);
+        return 1;
+    } else {
+        DBG(fprintf(stderr, "HandleHandshake: success\n"));
+        tws_ThreadQueueProcessingEvent(conn);
+        return 1;
+    }
+}
+
+static int tws_HandleHandshakeEventInThread(Tcl_Event *evPtr, int flags) {
+    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
+    DBG(fprintf(stderr, "HandleHandshakeEventInThread: %s\n", conn->conn_handle));
+    int result = tws_HandleHandshake(conn);
+    Tcl_ThreadAlert(conn->threadId);
+    return result;
+}
+
+static void tws_ThreadQueueHandshakeEvent(tws_conn_t *conn) {
+    DBG(fprintf(stderr, "ThreadQueueHandshakeEvent - threadId: %p\n", conn->threadId));
+    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    connEvPtr->proc = tws_HandleHandshakeEventInThread;
+    connEvPtr->nextPtr = NULL;
+    connEvPtr->clientData = (ClientData *) conn;
+    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(conn->threadId);
+    DBG(fprintf(stderr, "ThreadQueueHandshakeEvent done - threadId: %p\n", conn->threadId));
+}
+
+static void tws_HandleConn(tws_conn_t *conn) {
+    DBG(fprintf(stderr, "HandleConn client: %d\n", conn->client));
+    tws_ThreadQueueHandshakeEvent(conn);
 }
 
 #define MIN(x,y) ((x) < (y) ? (x) : (y))
@@ -1163,18 +1213,18 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     // notify the main thread that we are done initializing
     Tcl_ConditionNotify(&ctrl->condWait);
 
-    DBG(fprintf(stderr, "tws_HandleConnThread: in (%p) - first timer millis: %d\n", threadId, first_timer_millis));
+    DBG(fprintf(stderr, "HandleConnThread: in (%p) - first timer millis: %d\n", threadId, first_timer_millis));
     while (1) {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
     }
     Tcl_FinalizeThread();
     Tcl_ExitThread(TCL_OK);
-    DBG(fprintf(stderr, "tws_HandleConnThread: out (%p)\n", threadId));
+    DBG(fprintf(stderr, "HandleConnThread: out (%p)\n", threadId));
     TCL_THREAD_CREATE_RETURN;
 }
 
 static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
-    DBG(fprintf(stderr, "tws_HandleConnEventInThread\n"));
+    DBG(fprintf(stderr, "HandleConnEventInThread\n"));
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
 
@@ -1203,7 +1253,7 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
     }
     dataPtr->numConns++;
 
-    //    fprintf(stderr, "tws_HandleConnEventInThread - numConns: %d FD_SETSIZE: %d thread_limit: %d\n", dataPtr->numConns, FD_SETSIZE, thread_limit);
+    //    fprintf(stderr, "HandleConnEventInThread - numConns: %d FD_SETSIZE: %d thread_limit: %d\n", dataPtr->numConns, FD_SETSIZE, thread_limit);
 
     Tcl_MutexUnlock(dataPtr->mutex);
 
@@ -1211,19 +1261,19 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
     return 1;
 }
 
-static void tws_ThreadQueueConnEvent(tws_conn_t *conn, char *conn_handle) {
-    DBG(fprintf(stderr, "tws_HandleConn - threadId: %p\n", conn->threadId));
+static void tws_ThreadQueueConnEvent(tws_conn_t *conn) {
+    DBG(fprintf(stderr, "ThreadQueueConnEvent - threadId: %p\n", conn->threadId));
     tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleConnEventInThread;
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
     Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(conn->threadId);
-    DBG(fprintf(stderr, "tws_ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
+    DBG(fprintf(stderr, "ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
 }
 
 static void tws_KeepaliveConnHandler(void *data, int mask) {
-    DBG(fprintf(stderr, "tws_KeepaliveConnHandler mask=%d\n", mask));
+    DBG(fprintf(stderr, "KeepaliveConnHandler mask=%d\n", mask));
 
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
 
@@ -1231,14 +1281,14 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     struct kevent events[MAX_EVENTS];
     int nfds = kevent(dataPtr->epoll_fd, NULL, 0, events, MAX_EVENTS, NULL);
     if (nfds == -1) {
-        DBG(fprintf(stderr, "tws_KeepaliveConnHandler: kevent failed"));
+        DBG(fprintf(stderr, "KeepaliveConnHandler: kevent failed"));
         return;
     }
 #else
     struct epoll_event events[MAX_EVENTS];
     int nfds = epoll_wait(dataPtr->epoll_fd, events, MAX_EVENTS, -1);
     if (nfds == -1) {
-        DBG(fprintf(stderr, "tws_KeepaliveConnHandler: epoll_wait failed"));
+        DBG(fprintf(stderr, "KeepaliveConnHandler: epoll_wait failed"));
         return;
     }
 #endif
@@ -1249,7 +1299,7 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
 #else
         tws_conn_t *conn = (tws_conn_t *) events[i].data.ptr;
 #endif
-        DBG(fprintf(stderr, "tws_KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
+        DBG(fprintf(stderr, "KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
         conn->latest_millis = current_time_in_millis();
         tws_HandleConn(conn);
     }
@@ -1311,7 +1361,7 @@ void tws_AcceptConn(void *data, int mask) {
             tws_RegisterConnName(conn->conn_handle, conn);
 
             if (server->num_threads > 0) {
-                tws_ThreadQueueConnEvent(conn, conn->conn_handle);
+                tws_ThreadQueueConnEvent(conn);
             } else {
                 tws_HandleConn(conn);
             }
@@ -1412,7 +1462,7 @@ int tws_Listen(Tcl_Interp *interp, const char *handle, Tcl_Obj *portPtr) {
             Tcl_ConditionWait(&ctrl.condWait, &tws_Thread_Mutex, NULL);
             Tcl_MutexUnlock(&tws_Thread_Mutex);
             Tcl_ConditionFinalize(&ctrl.condWait);
-            DBG(fprintf(stderr, "tws_Listen - created thread: %p\n", id));
+            DBG(fprintf(stderr, "Listen - created thread: %p\n", id));
         }
     }
 
