@@ -10,7 +10,9 @@ proc process_conn {conn addr port} {
     #puts "process_conn $conn $addr $port"
     if { [catch {
         set request [::twebserver::read_conn $conn]
-        ::twebserver::write_conn $conn $request
+        if { $request ne {} } {
+            ::twebserver::write_conn $conn $request
+        }
     } errmsg] } {
         puts "error: $errmsg"
     }
