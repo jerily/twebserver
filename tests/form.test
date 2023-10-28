@@ -21,7 +21,7 @@ proc setup {} {
     global server_pid
     global dir
     global server_file
-    set server_pid [exec -ignorestderr -- tclsh [file join $dir ${server_file}] &]
+    set server_pid [exec -ignorestderr -- tclsh8.6 [file join $dir ${server_file}] &]
     sleep 100
 }
 
