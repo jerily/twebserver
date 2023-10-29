@@ -504,6 +504,7 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *headersPtr, Tcl_Obj *multi
         }
         Tcl_DecrRefCount(multiValuePtr);
     }
+
     if (TCL_OK != Tcl_DictObjPut(interp, headersPtr, keyPtr, valuePtr)) {
         SetResult("AddHeader: dict put error");
         return TCL_ERROR;
@@ -560,7 +561,7 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         Tcl_IncrRefCount(valuePtr);
         Tcl_Free(value);
 
-//        fprintf(stderr, "key=%s value=%s\n", Tcl_GetString(keyPtr), Tcl_GetString(valuePtr));
+        DBG(fprintf(stderr, "key=%s value=%s\n", Tcl_GetString(keyPtr), Tcl_GetString(valuePtr)));
 
         // skip spaces until end of line denoted by "\r\n" or "\n"
         while (curr < end && CHARTYPE(space, *curr) != 0 && *curr != '\r' && *curr != '\n') {
@@ -796,6 +797,7 @@ int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsP
     Tcl_IncrRefCount(headersPtr);
     Tcl_Obj *multiValueHeadersPtr = Tcl_NewDictObj();
     Tcl_IncrRefCount(multiValueHeadersPtr);
+
     if (TCL_OK != tws_ParseHeaders(interp, &curr, end, headersPtr, multiValueHeadersPtr)) {
         Tcl_DecrRefCount(multiValueHeadersPtr);
         Tcl_DecrRefCount(headersPtr);

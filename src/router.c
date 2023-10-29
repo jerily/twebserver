@@ -282,7 +282,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
             }
 
             // return response
-            if (TCL_OK != tws_ReturnConn(interp, conn, Tcl_GetObjResult(interp), encoding)) {
+            if (TCL_OK != tws_ReturnConn(interp, conn, res_dict_ptr, encoding)) {
                 if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
                     tws_CloseConn(conn, 1);
                     Tcl_DecrRefCount(ctx_dict_ptr);
@@ -299,7 +299,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
                 return TCL_ERROR;
             }
             Tcl_DecrRefCount(res_dict_ptr);
-            break;
+            break; // break out of while loop to decr ref counts and close conn
         }
         route_ptr = route_ptr->nextPtr;
     }
@@ -361,6 +361,8 @@ static int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
 }
 
 static int tws_ParseBottomPart(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *req_dict_ptr) {
+    DBG(fprintf(stderr, "parse bottom part\n"));
+
     Tcl_Obj *headersPtr;
     Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
     Tcl_IncrRefCount(headersKeyPtr);
@@ -408,6 +410,10 @@ static int tws_ShouldParseTopPart(tws_conn_t *conn) {
     return conn->requestDictPtr == NULL && Tcl_DStringLength(&conn->ds) > 0;
 }
 
+static int tws_ShouldParseBottomPart(tws_conn_t *conn) {
+    return conn->content_length > 0;
+}
+
 static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
     DBG(fprintf(stderr, "HandleRecv: %s\n", conn->conn_handle));
 
@@ -453,10 +459,12 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
     Tcl_Obj *req_dict_ptr = conn->requestDictPtr;
     conn->requestDictPtr = NULL;
 
-    if (TCL_OK != tws_ParseBottomPart(dataPtr->interp, conn, req_dict_ptr)) {
-        fprintf(stderr, "ParseBottomPart failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
-        Tcl_DecrRefCount(req_dict_ptr);
-        return 1;
+    if (tws_ShouldParseBottomPart(conn)) {
+        if (TCL_OK != tws_ParseBottomPart(dataPtr->interp, conn, req_dict_ptr)) {
+            fprintf(stderr, "ParseBottomPart failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
+            Tcl_DecrRefCount(req_dict_ptr);
+            return 1;
+        }
     }
 
     if (TCL_OK != tws_DoRouting(dataPtr->interp, router_ptr, conn, req_dict_ptr)) {
@@ -465,7 +473,7 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
         return 1;
     }
 
-    Tcl_DecrRefCount(req_dict_ptr);
+    DBG(fprintf(stderr, "DoRouting done refCount: %d\n", req_dict_ptr->refCount));
     return 1;
 }
 
