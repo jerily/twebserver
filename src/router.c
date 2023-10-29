@@ -251,7 +251,6 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
 
             Tcl_Obj *res_dict_ptr = Tcl_GetObjResult(interp);
             Tcl_IncrRefCount(res_dict_ptr);
-            DBG(fprintf(stderr, "res: %s\n", Tcl_GetString(res_dict_ptr)));
 
             // traverse middleware leave procs in reverse order
             middleware_ptr = prev_middleware_ptr;
@@ -300,9 +299,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
                 return TCL_ERROR;
             }
             Tcl_DecrRefCount(res_dict_ptr);
-            Tcl_DecrRefCount(ctx_dict_ptr);
-            Tcl_DecrRefCount(req_dict_ptr);
-            return TCL_OK;
+            break;
         }
         route_ptr = route_ptr->nextPtr;
     }
@@ -313,6 +310,8 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
         SetResult("router_process_conn: close_conn failed");
         return TCL_ERROR;
     }
+    DBG(fprintf(stderr, "------------done\n"));
+
     return TCL_OK;
 }
 
@@ -415,6 +414,7 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(conn->dataKeyPtr, sizeof(tws_thread_data_t));
 
     if (tws_ShouldParseTopPart(conn)) {
+        DBG(fprintf(stderr, "parse top part after deferring reqdictptr=%p\n", conn->requestDictPtr));
         // case when we have read as much as we could with deferring
         if (TCL_OK != tws_ParseTopPart(dataPtr->interp, conn)) {
             fprintf(stderr, "ParseTopPart failed (before rubicon): %s\n",
@@ -427,9 +427,11 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
     int ret = tws_ReadConnAsync(dataPtr->interp, conn, &conn->ds, conn->content_length - remaining_unprocessed);
     if (TWS_AGAIN == ret) {
         if (conn->offset == 0) {
+            DBG(fprintf(stderr, "retry dslen=%d reqdictptr=%p\n", Tcl_DStringLength(&conn->ds), conn->requestDictPtr));
             return 0;
         }
     } else if (TWS_ERROR == ret) {
+        fprintf(stderr, "err\n");
         if (conn->requestDictPtr != NULL) {
             Tcl_DecrRefCount(conn->requestDictPtr);
             conn->requestDictPtr = NULL;
@@ -451,8 +453,6 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
     Tcl_Obj *req_dict_ptr = conn->requestDictPtr;
     conn->requestDictPtr = NULL;
 
-    // fprintf(stderr, "req: %s\n", Tcl_GetString(req_dict_ptr));
-
     if (TCL_OK != tws_ParseBottomPart(dataPtr->interp, conn, req_dict_ptr)) {
         fprintf(stderr, "ParseBottomPart failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
         Tcl_DecrRefCount(req_dict_ptr);
@@ -465,7 +465,6 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
         return 1;
     }
 
-    done:
     Tcl_DecrRefCount(req_dict_ptr);
     return 1;
 }

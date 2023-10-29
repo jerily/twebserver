@@ -269,9 +269,21 @@ tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Ob
         }
         p++;
     }
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryStringParameters", -1), queryStringParametersPtr);
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("multiValueQueryStringParameters", -1),
-                   multiValueQueryStringParametersPtr);
+
+    if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryStringParameters", -1), queryStringParametersPtr)) {
+        Tcl_DecrRefCount(multiValueQueryStringParametersPtr);
+        Tcl_DecrRefCount(queryStringParametersPtr);
+        SetResult("query string parameters put error");
+        return TCL_ERROR;
+    }
+
+    if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("multiValueQueryStringParameters", -1),
+                   multiValueQueryStringParametersPtr)) {
+        Tcl_DecrRefCount(multiValueQueryStringParametersPtr);
+        Tcl_DecrRefCount(queryStringParametersPtr);
+        SetResult("multi value query string parameters put error");
+        return TCL_ERROR;
+    }
     Tcl_DecrRefCount(multiValueQueryStringParametersPtr);
     Tcl_DecrRefCount(queryStringParametersPtr);
     return TCL_OK;
@@ -285,14 +297,28 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding
         if (*p2 == '?') {
             int path_length = p2 - url;
             Tcl_Obj *pathPtr = Tcl_NewStringObj("", 0);
+            Tcl_IncrRefCount(pathPtr);
             if (TCL_OK != tws_UrlDecode(interp, encoding, url, path_length, pathPtr)) {
+                Tcl_DecrRefCount(pathPtr);
                 SetResult("path urldecode error");
                 return TCL_ERROR;
             }
-            Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), pathPtr);
+            if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), pathPtr)) {
+                Tcl_DecrRefCount(pathPtr);
+                SetResult("path dict put error");
+                return TCL_ERROR;
+            }
+            Tcl_DecrRefCount(pathPtr);
+
             int query_string_length = url + url_length - p2 - 1;
             Tcl_Obj *queryStringPtr = Tcl_NewStringObj(p2 + 1, query_string_length);
-            Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), queryStringPtr);
+            Tcl_IncrRefCount(queryStringPtr);
+            if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), queryStringPtr)) {
+                Tcl_DecrRefCount(queryStringPtr);
+                SetResult("queryString dict put error");
+                return TCL_ERROR;
+            }
+            Tcl_DecrRefCount(queryStringPtr);
             tws_ParseQueryStringParameters(interp, encoding, queryStringPtr, resultPtr);
             break;
         }
@@ -359,7 +385,10 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, Tcl_Encoding encoding, const
         return TCL_ERROR;
     }
 
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("httpMethod", -1), Tcl_NewStringObj(p, http_method_length));
+    if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("httpMethod", -1), Tcl_NewStringObj(p, http_method_length))) {
+        SetResult("request line parse error: dict put error");
+        return TCL_ERROR;
+    }
 
     // skip spaces
     while (curr < end && CHARTYPE(space, *curr) != 0) {
@@ -382,7 +411,10 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, Tcl_Encoding encoding, const
 //    url[curr - p - 1] = '\0';
     int url_length = curr - p - 1;
 
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("url", -1), Tcl_NewStringObj(p, url_length));
+    if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("url", -1), Tcl_NewStringObj(p, url_length))) {
+        SetResult("request line parse error: dict put error");
+        return TCL_ERROR;
+    }
 
     if (TCL_OK != tws_ParsePathAndQueryString(interp, encoding, p, url_length, resultPtr)) {
         return TCL_ERROR;
@@ -418,7 +450,10 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, Tcl_Encoding encoding, const
 
         // mark the end of the token and remember as "version"
         curr++;
-        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("version", -1), Tcl_NewStringObj(p, curr - p - 1));
+        if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("version", -1), Tcl_NewStringObj(p, curr - p - 1))) {
+            SetResult("request line parse error: dict put error");
+            return TCL_ERROR;
+        }
     }
 
     // skip newline chars
@@ -447,20 +482,27 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *headersPtr, Tcl_Obj *multi
         if (!multiValuePtr) {
             // it does not exist, create a new list and add the existing value from headers
             multiValuePtr = Tcl_NewListObj(0, NULL);
+            Tcl_IncrRefCount(multiValuePtr);
             if (TCL_OK != Tcl_ListObjAppendElement(interp, multiValuePtr, existingValuePtr)) {
+                Tcl_DecrRefCount(multiValuePtr);
                 SetResult("AddHeader: list append error");
                 return TCL_ERROR;
             }
+        } else {
+            Tcl_IncrRefCount(multiValuePtr);
         }
         // append the new value to the list
         if (TCL_OK != Tcl_ListObjAppendElement(interp, multiValuePtr, valuePtr)) {
+            Tcl_DecrRefCount(multiValuePtr);
             SetResult("AddHeader: list append error");
             return TCL_ERROR;
         }
         if (TCL_OK != Tcl_DictObjPut(interp, multiValueHeadersPtr, keyPtr, multiValuePtr)) {
+            Tcl_DecrRefCount(multiValuePtr);
             SetResult("AddHeader: dict put error");
             return TCL_ERROR;
         }
+        Tcl_DecrRefCount(multiValuePtr);
     }
     if (TCL_OK != Tcl_DictObjPut(interp, headersPtr, keyPtr, valuePtr)) {
         SetResult("AddHeader: dict put error");
@@ -518,7 +560,7 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         Tcl_IncrRefCount(valuePtr);
         Tcl_Free(value);
 
-        DBG(fprintf(stderr, "key=%s value=%s\n", key, value));
+//        fprintf(stderr, "key=%s value=%s\n", Tcl_GetString(keyPtr), Tcl_GetString(valuePtr));
 
         // skip spaces until end of line denoted by "\r\n" or "\n"
         while (curr < end && CHARTYPE(space, *curr) != 0 && *curr != '\r' && *curr != '\n') {
@@ -748,6 +790,7 @@ int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsP
     if (TCL_OK != tws_ParseRequestLine(interp, encoding, &curr, end, dictPtr)) {
         return TCL_ERROR;
     }
+    DBG(fprintf(stderr, "req dict after parse request line: %s\n", Tcl_GetString(dictPtr)));
 
     Tcl_Obj *headersPtr = Tcl_NewDictObj();
     Tcl_IncrRefCount(headersPtr);
@@ -759,8 +802,17 @@ int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsP
         return TCL_ERROR;
     }
 
-    Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("headers", -1), headersPtr);
-    Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("multiValueHeaders", -1), multiValueHeadersPtr);
+    if (TCL_OK != Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("headers", -1), headersPtr)) {
+        Tcl_DecrRefCount(multiValueHeadersPtr);
+        Tcl_DecrRefCount(headersPtr);
+        return TCL_ERROR;
+    }
+
+    if (TCL_OK != Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("multiValueHeaders", -1), multiValueHeadersPtr)) {
+        Tcl_DecrRefCount(multiValueHeadersPtr);
+        Tcl_DecrRefCount(headersPtr);
+        return TCL_ERROR;
+    }
     Tcl_DecrRefCount(multiValueHeadersPtr);
     Tcl_DecrRefCount(headersPtr);
 
