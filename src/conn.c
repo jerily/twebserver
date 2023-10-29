@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <string.h>
 #include "conn.h"
 #include "base64.h"
 #include "request.h"
