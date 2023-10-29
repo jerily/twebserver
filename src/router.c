@@ -412,6 +412,11 @@ static int tws_ShouldParseBottomPart(tws_conn_t *conn) {
     return conn->content_length > 0;
 }
 
+static int tws_ShouldReadMore(tws_conn_t *conn) {
+    int unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
+    return conn->offset == 0 || conn->content_length - unprocessed > 0;
+}
+
 static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
     DBG(fprintf(stderr, "HandleRecv: %s\n", conn->conn_handle));
 
@@ -434,7 +439,7 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
     int remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
     int ret = tws_ReadConnAsync(dataPtr->interp, conn, &conn->ds, conn->content_length - remaining_unprocessed);
     if (TWS_AGAIN == ret) {
-        if (conn->offset == 0) {
+        if (tws_ShouldReadMore(conn)) {
             DBG(fprintf(stderr, "retry dslen=%d reqdictptr=%p\n", Tcl_DStringLength(&conn->ds), conn->requestDictPtr));
             return 0;
         }
