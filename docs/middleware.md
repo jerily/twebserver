@@ -25,7 +25,7 @@ proc example_enter {ctx req} {
 
 proc example_leave {ctx req res} {
     puts "leaving example"
-    put $res
+    return $res
 }
 
 ::twebserver::add_middleware \
