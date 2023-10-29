@@ -11,6 +11,7 @@ TCL Web Server (HTTPS) Extension
 * It supports multiple certificates for different hosts (SNI).
 * Keepalive connections
 * Compression (gzip)
+* Routing & Middleware functionality
 
 
 ## Modules and Extensions
@@ -58,14 +59,14 @@ With keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM:
 gohttpbench -v 10 -n 100000 -c 10 -t 1000 -k "https://localhost:4433/blog/12345/sayhi"
 
 Concurrency Level:      10
-Time taken for tests:   1.17 seconds
+Time taken for tests:   1.50 seconds
 Complete requests:      100000
 Failed requests:        0
 HTML transferred:       5200000 bytes
-Requests per second:    85497.45 [#/sec] (mean)
-Time per request:       0.117 [ms] (mean)
-Time per request:       0.012 [ms] (mean, across all concurrent requests)
-HTML Transfer rate:     4341.56 [Kbytes/sec] received
+Requests per second:    66576.40 [#/sec] (mean)
+Time per request:       0.150 [ms] (mean)
+Time per request:       0.015 [ms] (mean, across all concurrent requests)
+HTML Transfer rate:     3380.75 [Kbytes/sec] received
 ```
 
 Without keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM:
@@ -73,12 +74,13 @@ Without keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM:
 gohttpbench -v 10 -n 100000 -c 10 -t 1000 "https://localhost:4433/blog/12345/sayhi"
 
 Concurrency Level:      10
-Time taken for tests:   23.95 seconds
+Time taken for tests:   19.35 seconds
 Complete requests:      100000
 Failed requests:        0
 HTML transferred:       5200000 bytes
-Requests per second:    4175.56 [#/sec] (mean)
-Time per request:       2.395 [ms] (mean)
-Time per request:       0.239 [ms] (mean, across all concurrent requests)
-HTML Transfer rate:     212.04 [Kbytes/sec] received
+Requests per second:    5166.79 [#/sec] (mean)
+Time per request:       1.935 [ms] (mean)
+Time per request:       0.194 [ms] (mean, across all concurrent requests)
+HTML Transfer rate:     262.37 [Kbytes/sec] received
+
 ```
