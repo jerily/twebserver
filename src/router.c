@@ -217,7 +217,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
                             tws_CloseConn(conn, 1);
                             Tcl_DecrRefCount(ctx_dict_ptr);
                             Tcl_DecrRefCount(req_dict_ptr);
-                            SetResult("router_process_conn: return_error failed");
+//                            SetResult("router_process_conn: return_error failed");
                             return TCL_ERROR;
                         }
                         tws_CloseConn(conn, 1);
@@ -243,7 +243,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
                     tws_CloseConn(conn, 1);
                     Tcl_DecrRefCount(ctx_dict_ptr);
                     Tcl_DecrRefCount(req_dict_ptr);
-                    SetResult("router_process_conn: return_error failed");
+//                    SetResult("router_process_conn: return_error failed");
                     return TCL_ERROR;
                 }
                 tws_CloseConn(conn, 1);
@@ -268,7 +268,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
                             Tcl_DecrRefCount(ctx_dict_ptr);
                             Tcl_DecrRefCount(req_dict_ptr);
                             Tcl_DecrRefCount(res_dict_ptr);
-                            SetResult("router_process_conn: return_error failed");
+//                            SetResult("router_process_conn: return_error failed");
                             return TCL_ERROR;
                         }
                         tws_CloseConn(conn, 1);
@@ -498,6 +498,7 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
     // no need to decr ref count of req_dict_ptr because it is already decr ref counted in DoRouting
     if (TCL_OK != tws_DoRouting(dataPtr->interp, router_ptr, conn, req_dict_ptr)) {
         fprintf(stderr, "DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
+        fprintf(stderr, "errorInfo: %s\n", Tcl_GetVar(dataPtr->interp, "errorInfo", TCL_GLOBAL_ONLY));
         return 1;
     }
 
