@@ -37,6 +37,8 @@ proc escape {str} {
     return [string map {\r {\r} \n {\n}} $str]
 }
 
+sleep 100
+
 test ipv4-only {} -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /addr HTTP/1.1\n\n"
@@ -50,7 +52,7 @@ sleep 100
 test ipv6-only {} -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /addr HTTP/1.1\n\n"
-    set cmd "openssl s_client -6 -connect ip6-localhost:${server_port} -servername localhost -quiet"
+    set cmd "openssl s_client -6 -connect \[::1\]:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
     escape $response
 } -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 8\n\naddr=::1}
