@@ -396,15 +396,6 @@ static int tws_ParseBottomPart(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *re
             const char *remaining_unprocessed_ptr = Tcl_DStringValue(&conn->ds) + conn->offset;
             const char *end = Tcl_DStringValue(&conn->ds) + Tcl_DStringLength(&conn->ds);
             tws_ParseBody(interp, remaining_unprocessed_ptr, end, headersPtr, req_dict_ptr);
-        } else {
-            if (TCL_OK !=
-                Tcl_DictObjPut(interp, req_dict_ptr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(0))) {
-                goto handle_error;
-            }
-            if (TCL_OK !=
-                Tcl_DictObjPut(interp, req_dict_ptr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj("", -1))) {
-                goto handle_error;
-            }
         }
     }
 
@@ -479,6 +470,17 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
         if (TCL_OK != tws_ParseBottomPart(dataPtr->interp, conn, req_dict_ptr)) {
             fprintf(stderr, "ParseBottomPart failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
             Tcl_DecrRefCount(req_dict_ptr);
+            return 1;
+        }
+    } else {
+        if (TCL_OK !=
+            Tcl_DictObjPut(dataPtr->interp, req_dict_ptr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(0))) {
+            fprintf(stderr, "failed to write to dict");
+            return 1;
+        }
+        if (TCL_OK !=
+            Tcl_DictObjPut(dataPtr->interp, req_dict_ptr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj("", -1))) {
+            fprintf(stderr, "failed to write to dict");
             return 1;
         }
     }
