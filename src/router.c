@@ -99,6 +99,12 @@ static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *r
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(http_method_key_ptr);
+
+    if (!http_method_ptr) {
+        *matched = 0;
+        return TCL_OK;
+    }
+
     int http_method_len;
     const char *http_method = Tcl_GetStringFromObj(http_method_ptr, &http_method_len);
 
@@ -111,6 +117,11 @@ static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *r
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(path_key_ptr);
+
+    if (!path_ptr) {
+        *matched = 0;
+        return TCL_OK;
+    }
 
     if (http_method_len == route_ptr->http_method_len
         && strncmp(http_method, route_ptr->http_method, route_ptr->http_method_len) == 0) {
