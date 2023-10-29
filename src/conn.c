@@ -178,6 +178,7 @@ tws_conn_t *tws_NewConn(tws_server_t *server, int client, char client_ip[INET6_A
     conn->requestDictPtr = NULL;
     conn->offset = 0;
     conn->content_length = 0;
+    conn->error = 0;
 
     if (server->num_threads > 0) {
         conn->threadId = conn->server->conn_thread_ids[conn->client % conn->server->num_threads];
@@ -265,7 +266,7 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
         return;
     }
     int shutdown_client = 1;
-    if (SSL_is_init_finished(conn->ssl)) {
+    if (!conn->error && SSL_is_init_finished(conn->ssl)) {
         DBG(fprintf(stderr, "SSL_is_init_finished: true\n"));
         int rc = SSL_shutdown(conn->ssl);
         DBG(fprintf(stderr, "first SSL_shutdown rc: %d\n", rc));
@@ -524,6 +525,7 @@ static int tws_HandleHandshake(tws_conn_t *conn) {
             return 0;
         }
         fprintf(stderr, "SSL_accept <= 0 client: %d err=%s\n", conn->client, ssl_errors[err]);
+        conn->error = 1;
         tws_CloseConn(conn, 1);
         ERR_print_errors_fp(stderr);
         return 1;
@@ -870,6 +872,11 @@ int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
 
 int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr, Tcl_Encoding encoding) {
 
+    if (conn->error) {
+        SetResult("ReturnConn called on conn with error");
+        return TCL_ERROR;
+    }
+
     if (!conn->server) {
         SetResult("ReturnConn called on deleted conn");
         return TCL_ERROR;
@@ -1146,6 +1153,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_DStringFree(&ds);
 
     if (rc <= 0) {
+        conn->error = 1;
         fprintf(stderr, "return_conn: SSL_write error (reply): %s\n", ssl_errors[SSL_get_error(conn->ssl, rc)]);
         tws_CloseConn(conn, 1);
         SetResult("return_conn: SSL_write error (reply)");

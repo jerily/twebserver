@@ -166,6 +166,10 @@ static int tws_EvalRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *ct
 
 static int
 tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const char *error_text, Tcl_Encoding encoding) {
+    if (conn->error) {
+        return TCL_OK;
+    }
+
     Tcl_Obj *responseDictPtr = Tcl_NewDictObj();
     Tcl_IncrRefCount(responseDictPtr);
     Tcl_DictObjPut(interp, responseDictPtr, Tcl_NewStringObj("statusCode", -1), Tcl_NewIntObj(status_code));
@@ -426,6 +430,10 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
         DBG(fprintf(stderr, "parse top part after deferring reqdictptr=%p\n", conn->requestDictPtr));
         // case when we have read as much as we could with deferring
         if (TCL_OK != tws_ParseTopPart(dataPtr->interp, conn)) {
+            Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
+            if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
+                tws_CloseConn(conn, 1);
+            }
             fprintf(stderr, "ParseTopPart failed (before rubicon): %s\n",
                     Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
             return 1;
@@ -445,6 +453,7 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
             Tcl_DecrRefCount(conn->requestDictPtr);
             conn->requestDictPtr = NULL;
         }
+        conn->error = 1;
         return 1;
     }
 
@@ -453,6 +462,10 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
     if (tws_ShouldParseTopPart(conn)) {
         // case when we have read as much as we could without deferring
         if (TCL_OK != tws_ParseTopPart(dataPtr->interp, conn)) {
+            Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
+            if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
+                tws_CloseConn(conn, 1);
+            }
             fprintf(stderr, "ParseTopPart failed (after rubicon): %s\n",
                     Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
             return 1;

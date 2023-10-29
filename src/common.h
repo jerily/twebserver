@@ -99,6 +99,8 @@ typedef struct tws_conn_t_ {
     Tcl_Obj *requestDictPtr;
     int offset;
     int content_length;
+
+    int error;
 } tws_conn_t;
 
 typedef struct {
