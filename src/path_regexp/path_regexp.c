@@ -62,7 +62,7 @@ int tws_PathExprLexer(Tcl_Interp *interp, const char *path_expr, int path_expr_l
             continue;
         }
         if (c == '(') {
-            int count = 0;
+            int count = 1;
             const char *q = p + 1;
 
             if (*q == '?') {
@@ -162,7 +162,7 @@ enum {
 int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_expr_len, int flags, Tcl_Obj *tokensListPtr) {
     Tcl_Obj *lexTokensListPtr = Tcl_NewListObj(0, NULL);
     if (TCL_OK != tws_PathExprLexer(interp, path_expr, path_expr_len, lexTokensListPtr)) {
-        SetResult("PathExprLexer failed");
+//        SetResult("PathExprLexer failed");
         return TCL_ERROR;
     }
 
@@ -480,7 +480,7 @@ int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int fla
 
     Tcl_Obj *tokensListPtr = Tcl_NewListObj(0, NULL);
     if (TCL_OK != tws_PathExprToTokens(interp, path, path_len, flags, tokensListPtr)) {
-        SetResult("tws_PathExprToTokens failed");
+//        SetResult("tws_PathExprToTokens failed");
         return TCL_ERROR;
     }
 

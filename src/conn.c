@@ -1061,6 +1061,12 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
                  && body_length > 0
                  && body_length >= conn->server->gzip_min_length;
 
+    if (!headersPtr) {
+        Tcl_DStringFree(&ds);
+        SetResult("no headers");
+        return TCL_ERROR;
+    }
+
     if (gzip_p) {
         // get Content-Type header
         Tcl_Obj *contentTypePtr;

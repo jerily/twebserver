@@ -652,7 +652,7 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
             }
 
             if (TCL_OK != tws_PathToRegExp(interp, path, path_len, flags, &route_ptr->keys, &route_ptr->pattern)) {
-                SetResult("add_route: path_to_regexp failed");
+//                SetResult("add_route: path_to_regexp failed");
                 return TCL_ERROR;
             }
         } else {
