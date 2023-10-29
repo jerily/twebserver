@@ -883,13 +883,13 @@ int tws_WriteConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
 
 int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr, Tcl_Encoding encoding) {
 
-    if (conn->error) {
-        SetResult("ReturnConn called on conn with error");
+    if (!conn->server) {
+        SetResult("ReturnConn called on deleted conn");
         return TCL_ERROR;
     }
 
-    if (!conn->server) {
-        SetResult("ReturnConn called on deleted conn");
+    if (conn->error) {
+        SetResult("ReturnConn called on conn with error");
         return TCL_ERROR;
     }
 
