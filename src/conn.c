@@ -690,8 +690,7 @@ int tws_ReadConnAsync(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr, 
 
     failed_due_to_request_too_large:
     Tcl_Free(buf);
-    tws_CloseConn(conn, 2);
-    SetResult("request too large");
+    fprintf(stderr, "request too large");
     return TWS_ERROR;
 
 }

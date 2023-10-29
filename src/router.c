@@ -445,6 +445,7 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
             conn->requestDictPtr = NULL;
         }
         conn->error = 1;
+        tws_CloseConn(conn, 2);
         return 1;
     }
 
