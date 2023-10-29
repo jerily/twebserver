@@ -61,12 +61,11 @@ tws_AddMultipartFormField(Tcl_Interp *interp, Tcl_Obj *mp_form_fields_ptr, Tcl_O
         if (should_decr_ref_count) {
             Tcl_DecrRefCount(multi_value_ptr);
         }
-    } else {
-        if (TCL_OK != Tcl_DictObjPut(interp, mp_form_fields_ptr, field_name_ptr,
-                                     field_value_ptr)) {
-            SetResult("tws_ParseMultipartForm: multipart/form-data dict write error");
-            return TCL_ERROR;
-        }
+    }
+    if (TCL_OK != Tcl_DictObjPut(interp, mp_form_fields_ptr, field_name_ptr,
+                                 field_value_ptr)) {
+        SetResult("tws_ParseMultipartForm: multipart/form-data dict write error");
+        return TCL_ERROR;
     }
 
     return TCL_OK;
