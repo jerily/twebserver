@@ -5,7 +5,7 @@ namespace import -force ::tcltest::test
 
 ::tcltest::configure {*}$argv
 
-set server_file "setup_server_echo.tcl"
+set server_file "setup_server_routing.tcl"
 set server_port 12345
 set client_port 54321
 set control_port 11111
@@ -42,7 +42,7 @@ test basic-1 {simple tls1_3 openssl s_client request} -setup setup -cleanup clea
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
     escape $response
-} -result {GET / HTTP/1.1\n\n}
+} -result {HTTP/1.1 404\nContent-Type: text/plain\nContent-Length: 9\n\nnot found}
 
 sleep 100
 
@@ -51,7 +51,7 @@ test basic-2 {simple tls1_2 openssl s_client request} -setup setup -cleanup clea
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_2 << $request 2> /dev/null]
     escape $response
-} -result {GET /example HTTP/1.1\n\n}
+} -result {HTTP/1.1 404\nContent-Type: text/plain\nContent-Length: 9\n\nnot found}
 
 sleep 100
 
@@ -60,7 +60,7 @@ test basic-3 {whatever request} -setup setup -cleanup cleanup -body {
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_2 << $request 2> /dev/null]
     escape $response
-} -result {whatever}
+} -result {HTTP/1.1 400\nContent-Length: 11\n\nBad Request}
 
 sleep 100
 

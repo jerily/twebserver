@@ -452,9 +452,13 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
         conn->error = 1;
         tws_CloseConn(conn, 2);
         return 1;
+    } else if (TWS_DONE == ret && Tcl_DStringLength(&conn->ds) == 0) {
+        tws_CloseConn(conn, 0);
+        return 1;
     }
 
-    DBG(fprintf(stderr, "rubicon\n"));
+    DBG(fprintf(stderr, "rubicon conn->requestDictPtr=%p ret=%d dslen=%d\n", conn->requestDictPtr, ret,
+                Tcl_DStringLength(&conn->ds)));
 
     if (tws_ShouldParseTopPart(conn)) {
         // case when we have read as much as we could without deferring
