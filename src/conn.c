@@ -565,8 +565,10 @@ static void tws_HandleConn(tws_conn_t *conn) {
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
-static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr, int size) {
+static int tws_ReadConnSync(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr, int size) {
     DBG(fprintf(stderr, "ReadConn client: %d\n", conn->client));
+
+    tws_SetBlockingMode(conn->client, TWS_MODE_BLOCKING);
 
     long max_request_read_bytes = conn->server->max_request_read_bytes;
     int max_buffer_size =
@@ -592,7 +594,7 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr
             if (total_read > max_request_read_bytes) {
                 goto failed_due_to_request_too_large;
             }
-            continue;
+            break;
         } else {
             int err = SSL_get_error(conn->ssl, rc);
             if (err == SSL_ERROR_NONE) {
@@ -600,10 +602,10 @@ static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr
             } else if (err == SSL_ERROR_WANT_READ) {
                 DBG(fprintf(stderr, "SSL_ERROR_WANT_READ\n"));
 
-                if (total_read == 0) {
-                    // TODO: put a timeout here
-                    continue;
-                }
+//                if (total_read == 0) {
+//                    // TODO: put a timeout here
+//                    continue;
+//                }
 
                 if (again_after_error_want_read && total_read < size) {
                     again_after_error_want_read--;
@@ -716,7 +718,7 @@ int tws_ReadConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
 
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
-    if (TCL_OK != tws_ReadConn(interp, conn, &ds, 0)) {
+    if (TCL_OK != tws_ReadConnSync(interp, conn, &ds, 0)) {
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
@@ -729,7 +731,7 @@ int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle,
                   Tcl_Obj **requestDictPtr) {
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
-    if (TCL_OK != tws_ReadConn(interp, conn, &ds, 0)) {
+    if (TCL_OK != tws_ReadConnSync(interp, conn, &ds, 0)) {
         Tcl_DStringFree(&ds);
         return TCL_ERROR;
     }
@@ -778,7 +780,7 @@ int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle,
 
             int remaining = Tcl_DStringLength(&ds) - offset;
             if (content_length - remaining > 0) {
-                if (TCL_OK != tws_ReadConn(interp, conn, &ds, content_length)) {
+                if (TCL_OK != tws_ReadConnSync(interp, conn, &ds, content_length)) {
                     Tcl_DecrRefCount(resultPtr);
                     Tcl_DStringFree(&ds);
                     return TCL_ERROR;
