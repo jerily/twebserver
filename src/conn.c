@@ -394,6 +394,9 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
                 conn->keepalive, conn->created_file_handler_p));
 
     Tcl_DStringTrunc(&conn->ds, 0);
+    conn->offset = 0;
+    conn->content_length = 0;
+    conn->requestDictPtr = NULL;
 
     if (force) {
         if (tws_UnregisterConnName(conn->conn_handle)) {
@@ -536,7 +539,9 @@ static int tws_HandleHandshakeEventInThread(Tcl_Event *evPtr, int flags) {
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
     DBG(fprintf(stderr, "HandleHandshakeEventInThread: %s\n", conn->conn_handle));
     int result = tws_HandleHandshake(conn);
-    Tcl_ThreadAlert(conn->threadId);
+    if (!result) {
+        Tcl_ThreadAlert(conn->threadId);
+    }
     return result;
 }
 
