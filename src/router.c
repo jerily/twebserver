@@ -491,7 +491,7 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
         return 1;
     }
 
-    DBG(fprintf(stderr, "DoRouting done refCount: %d\n", req_dict_ptr->refCount));
+    DBG(fprintf(stderr, "DoRouting done\n"));
     return 1;
 }
 
