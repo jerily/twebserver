@@ -152,7 +152,7 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
 }
 
 tws_conn_t *tws_NewConn(tws_server_t *server, int client, char client_ip[INET6_ADDRSTRLEN]) {
-    SSL *ssl = SSL_new(server->sslCtx);
+    SSL * ssl = SSL_new(server->sslCtx);
     if (ssl == NULL) {
         return NULL;
     }
@@ -563,13 +563,14 @@ static void tws_HandleConn(tws_conn_t *conn) {
     tws_ThreadQueueHandshakeEvent(conn);
 }
 
-#define MIN(x,y) ((x) < (y) ? (x) : (y))
+#define MIN(x, y) ((x) < (y) ? (x) : (y))
 
 static int tws_ReadConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr, int size) {
     DBG(fprintf(stderr, "ReadConn client: %d\n", conn->client));
 
     long max_request_read_bytes = conn->server->max_request_read_bytes;
-    int max_buffer_size = size == 0 ? conn->server->max_read_buffer_size : MIN(size, conn->server->max_read_buffer_size);
+    int max_buffer_size =
+            size == 0 ? conn->server->max_read_buffer_size : MIN(size, conn->server->max_read_buffer_size);
 
     char *buf = (char *) Tcl_Alloc(max_buffer_size);
     long total_read = 0;
@@ -636,19 +637,21 @@ int tws_ReadConnAsync(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr, 
     DBG(fprintf(stderr, "ReadConn client: %d\n", conn->client));
 
     long max_request_read_bytes = conn->server->max_request_read_bytes;
-    int max_buffer_size = size == 0 ? conn->server->max_read_buffer_size : MIN(size, conn->server->max_read_buffer_size);
+    int max_buffer_size =
+            size == 0 ? conn->server->max_read_buffer_size : MIN(size, conn->server->max_read_buffer_size);
 
     char *buf = (char *) Tcl_Alloc(max_buffer_size);
     long total_read = 0;
     int rc;
     int bytes_read;
 
+    ERR_clear_error();
+
     /*
      * SSL_read() may return data in parts, so try to read
      * until SSL_read() would return no data
      */
 
-    int attempts_to_read_full_size = 3;
     for (;;) {
         rc = SSL_read(conn->ssl, buf, max_buffer_size);
         if (rc > 0) {
@@ -658,40 +661,45 @@ int tws_ReadConnAsync(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr, 
             if (total_read > max_request_read_bytes) {
                 goto failed_due_to_request_too_large;
             }
-            continue;
+            if (total_read < size) {
+                continue;
+            }
+            if (total_read == size) {
+                goto done;
+            }
         } else {
             int err = SSL_get_error(conn->ssl, rc);
             if (err == SSL_ERROR_NONE) {
-                break;
+                goto done;
             } else if (err == SSL_ERROR_WANT_READ) {
                 DBG(fprintf(stderr, "SSL_ERROR_WANT_READ\n"));
-
-                if (attempts_to_read_full_size && total_read < size) {
-                    attempts_to_read_full_size--;
-                    continue;
-                }
-
                 Tcl_Free(buf);
                 return TWS_AGAIN;
 
             } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
-                break;
+                goto done;
             }
 
-            DBG(fprintf(stderr, "SSL_read error: %s err=%d rc=%d total_read=%zd size=%d\n", ssl_errors[err], err, rc, total_read, size));
+            fprintf(stderr, "SSL_read error: %s err=%d rc=%d total_read=%zd size=%d elapsed_millis=%lld\n",
+                    ssl_errors[err], err, rc, total_read, size, current_time_in_millis() - conn->latest_millis);
 
             Tcl_Free(buf);
             return TWS_ERROR;
         }
+        break;
     }
 
     Tcl_Free(buf);
-    return TWS_DONE;
+    return TWS_AGAIN;
 
     failed_due_to_request_too_large:
     Tcl_Free(buf);
     fprintf(stderr, "request too large");
     return TWS_ERROR;
+
+    done:
+    Tcl_Free(buf);
+    return TWS_DONE;
 
 }
 
@@ -779,7 +787,8 @@ int tws_ParseConn(Tcl_Interp *interp, tws_conn_t *conn, const char *conn_handle,
             const char *remaining_ptr = Tcl_DStringValue(&ds) + offset;
             tws_ParseBody(interp, remaining_ptr, Tcl_DStringValue(&ds) + Tcl_DStringLength(&ds), headersPtr, resultPtr);
         } else {
-            if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(0))) {
+            if (TCL_OK !=
+                Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(0))) {
                 Tcl_DecrRefCount(resultPtr);
                 Tcl_DStringFree(&ds);
                 return TCL_ERROR;
