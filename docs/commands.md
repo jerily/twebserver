@@ -63,7 +63,17 @@
       ```
 ### Medium-level Commands
 
-* **::twebserver::parse_conn** *conn* *encoding_name*
+* **::twebserver::get_form** *request_dict*
+    - parses a form from a request dictionary
+      The returned dictionary includes the following:
+        - **fields** - a dictionary of fields
+        - **multiValueFields** - a dictionary of fields (with multiple values)
+        - **files** - a dictionary of files
+  ```tcl
+  set form_dict [::twebserver::get_form $request_dict]
+  ```
+
+* DEPRECATED - **::twebserver::parse_conn** *conn* *encoding_name*
     - reads a connection and parses the request to a dictionary.
       The dictionary includes the following:
         - **httpMethod** - GET, POST, PUT, DELETE, etc
@@ -80,7 +90,7 @@
   ```tcl
   set request_dict [::twebserver::parse_conn $conn]
   ```
-* **::twebserver::return_conn** *conn* *response_dict*
+* DEPRECATED - **::twebserver::return_conn** *conn* *response_dict*
     - returns a response dictionary to a connection.
       The response dictionary should include the following:
         - **statusCode** - the status code
@@ -92,40 +102,30 @@
   ::twebserver::return_conn $conn $response_dict
   ```
 
-* **::twebserver::get_form** *request_dict*
-    - parses a form from a request dictionary
-    The returned dictionary includes the following:
-      - **fields** - a dictionary of fields
-      - **multiValueFields** - a dictionary of fields (with multiple values)
-      - **files** - a dictionary of files
-  ```tcl
-  set form_dict [::twebserver::get_form $request_dict]
-  ```
-
 ### Low-level Commands
 
-* **::twebserver::read_conn** *conn*
+* DEPRECATED - **::twebserver::read_conn** *conn*
     - reads a connection, low-level command, prefer **::twebserver::parse_conn**
   ```tcl
   set request [::twebserver::read_conn $conn]
   ```
-* **::twebserver::write_conn** *conn* *text*
+* DEPRECATED - **::twebserver::write_conn** *conn* *text*
     - writes to a connection, low-level command, prefer **::twebserver::return_conn**
   ```tcl
   ::twebserver::write_conn $conn $response
   ```
-* **::twebserver::keepalive_conn** *conn*
+* DEPRECATED - **::twebserver::keepalive_conn** *conn*
     - marks the connection as keep-alive, low-level command, can be used when **::twebserver::parse_conn** is not used
   ```tcl
   ::twebserver::keepalive_conn $conn
   ```
-* **::twebserver::close_conn** *conn* *?force_shutdown?*
+* DEPRECATED - **::twebserver::close_conn** *conn* *?force_shutdown?*
     - closes a connection unless it is marked as keep-alive,
       force_shutdown will force the connection to close no matter what
   ```tcl
   ::twebserver::close_conn $conn
   ```
-* **::twebserver::parse_request** *request* *encoding_name*
+* DEPRECATED - **::twebserver::parse_request** *request* *encoding_name*
     - parses a request into a dictionary, low-level command, prefer **::twebserver::parse_conn**
   ```tcl
   set request_dict [::twebserver::parse_request $request]

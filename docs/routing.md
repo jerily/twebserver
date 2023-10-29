@@ -85,7 +85,7 @@ proc example_handler {ctx req} {
 
 Route handlers can be in the form of a proc that accepts
 the context ```ctx``` and the request ```req``` dictionaries
-and returns a response dictionary.
+and returns a response ```res``` dictionary.
 
 ```tcl
 proc example_handler {ctx req} {
@@ -96,3 +96,27 @@ proc example_handler {ctx req} {
     return $res
 }
 ```
+
+#### Request Dictionary
+
+The request ```req``` dictionary includes the following:
+- **httpMethod** - GET, POST, PUT, DELETE, etc
+- **url** - the url
+- **version** - HTTP/1.1
+- **path** - the path
+- **queryString** - the query string
+- **queryStringParameters** - a dictionary of query string parameters
+- **multiValueQueryStringParameters** - a dictionary of query string parameters (with multiple values)
+- **headers** - a dictionary of headers
+- **multiValueHeaders** - a dictionary of headers (with multiple values)
+- **isBase64Encoded** - whether the body is base64 encoded
+- **body** - the body
+
+#### Response Dictionary
+
+The response ```res``` dictionary should include the following:
+- **statusCode** - the status code
+- **headers** - a dictionary of headers
+- **multiValueHeaders** - a dictionary of headers (with multiple values)
+- **isBase64Encoded** - whether the body is base64 encoded
+- **body** - the body
