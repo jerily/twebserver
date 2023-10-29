@@ -355,6 +355,21 @@ static int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
                 return TCL_ERROR;
             }
         }
+
+        if (conn->server->keepalive) {
+            if (TCL_OK != tws_ParseConnectionKeepalive(interp, headersPtr, &conn->keepalive)) {
+                Tcl_DecrRefCount(req_dict_ptr);
+                return TCL_ERROR;
+            }
+        }
+
+        if (conn->server->gzip) {
+            if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
+                Tcl_DecrRefCount(req_dict_ptr);
+                return TCL_ERROR;
+            }
+        }
+
     }
     conn->requestDictPtr = req_dict_ptr;
     return TCL_OK;
@@ -384,18 +399,6 @@ static int tws_ParseBottomPart(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *re
             }
             if (TCL_OK !=
                 Tcl_DictObjPut(interp, req_dict_ptr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj("", -1))) {
-                goto handle_error;
-            }
-        }
-
-        if (conn->server->keepalive) {
-            if (TCL_OK != tws_ParseConnectionKeepalive(interp, headersPtr, &conn->keepalive)) {
-                goto handle_error;
-            }
-        }
-
-        if (conn->server->gzip) {
-            if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
                 goto handle_error;
             }
         }
@@ -467,9 +470,9 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
         }
     }
 
+    // no need to decr ref count of req_dict_ptr because it is already decr ref counted in DoRouting
     if (TCL_OK != tws_DoRouting(dataPtr->interp, router_ptr, conn, req_dict_ptr)) {
         fprintf(stderr, "DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
-        // no need to decr ref count of req_dict_ptr because it is already decr ref counted in DoRouting
         return 1;
     }
 
@@ -497,7 +500,7 @@ static void tws_ThreadQueueRecvEvent(tws_router_t *router_ptr, tws_conn_t *conn)
     routerEvPtr->routerClientData = (ClientData *) router_ptr;
     routerEvPtr->connClientData = (ClientData *) conn;
     Tcl_QueueEvent((Tcl_Event *) routerEvPtr, TCL_QUEUE_TAIL);
-//    Tcl_ThreadAlert(conn->threadId);
+    Tcl_ThreadAlert(conn->threadId);
     DBG(fprintf(stderr, "ThreadQueueRecvEvent done - threadId: %p\n", conn->threadId));
 }
 

@@ -664,12 +664,7 @@ int tws_ReadConnAsync(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr, 
             } else if (err == SSL_ERROR_WANT_READ) {
                 DBG(fprintf(stderr, "SSL_ERROR_WANT_READ\n"));
 
-//                if (total_read == 0) {
-//                    // TODO: put a timeout here
-//                    continue;
-//                }
-
-                if (again_after_error_want_read && total_read < size) {
+                if (again_after_error_want_read && (total_read == 0 || total_read < size)) {
                     again_after_error_want_read--;
                     continue;
                 }
@@ -681,7 +676,7 @@ int tws_ReadConnAsync(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr, 
                 break;
             }
 
-            DBG(fprintf(stderr, "SSL_read error: %s err=%d rc=%d\n", ssl_errors[err], err, rc));
+            DBG(fprintf(stderr, "SSL_read error: %s err=%d rc=%d total_read=%zd size=%d\n", ssl_errors[err], err, rc, total_read, size));
 
             Tcl_Free(buf);
             return TWS_ERROR;
