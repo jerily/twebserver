@@ -1422,7 +1422,7 @@ void tws_AcceptConn(void *data, int mask) {
             struct sockaddr_in6 client_addr;
             unsigned int len = sizeof(client_addr);
             int client = accept(server->accept_ctx->server_fd, (struct sockaddr *) &client_addr, &len);
-            DBG(fprintf(stderr, "client: %d, addr: %s\n", client, inet_ntoa(client_addr.sin_addr)));
+            DBG(fprintf(stderr, "client: %d\n", client));
             if (client < 0) {
                 DBG(fprintf(stderr, "Unable to accept"));
                 return;
