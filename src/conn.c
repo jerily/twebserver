@@ -648,7 +648,6 @@ int tws_ReadConnAsync(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr, 
      * until SSL_read() would return no data
      */
 
-    int attempts_to_read_something = 3;
     int attempts_to_read_full_size = 3;
     for (;;) {
         rc = SSL_read(conn->ssl, buf, max_buffer_size);
@@ -666,11 +665,6 @@ int tws_ReadConnAsync(Tcl_Interp *interp, tws_conn_t *conn, Tcl_DString *dsPtr, 
                 break;
             } else if (err == SSL_ERROR_WANT_READ) {
                 DBG(fprintf(stderr, "SSL_ERROR_WANT_READ\n"));
-
-                if (attempts_to_read_something && total_read == 0) {
-                    attempts_to_read_something--;
-                    continue;
-                }
 
                 if (attempts_to_read_full_size && total_read < size) {
                     attempts_to_read_full_size--;
