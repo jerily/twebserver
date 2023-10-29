@@ -20,10 +20,12 @@ set router [::twebserver::create_router]
 
 proc example_enter {ctx req} {
     puts "entering example"
+    return $req
 }
 
-proc example_leave {ctx req resp} {
+proc example_leave {ctx req res} {
     puts "leaving example"
+    put $res
 }
 
 ::twebserver::add_middleware \
@@ -32,3 +34,4 @@ proc example_leave {ctx req resp} {
   $router
 ```
 
+See [tsession](https://github.com/jerily/tsession) for an example of router-level middleware.
