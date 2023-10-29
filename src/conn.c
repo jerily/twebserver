@@ -522,7 +522,6 @@ static int tws_HandleHandshake(tws_conn_t *conn) {
         int err = SSL_get_error(conn->ssl, rc);
         if (err == SSL_ERROR_WANT_READ) {
             DBG(fprintf(stderr, "HandleHandshake: SSL_ERROR_WANT_READ\n"));
-            Tcl_ThreadAlert(conn->threadId);
             return 0;
         }
         fprintf(stderr, "SSL_accept <= 0 client: %d err=%s\n", conn->client, ssl_errors[err]);
