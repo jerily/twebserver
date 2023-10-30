@@ -172,8 +172,8 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->error = 0;
 
     if (accept_ctx->server->num_threads > 0) {
-        fprintf(stderr, "tws_NewConn - num_threads: %d\n", accept_ctx->server->num_threads);
-        fprintf(stderr, "tws_NewConn - client: %d\n", client);
+//        fprintf(stderr, "tws_NewConn - num_threads: %d\n", accept_ctx->server->num_threads);
+//        fprintf(stderr, "tws_NewConn - client: %d\n", client);
         conn->threadId = accept_ctx->server->conn_thread_ids[client % accept_ctx->server->num_threads];
     } else {
         conn->threadId = accept_ctx->server->threadId;
