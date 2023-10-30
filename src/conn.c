@@ -837,7 +837,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
 
     if (rc <= 0) {
         conn->error = 1;
-        fprintf(stderr, "return_conn: SSL_write error (reply): %s\n", ssl_errors[SSL_get_error(conn->ssl, rc)]);
+//        fprintf(stderr, "return_conn: SSL_write error (reply): %s\n", ssl_errors[SSL_get_error(conn->ssl, rc)]);
         tws_CloseConn(conn, 1);
         SetResult("return_conn: SSL_write error (reply)");
         return TCL_ERROR;
