@@ -18,6 +18,7 @@
     - starts listening for HTTPS on a port. if the flag ```-http``` is specified, then the server will listen for HTTP on the port.
   ```tcl
   ::twebserver::listen_server $server_handle 4433
+  ::twebserver::listen_server -http $server_handle 8080
   ```
 * **::twebserver::destroy_server** *handle*
     - destroys a server
