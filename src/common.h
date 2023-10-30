@@ -37,20 +37,29 @@
 #define CMD_ROUTER_NAME(s, internal) sprintf((s), "_TWS_ROUTER_%p", (internal))
 
 #define CHARTYPE(what, c) (is ## what ((int)((unsigned char)(c))))
+#define MIN(x, y) ((x) < (y) ? (x) : (y))
+
+static const char *ssl_errors[] = {
+        "SSL_ERROR_NONE",
+        "SSL_ERROR_SSL",
+        "SSL_ERROR_WANT_READ",
+        "SSL_ERROR_WANT_WRITE",
+        "SSL_ERROR_WANT_X509_LOOKUP",
+        "SSL_ERROR_SYSCALL",
+        "SSL_ERROR_ZERO_RETURN",
+        "SSL_ERROR_WANT_CONNECT",
+        "SSL_ERROR_WANT_ACCEPT",
+        "SSL_ERROR_WANT_ASYNC",
+        "SSL_ERROR_WANT_ASYNC_JOB",
+        "SSL_ERROR_WANT_CLIENT_HELLO_CB",
+        "SSL_ERROR_WANT_RETRY_VERIFY"
+};
 
 typedef struct {
-    int server_fd;
-    int epoll_fd;
-    int port;
-    Tcl_Interp *interp;
-} tws_accept_ctx_t;
-
-typedef struct {
-    SSL_CTX *sslCtx;
     Tcl_Obj *cmdPtr;
     Tcl_Obj *scriptPtr;
     Tcl_ThreadId threadId;
-    tws_accept_ctx_t *accept_ctx;
+    Tcl_HashTable listeners_HT;
     Tcl_ThreadId *conn_thread_ids;
     int max_request_read_bytes;
     int max_read_buffer_size;
@@ -69,6 +78,21 @@ typedef struct {
     Tcl_HashTable gzip_types_HT; // the list of mime types to apply gzip compression
 } tws_server_t;
 
+// declare "tws_conn_t" here so that we can use it in the "tws_accept_ctx_t" struct
+typedef struct tws_conn_t_ tws_conn_t;
+
+typedef struct {
+    int option_http;
+    int server_fd;
+    int epoll_fd;
+    int port;
+    Tcl_Interp *interp;
+    tws_server_t *server;
+    SSL_CTX *sslCtx;
+    int (*read_fn)(tws_conn_t *conn, Tcl_DString *dsPtr, int size);
+    int (*write_fn)(tws_conn_t *conn, const char *buf, int len);
+} tws_accept_ctx_t;
+
 typedef enum tws_CompressionMethod {
     NO_COMPRESSION,
     GZIP_COMPRESSION,
@@ -76,7 +100,7 @@ typedef enum tws_CompressionMethod {
 } tws_compression_method_t;
 
 typedef struct tws_conn_t_ {
-    tws_server_t *server;
+    tws_accept_ctx_t *accept_ctx;
     SSL *ssl;
     int client;
     Tcl_ThreadId threadId;

@@ -191,7 +191,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
     Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("router", -1), Tcl_NewStringObj(router_ptr->handle, -1));
     Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("conn", -1), Tcl_NewStringObj(conn->conn_handle, -1));
     Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("addr", -1), Tcl_NewStringObj(conn->client_ip, -1));
-    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("port", -1), Tcl_NewIntObj(conn->server->accept_ctx->port));
+    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("port", -1), Tcl_NewIntObj(conn->accept_ctx->port));
 
     tws_route_t *route_ptr = router_ptr->firstRoutePtr;
     while (route_ptr != NULL) {
@@ -360,14 +360,14 @@ static int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
             }
         }
 
-        if (conn->server->keepalive) {
+        if (conn->accept_ctx->server->keepalive) {
             if (TCL_OK != tws_ParseConnectionKeepalive(interp, headersPtr, &conn->keepalive)) {
                 Tcl_DecrRefCount(req_dict_ptr);
                 return TCL_ERROR;
             }
         }
 
-        if (conn->server->gzip) {
+        if (conn->accept_ctx->server->gzip) {
             if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
                 Tcl_DecrRefCount(req_dict_ptr);
                 return TCL_ERROR;
@@ -437,7 +437,7 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
     }
 
     int remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
-    int ret = tws_ReadConnAsync(dataPtr->interp, conn, &conn->ds, conn->content_length - remaining_unprocessed);
+    int ret = conn->accept_ctx->read_fn(conn, &conn->ds, conn->content_length - remaining_unprocessed);
     if (TWS_AGAIN == ret) {
         if (tws_ShouldReadMore(conn)) {
             DBG(fprintf(stderr, "retry dslen=%d reqdictptr=%p\n", Tcl_DStringLength(&conn->ds), conn->requestDictPtr));

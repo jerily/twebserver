@@ -73,6 +73,7 @@ set server_handle [::twebserver::create_server $config_dict process_conn $init_s
 ::twebserver::add_context $server_handle localhost "../certs/host1/key.pem" "../certs/host1/cert.pem"
 ::twebserver::add_context $server_handle www.example.com "../certs/host2/key.pem" "../certs/host2/cert.pem"
 ::twebserver::listen_server $server_handle 4433
+::twebserver::listen_server -http $server_handle 8080
 vwait forever
 ::twebserver::destroy_server $server_handle
 

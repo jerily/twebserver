@@ -32,10 +32,6 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
         return TCL_ERROR;
     }
 
-    if (server->accept_ctx != NULL) {
-        Tcl_DeleteFileHandler(server->accept_ctx->server_fd);
-        Tcl_Free((char *) server->accept_ctx);
-    }
     if (server->conn_thread_ids != NULL) {
         Tcl_Free((char *) server->conn_thread_ids);
     }
@@ -43,155 +39,23 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     if (server->scriptPtr != NULL) {
         Tcl_DecrRefCount(server->scriptPtr);
     }
-    SSL_CTX_free(server->sslCtx);
+
+    // iterate listeners_HT hash table and free each listener
+    Tcl_HashSearch search;
+    Tcl_HashEntry *entry;
+    for (entry = Tcl_FirstHashEntry(&server->listeners_HT, &search); entry != NULL; entry = Tcl_NextHashEntry(&search)) {
+        tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_GetHashValue(entry);
+        Tcl_DeleteFileHandler(accept_ctx->server_fd);
+        if (!accept_ctx->option_http) {
+            SSL_CTX_free(accept_ctx->sslCtx);
+        }
+        Tcl_Free((char *) accept_ctx);
+    }
+    Tcl_DeleteHashTable(&server->listeners_HT);
+
     Tcl_DeleteCommand(interp, handle);
     Tcl_Free((char *) server);
     return TCL_OK;
-}
-
-static int create_context(Tcl_Interp *interp, SSL_CTX **sslCtx) {
-    SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
-    if (!ctx) {
-        SetResult("Unable to create SSL context");
-        return TCL_ERROR;
-    }
-
-    unsigned long op = SSL_OP_ALL;
-    op |= SSL_OP_NO_SSLv2;
-    op |= SSL_OP_NO_SSLv3;
-    op |= SSL_OP_NO_TLSv1;
-    op |= SSL_OP_NO_TLSv1_1;
-    SSL_CTX_set_options(ctx, op);
-
-    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
-    SSL_CTX_set_max_proto_version(ctx, TLS1_3_VERSION);
-    SSL_CTX_set_read_ahead(ctx, 1);
-
-    *sslCtx = ctx;
-    return TCL_OK;
-}
-
-static int configure_context(Tcl_Interp *interp, SSL_CTX *ctx, const char *key_file, const char *cert_file) {
-    /* Set the key and cert */
-    if (SSL_CTX_use_certificate_file(ctx, cert_file, SSL_FILETYPE_PEM) <= 0) {
-        SetResult("Unable to load certificate");
-        return TCL_ERROR;
-    }
-
-    if (SSL_CTX_use_PrivateKey_file(ctx, key_file, SSL_FILETYPE_PEM) <= 0) {
-        SetResult("Unable to load private key");
-        return TCL_ERROR;
-    }
-
-    return TCL_OK;
-}
-
-// ClientHello callback
-int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
-
-    const unsigned char *extension_data;
-    size_t extension_len;
-    if (!SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_server_name, &extension_data, &extension_len) ||
-        extension_len <= 2) {
-        goto abort;
-    }
-
-    /* Extract the length of the supplied list of names. */
-    const unsigned char *p = extension_data;
-    size_t len;
-    len = (*(p++) << 8);
-    len += *(p++);
-    if (len + 2 != extension_len)
-        goto abort;
-    extension_len = len;
-    /*
-     * The list in practice only has a single element, so we only consider
-     * the first one.
-     */
-    if (extension_len == 0 || *p++ != TLSEXT_NAMETYPE_host_name)
-        goto abort;
-    extension_len--;
-    /* Now we can finally pull out the byte array with the actual hostname. */
-    if (extension_len <= 2)
-        goto abort;
-    len = (*(p++) << 8);
-    len += *(p++);
-    if (len == 0 || len + 2 > extension_len || len > TLSEXT_MAXLEN_host_name
-        || memchr(p, 0, len) != NULL) {
-        DBG(fprintf(stderr, "extension_data is null in clienthello callback\n"));
-        goto abort;
-    }
-    extension_len = len;
-    int servername_len = len;
-    const char *servername = (const char *) p;
-    // "extension_data" is not null-terminated, so we need to copy it to a new buffer
-    DBG(fprintf(stderr, "servername=%.*s\n", (int) len, p));
-
-#ifdef TWS_JA3
-    /* extract/check clientHello information */
-    int has_rsa_sig = 0, has_ecdsa_sig = 0;
-    if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_signature_algorithms, &extension_data, &extension_len)) {
-        uint8_t sign;
-//        size_t len;
-        if (extension_len < 2)
-            goto abort;
-        len = (*extension_data++) << 8;
-        len |= *extension_data++;
-        if (len + 2 != extension_len)
-            goto abort;
-        if (len % 2 != 0)
-            goto abort;
-        for (; len > 0; len -= 2) {
-            extension_data++; /* hash */
-            sign = *extension_data++;
-            switch (sign) {
-                case TLSEXT_signature_rsa:
-                    has_rsa_sig = 1;
-                    break;
-                case TLSEXT_signature_ecdsa:
-                    has_ecdsa_sig = 1;
-                    break;
-                default:
-                    continue;
-            }
-            if (has_ecdsa_sig && has_rsa_sig)
-                break;
-        }
-    } else {
-        /* without TLSEXT_TYPE_signature_algorithms extension (< TLSv1.2) */
-        goto abort;
-    }
-
-    // TODO: JA3 fingerprint
-    const SSL_CIPHER *cipher;
-    const uint8_t *cipher_suites;
-    len = SSL_client_hello_get0_ciphers(ssl, &cipher_suites);
-    if (len % 2 != 0)
-        goto abort;
-//    for (; len != 0; len -= 2, cipher_suites += 2) {
-//        cipher = SSL_CIPHER_find(ssl, cipher_suites);
-//        if (cipher && SSL_CIPHER_get_auth_nid(cipher) == NID_auth_ecdsa) {
-//            has_ecdsa_sig = 1;
-//            break;
-//        }
-//    }
-#endif
-
-    SSL_CTX *ctx = tws_GetInternalFromHostName(servername);
-    if (!ctx) {
-        DBG(fprintf(stderr, "servername not found in clienthello callback\n"));
-        goto abort;
-    }
-
-//    SSL_set_verify(ssl, SSL_CTX_get_verify_mode(ctx), NULL);
-//    SSL_set_client_CA_list(ssl, SSL_dup_CA_list(SSL_CTX_get_client_CA_list(ctx)));
-    SSL_set_SSL_CTX(ssl, ctx);
-
-    return SSL_CLIENT_HELLO_SUCCESS;
-
-    abort:
-    *al = SSL_AD_UNRECOGNIZED_NAME;
-    return SSL_CLIENT_HELLO_ERROR;
 }
 
 static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server_ctx, Tcl_Obj *const configDictPtr) {
@@ -522,58 +386,56 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int ob
     DBG(fprintf(stderr, "CreateCmd\n"));
     CheckArgs(3, 4, 1, "config_dict cmd_name ?init_script?");
 
-    SSL_CTX *ctx;
-    if (TCL_OK != create_context(interp, &ctx)) {
+    tws_server_t *server_ptr = (tws_server_t *) Tcl_Alloc(sizeof(tws_server_t));
+    if (!server_ptr) {
+        SetResult("Unable to allocate memory");
         return TCL_ERROR;
     }
 
-    SSL_CTX_set_client_hello_cb(ctx, tws_ClientHelloCallback, NULL);
-    tws_server_t *server_ctx = (tws_server_t *) Tcl_Alloc(sizeof(tws_server_t));
-    server_ctx->sslCtx = ctx;
-    server_ctx->cmdPtr = Tcl_DuplicateObj(objv[2]);
-    Tcl_IncrRefCount(server_ctx->cmdPtr);
+    server_ptr->cmdPtr = Tcl_DuplicateObj(objv[2]);
+    Tcl_IncrRefCount(server_ptr->cmdPtr);
     if (objc == 4) {
-        server_ctx->scriptPtr = Tcl_DuplicateObj(objv[3]);
-        Tcl_IncrRefCount(server_ctx->scriptPtr);
+        server_ptr->scriptPtr = Tcl_DuplicateObj(objv[3]);
+        Tcl_IncrRefCount(server_ptr->scriptPtr);
     } else {
-        server_ctx->scriptPtr = NULL;
+        server_ptr->scriptPtr = NULL;
     }
-    server_ctx->accept_ctx = NULL;
-    server_ctx->threadId = Tcl_GetCurrentThread();
+    Tcl_InitHashTable(&server_ptr->listeners_HT, TCL_ONE_WORD_KEYS);
+    server_ptr->threadId = Tcl_GetCurrentThread();
 
     // configuration
-    server_ctx->max_request_read_bytes = 10 * 1024 * 1024;
-    server_ctx->max_read_buffer_size = 1024 * 1024;
-    server_ctx->backlog = SOMAXCONN;
-    server_ctx->conn_timeout_millis = 2 * 60 * 1000;  // 2 minutes
-    server_ctx->garbage_collection_interval_millis = 10 * 1000;  // 10 seconds
-    server_ctx->keepalive = 1;
-    server_ctx->keepidle = 10;
-    server_ctx->keepintvl = 5;
-    server_ctx->keepcnt = 3;
-    server_ctx->gzip = 1;
-    server_ctx->gzip_min_length = 8192;
-    Tcl_InitHashTable(&server_ctx->gzip_types_HT, TCL_STRING_KEYS);
+    server_ptr->max_request_read_bytes = 10 * 1024 * 1024;
+    server_ptr->max_read_buffer_size = 1024 * 1024;
+    server_ptr->backlog = SOMAXCONN;
+    server_ptr->conn_timeout_millis = 2 * 60 * 1000;  // 2 minutes
+    server_ptr->garbage_collection_interval_millis = 10 * 1000;  // 10 seconds
+    server_ptr->keepalive = 1;
+    server_ptr->keepidle = 10;
+    server_ptr->keepintvl = 5;
+    server_ptr->keepcnt = 3;
+    server_ptr->gzip = 1;
+    server_ptr->gzip_min_length = 8192;
+    Tcl_InitHashTable(&server_ptr->gzip_types_HT, TCL_STRING_KEYS);
 
     Tcl_HashEntry *entryPtr;
     int newEntry;
-    entryPtr = Tcl_CreateHashEntry(&server_ctx->gzip_types_HT, "text/html", &newEntry);
+    entryPtr = Tcl_CreateHashEntry(&server_ptr->gzip_types_HT, "text/html", &newEntry);
     if (newEntry) {
         Tcl_SetHashValue(entryPtr, (ClientData) NULL);
     }
 
-    server_ctx->num_threads = 0;
-    server_ctx->thread_stacksize = TCL_THREAD_STACK_DEFAULT;
-    server_ctx->thread_max_concurrent_conns = 0;
+    server_ptr->num_threads = 0;
+    server_ptr->thread_stacksize = TCL_THREAD_STACK_DEFAULT;
+    server_ptr->thread_max_concurrent_conns = 0;
 
-    if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ctx, objv[1])) {
-        Tcl_Free((char *) server_ctx);
+    if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ptr, objv[1])) {
+        Tcl_Free((char *) server_ptr);
         return TCL_ERROR;
     }
 
     char handle[40];
-    CMD_SERVER_NAME(handle, server_ctx);
-    tws_RegisterServerName(handle, server_ctx);
+    CMD_SERVER_NAME(handle, server_ptr);
+    tws_RegisterServerName(handle, server_ptr);
 
     SetResult(handle);
     return TCL_OK;
@@ -590,9 +452,28 @@ static int tws_DestroyServerCmd(ClientData clientData, Tcl_Interp *interp, int o
 
 static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "ListenCmd\n"));
-    CheckArgs(3, 3, 1, "handle port");
 
-    return tws_Listen(interp, Tcl_GetString(objv[1]), objv[2]);
+    int option_http = 0;
+    Tcl_ArgvInfo ArgTable[] = {
+            {TCL_ARGV_CONSTANT, "-http", INT2PTR(1), &option_http, "http (not https) listener"},
+            {TCL_ARGV_END, NULL,           NULL, NULL, NULL}
+    };
+    Tcl_Obj **remObjv;
+    Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
+
+    if ((objc < 3) || (objc > 3)) {
+        Tcl_WrongNumArgs(interp, 1, remObjv, "server_handle port");
+        return TCL_ERROR;
+    }
+
+    const char *handle = Tcl_GetString(remObjv[1]);
+    tws_server_t *server = tws_GetInternalFromServerName(handle);
+    if (!server) {
+        SetResult("server handle not found");
+        return TCL_ERROR;
+    }
+
+    return tws_Listen(interp, server, option_http, remObjv[2]);
 
 }
 
@@ -631,10 +512,10 @@ static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int objc
     }
 
     SSL_CTX *ctx;
-    if (TCL_OK != create_context(interp, &ctx)) {
+    if (TCL_OK != tws_CreateSslContext(interp, &ctx)) {
         return TCL_ERROR;
     }
-    if (TCL_OK != configure_context(interp, ctx, keyfile, certfile)) {
+    if (TCL_OK != tws_ConfigureSslContext(interp, ctx, keyfile, certfile)) {
         return TCL_ERROR;
     }
     tws_RegisterHostName(hostname, ctx);
@@ -1144,14 +1025,8 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::destroy_server", tws_DestroyServerCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::listen_server", tws_ListenCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_context", tws_AddContextCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::twebserver::read_conn", tws_ReadConnCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::twebserver::write_conn", tws_WriteConnCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::twebserver::return_conn", tws_ReturnConnCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::twebserver::close_conn", tws_CloseConnCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::twebserver::keepalive_conn", tws_KeepaliveConnCmd, NULL, NULL);
+
     Tcl_CreateObjCommand(interp, "::twebserver::info_conn", tws_InfoConnCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::twebserver::parse_request", tws_ParseRequestCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::twebserver::parse_conn", tws_ParseConnCmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::encode_uri_component", tws_EncodeURIComponentCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::decode_uri_component", tws_DecodeURIComponentCmd, NULL, NULL);

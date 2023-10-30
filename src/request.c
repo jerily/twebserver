@@ -824,57 +824,6 @@ int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsP
     return TCL_OK;
 }
 
-int tws_ParseRequestCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "ParseRequestCmd\n"));
-    CheckArgs(2, 3, 1, "request ?encoding_name?");
-
-    int length;
-    const char *request = Tcl_GetStringFromObj(objv[1], &length);
-
-    Tcl_Encoding encoding;
-    if (objc == 3) {
-        encoding = Tcl_GetEncoding(interp, Tcl_GetString(objv[2]));
-    } else {
-        encoding = Tcl_GetEncoding(interp, "utf-8");
-    }
-
-    DBG(fprintf(stderr, "request=%s\n", request));
-
-    Tcl_DString ds;
-    Tcl_DStringInit(&ds);
-    Tcl_DStringAppend(&ds, request, length);
-    int offset = 0;
-    Tcl_Obj *resultPtr = Tcl_NewDictObj();
-    Tcl_IncrRefCount(resultPtr);
-    if (TCL_OK != tws_ParseRequest(interp, encoding, &ds, resultPtr, &offset)) {
-        Tcl_DecrRefCount(resultPtr);
-        Tcl_DStringFree(&ds);
-        return TCL_ERROR;
-    }
-
-    Tcl_Obj *headersPtr;
-    Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
-    Tcl_IncrRefCount(headersKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, resultPtr, headersKeyPtr, &headersPtr)) {
-        Tcl_DecrRefCount(headersKeyPtr);
-        Tcl_DecrRefCount(resultPtr);
-        Tcl_DStringFree(&ds);
-        return TCL_ERROR;
-    }
-    Tcl_DecrRefCount(headersKeyPtr);
-
-    if (headersPtr) {
-        const char *remaining_ptr = Tcl_DStringValue(&ds) + offset;
-        tws_ParseBody(interp, remaining_ptr, Tcl_DStringValue(&ds) + Tcl_DStringLength(&ds), headersPtr, resultPtr);
-    }
-
-    Tcl_SetObjResult(interp, resultPtr);
-    Tcl_DecrRefCount(resultPtr);
-    Tcl_DStringFree(&ds);
-    return TCL_OK;
-
-}
-
 // gzip is enabled q-values greater than 0.001
 static int tws_GzipAcceptEncoding(const char *accept_encoding, int accept_encoding_length) {
     // check if "accept_encoding" contains "gzip"
