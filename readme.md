@@ -1,10 +1,10 @@
 # twebserver
 
-TCL Web Server (HTTPS) Extension
+TCL Web Server Extension
 
 ## Features
 
-* High performance web server (HTTPS) written in C and Tcl.
+* High performance web server (HTTP & HTTPS) written in C and Tcl.
 * It uses a highly efficient event-driven model with fixed number of threads to manage connections.
 * It can be easily extended.
 * It is a TCL loadable module.
