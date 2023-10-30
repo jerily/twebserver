@@ -837,9 +837,8 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
 
     if (rc <= 0) {
         conn->error = 1;
-//        fprintf(stderr, "return_conn: SSL_write error (reply): %s\n", ssl_errors[SSL_get_error(conn->ssl, rc)]);
         tws_CloseConn(conn, 1);
-        SetResult("return_conn: SSL_write error (reply)");
+        SetResult("return_conn: write error (reply)");
         return TCL_ERROR;
     }
 
@@ -1018,7 +1017,7 @@ void tws_AcceptConn(void *data, int mask) {
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     struct kevent events[MAX_EVENTS];
-    int nfds = kevent(server->accept_ctx->epoll_fd, NULL, 0, events, MAX_EVENTS, NULL);
+    int nfds = kevent(accept_ctx->epoll_fd, NULL, 0, events, MAX_EVENTS, NULL);
     if (nfds == -1) {
         DBG(fprintf(stderr, "kevent failed"));
         return;
@@ -1035,7 +1034,7 @@ void tws_AcceptConn(void *data, int mask) {
 
     for (int i = 0; i < nfds; i++) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-        if (events[i].ident == server->accept_ctx->server_fd) {
+        if (events[i].ident == accept_ctx->server_fd) {
 #else
         if (events[i].data.fd == accept_ctx->server_fd) {
 #endif
