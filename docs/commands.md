@@ -14,8 +14,8 @@
   ::twebserver::add_context $server_handle localhost "../certs/host1/key.pem" "../certs/host1/cert.pem"
   ::twebserver::add_context $server_handle www.example.com "../certs/host2/key.pem" "../certs/host2/cert.pem"
   ```
-* **::twebserver::listen_server** *handle* *port*
-    - starts listening on a port
+* **::twebserver::listen_server** *?-http?* *handle* *port*
+    - starts listening for HTTPS on a port. if the flag ```-http``` is specified, then the server will listen for HTTP on the port.
   ```tcl
   ::twebserver::listen_server $server_handle 4433
   ```
@@ -71,64 +71,6 @@
         - **files** - a dictionary of files
   ```tcl
   set form_dict [::twebserver::get_form $request_dict]
-  ```
-
-* DEPRECATED - **::twebserver::parse_conn** *conn* *encoding_name*
-    - reads a connection and parses the request to a dictionary.
-      The dictionary includes the following:
-        - **httpMethod** - GET, POST, PUT, DELETE, etc
-        - **url** - the url
-        - **version** - HTTP/1.1
-        - **path** - the path
-        - **queryString** - the query string
-        - **queryStringParameters** - a dictionary of query string parameters
-        - **multiValueQueryStringParameters** - a dictionary of query string parameters (with multiple values)
-        - **headers** - a dictionary of headers
-        - **multiValueHeaders** - a dictionary of headers (with multiple values)
-        - **isBase64Encoded** - whether the body is base64 encoded
-        - **body** - the body
-  ```tcl
-  set request_dict [::twebserver::parse_conn $conn]
-  ```
-* DEPRECATED - **::twebserver::return_conn** *conn* *response_dict*
-    - returns a response dictionary to a connection.
-      The response dictionary should include the following:
-        - **statusCode** - the status code
-        - **headers** - a dictionary of headers
-        - **multiValueHeaders** - a dictionary of headers (with multiple values)
-        - **isBase64Encoded** - whether the body is base64 encoded
-        - **body** - the body
-  ```tcl
-  ::twebserver::return_conn $conn $response_dict
-  ```
-
-### Low-level Commands
-
-* DEPRECATED - **::twebserver::read_conn** *conn*
-    - reads a connection, low-level command, prefer **::twebserver::parse_conn**
-  ```tcl
-  set request [::twebserver::read_conn $conn]
-  ```
-* DEPRECATED - **::twebserver::write_conn** *conn* *text*
-    - writes to a connection, low-level command, prefer **::twebserver::return_conn**
-  ```tcl
-  ::twebserver::write_conn $conn $response
-  ```
-* DEPRECATED - **::twebserver::keepalive_conn** *conn*
-    - marks the connection as keep-alive, low-level command, can be used when **::twebserver::parse_conn** is not used
-  ```tcl
-  ::twebserver::keepalive_conn $conn
-  ```
-* DEPRECATED - **::twebserver::close_conn** *conn* *?force_shutdown?*
-    - closes a connection unless it is marked as keep-alive,
-      force_shutdown will force the connection to close no matter what
-  ```tcl
-  ::twebserver::close_conn $conn
-  ```
-* DEPRECATED - **::twebserver::parse_request** *request* *encoding_name*
-    - parses a request into a dictionary, low-level command, prefer **::twebserver::parse_conn**
-  ```tcl
-  set request_dict [::twebserver::parse_request $request]
   ```
 
 ### Utility Commands
