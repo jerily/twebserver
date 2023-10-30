@@ -894,6 +894,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     int option_maxage = -1;
     int option_httponly = 0;
     int option_partitioned = 0;
+    int option_insecure = 0;
     Tcl_ArgvInfo ArgTable[] = {
             {TCL_ARGV_STRING,   "-path",        NULL,       &option_path,        "value for the Path attribute"},
             {TCL_ARGV_STRING,   "-domain",      NULL,       &option_domain,      "value for the Domain attribute"},
@@ -901,6 +902,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
             {TCL_ARGV_INT,      "-maxage",      NULL,       &option_maxage,      "number of seconds until the cookie expires"},
             {TCL_ARGV_CONSTANT, "-httponly",    INT2PTR(1), &option_httponly,    "HttpOnly attribute is set"},
             {TCL_ARGV_CONSTANT, "-partitioned", INT2PTR(1), &option_partitioned, "indicates that the cookie should be stored using partitioned storage"},
+            {TCL_ARGV_CONSTANT, "-insecure", INT2PTR(1), &option_insecure, "indicates whether to not set the Secure attribute"},
             {TCL_ARGV_END, NULL,                NULL, NULL, NULL}
     };
 
@@ -952,7 +954,9 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     }
 
     // append Secure
-    Tcl_AppendToObj(headerValuePtr, "; Secure", 8);
+    if (!option_insecure) {
+        Tcl_AppendToObj(headerValuePtr, "; Secure", 8);
+    }
 
     // append HttpOnly
     if (option_httponly) {
