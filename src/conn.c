@@ -835,7 +835,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
 
     Tcl_DStringFree(&ds);
 
-    if (rc <= 0) {
+    if (rc == TWS_ERROR) {
         conn->error = 1;
         tws_CloseConn(conn, 1);
         SetResult("return_conn: write error (reply)");
