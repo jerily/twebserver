@@ -97,7 +97,7 @@
 * **::twebserver::parse_cookie** *cookie_string*
     - parses a cookie string into a dictionary
 * **::twebserver::add_header** *header_name* *header_value*
-* **::twebserver::add_cookie** *?-path path_value?* *?-domain domain_value?* *?-samesite samesite_value?* *?-httponly?* *?-maxage seconds?* *cookie_name* *cookie_value*
+* **::twebserver::add_cookie** *?-path path_value?* *?-domain domain_value?* *?-samesite samesite_value?* *?-httponly?* *?-insecure* *?-maxage seconds?* *cookie_name* *cookie_value*
 
 #### Crypto
 
@@ -111,7 +111,7 @@ These commands are provided for convenience.
 * **::twebserver::sha256** *bytes*
     - generates a sha256 hash of ```bytes```
 * **::twebserver::sha512** *bytes*
-    - generates a sha412 hash of ```bytes```
+    - generates a sha512 hash of ```bytes```
 
 #### Hex
 
