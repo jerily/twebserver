@@ -28,3 +28,5 @@ test parse_cookie_with_spaces {} {::twebserver::parse_cookie "test	=	21	 	;	ttt"
 test parse_cookie_with_comma {} {::twebserver::parse_cookie "test=21,ttt"} {test 21,ttt}
 
 test parse_cookie_with_quoted_value_containing_comma {} {::twebserver::parse_cookie "test=\"21, ttt\""} {test {"21, ttt"}}
+
+test parse_cookie_expires_1 {} {::twebserver::parse_cookie "test=21; expires=Wed, 09 Jun 2021 10:18:14 GMT"} {test 21 expires {Wed, 09 Jun 2021 10:18:14 GMT}}

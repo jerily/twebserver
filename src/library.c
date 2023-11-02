@@ -765,7 +765,7 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *responseDictPtr, Tcl_Obj *
         }
 
         // write "headersPtr" to response dict
-        if (TCL_OK != Tcl_DictObjPut(interp, responseDictPtr, headersKeyPtr, headersPtr)) {
+        if (TCL_OK != Tcl_DictObjPut(interp, dupResponseDictPtr, headersKeyPtr, headersPtr)) {
             Tcl_DecrRefCount(headersKeyPtr);
             Tcl_DecrRefCount(multiValueHeadersKeyPtr);
             Tcl_DecrRefCount(dupResponseDictPtr);
@@ -892,6 +892,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     const char *option_path = NULL;
     const char *option_domain = NULL;
     const char *option_samesite = NULL;
+    const char *option_expires = NULL;
     int option_maxage = -1;
     int option_httponly = 0;
     int option_partitioned = 0;
@@ -900,6 +901,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
             {TCL_ARGV_STRING,   "-path",        NULL,       &option_path,        "value for the Path attribute"},
             {TCL_ARGV_STRING,   "-domain",      NULL,       &option_domain,      "value for the Domain attribute"},
             {TCL_ARGV_STRING,   "-samesite",    NULL,       &option_samesite,    "value for the SameSite attribute"},
+            {TCL_ARGV_STRING,   "-expires",    NULL,       &option_expires,    "value for the Expires attribute"},
             {TCL_ARGV_INT,      "-maxage",      NULL,       &option_maxage,      "number of seconds until the cookie expires"},
             {TCL_ARGV_CONSTANT, "-httponly",    INT2PTR(1), &option_httponly,    "HttpOnly attribute is set"},
             {TCL_ARGV_CONSTANT, "-partitioned", INT2PTR(1), &option_partitioned, "indicates that the cookie should be stored using partitioned storage"},
@@ -952,6 +954,12 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     if (option_samesite) {
         Tcl_AppendToObj(headerValuePtr, "; SameSite=", 11);
         Tcl_AppendToObj(headerValuePtr, option_samesite, -1);
+    }
+
+    // append Expires
+    if (option_expires) {
+        Tcl_AppendToObj(headerValuePtr, "; Expires=", 10);
+        Tcl_AppendToObj(headerValuePtr, option_expires, -1);
     }
 
     // append Secure

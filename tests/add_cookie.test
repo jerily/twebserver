@@ -1,0 +1,21 @@
+lappend auto_path ..
+package require tcltest
+package require twebserver
+
+namespace import -force ::tcltest::test
+
+::tcltest::configure {*}$argv
+
+# tests are of the form:
+#   test <test_name> {<description>} {<actual>} {<expected>}
+
+test add_cookie_ok {} {
+    set res [dict create]
+    ::twebserver::add_cookie ${res} SID "hello world"
+} {headers {Set-Cookie {SID=hello%20world; Path=/; Secure}}}
+
+test add_cookie_with_expires {} {
+    set res [dict create]
+    set expires "Wed, 21 Oct 2015 07:28:00 GMT"
+    ::twebserver::add_cookie -expires $expires ${res} SID "hello world"
+} {headers {Set-Cookie {SID=hello%20world; Path=/; Expires=Wed, 21 Oct 2015 07:28:00 GMT; Secure}}}
