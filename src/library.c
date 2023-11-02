@@ -463,6 +463,7 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 3) || (objc > 3)) {
+        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "server_handle port");
         return TCL_ERROR;
     }
@@ -470,11 +471,14 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     const char *handle = Tcl_GetString(remObjv[1]);
     tws_server_t *server = tws_GetInternalFromServerName(handle);
     if (!server) {
+        ckfree(remObjv);
         SetResult("server handle not found");
         return TCL_ERROR;
     }
 
-    return tws_Listen(interp, server, option_http, remObjv[2]);
+    int result = tws_Listen(interp, server, option_http, remObjv[2]);
+    ckfree(remObjv);
+    return result;
 
 }
 
@@ -699,33 +703,41 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *responseDictPtr, Tcl_Obj *
         if (valuePtr) {
             // create "listValuePtr" list with the existing value and the new value
             Tcl_Obj *listValuePtr = Tcl_NewListObj(0, NULL);
+            Tcl_IncrRefCount(listValuePtr);
             if (TCL_OK != Tcl_ListObjAppendElement(interp, listValuePtr, valuePtr)
                 || TCL_OK != Tcl_ListObjAppendElement(interp, listValuePtr, headerValuePtr)) {
                 Tcl_DecrRefCount(headersKeyPtr);
                 Tcl_DecrRefCount(multiValueHeadersKeyPtr);
                 Tcl_DecrRefCount(dupResponseDictPtr);
+                Tcl_DecrRefCount(listValuePtr);
                 SetResult("add_header: error appending to list while creating multiValueHeaders");
                 return TCL_ERROR;
             }
 
             // create "multiValueHeaders" dict
             Tcl_Obj *newMultiValueHeadersPtr = Tcl_NewDictObj();
+            Tcl_IncrRefCount(newMultiValueHeadersPtr);
             if (TCL_OK != Tcl_DictObjPut(interp, newMultiValueHeadersPtr, headerNamePtr, listValuePtr)) {
                 Tcl_DecrRefCount(headersKeyPtr);
                 Tcl_DecrRefCount(multiValueHeadersKeyPtr);
                 Tcl_DecrRefCount(dupResponseDictPtr);
+                Tcl_DecrRefCount(listValuePtr);
+                Tcl_DecrRefCount(newMultiValueHeadersPtr);
                 SetResult("add_header: error writing new list value to multiValueHeaders");
                 return TCL_ERROR;
             }
+            Tcl_DecrRefCount(listValuePtr);
 
             // write "multiValueHeaders" dict to response dict
             if (TCL_OK != Tcl_DictObjPut(interp, responseDictPtr, multiValueHeadersKeyPtr, newMultiValueHeadersPtr)) {
                 Tcl_DecrRefCount(headersKeyPtr);
                 Tcl_DecrRefCount(multiValueHeadersKeyPtr);
                 Tcl_DecrRefCount(dupResponseDictPtr);
+                Tcl_DecrRefCount(newMultiValueHeadersPtr);
                 SetResult("add_header: error writing multiValueHeaders back to response dict");
                 return TCL_ERROR;
             }
+            Tcl_DecrRefCount(newMultiValueHeadersPtr);
 
             // we are done
         } else {
@@ -750,16 +762,19 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *responseDictPtr, Tcl_Obj *
                 SetResult("add_header: error writing headers back to response dict");
                 return TCL_ERROR;
             }
+            Tcl_DecrRefCount(dupHeadersPtr);
 
             // we are done
         }
     } else {
         // create "headersPtr" dict
         headersPtr = Tcl_NewDictObj();
+        Tcl_IncrRefCount(headersPtr);
         if (TCL_OK != Tcl_DictObjPut(interp, headersPtr, headerNamePtr, headerValuePtr)) {
             Tcl_DecrRefCount(headersKeyPtr);
             Tcl_DecrRefCount(multiValueHeadersKeyPtr);
             Tcl_DecrRefCount(dupResponseDictPtr);
+            Tcl_DecrRefCount(headersPtr);
             SetResult("add_header: error writing value to headers");
             return TCL_ERROR;
         }
@@ -769,9 +784,11 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *responseDictPtr, Tcl_Obj *
             Tcl_DecrRefCount(headersKeyPtr);
             Tcl_DecrRefCount(multiValueHeadersKeyPtr);
             Tcl_DecrRefCount(dupResponseDictPtr);
+            Tcl_DecrRefCount(headersPtr);
             SetResult("add_header: error writing headers back to response dict");
             return TCL_ERROR;
         }
+        Tcl_DecrRefCount(headersPtr);
 
         // we are done
     }
@@ -913,6 +930,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 4) || (objc > 4)) {
+        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "response_dict cookie_name cookie_value");
         return TCL_ERROR;
     }
@@ -932,10 +950,13 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     int cookie_value_length;
     const char *cookie_value = Tcl_GetStringFromObj(remObjv[3], &cookie_value_length);
     if (TCL_OK != tws_UrlEncode(interp, enc_flags, cookie_value, cookie_value_length, &cookieValuePtr)) {
+        ckfree(remObjv);
+        Tcl_DecrRefCount(headerValuePtr);
+        Tcl_DecrRefCount(headerNamePtr);
         return TCL_ERROR;
     }
     Tcl_AppendObjToObj(headerValuePtr, cookieValuePtr);
-
+    Tcl_DecrRefCount(cookieValuePtr);
     // append Domain
     if (option_domain) {
         Tcl_AppendToObj(headerValuePtr, "; Domain=", 9);
@@ -986,14 +1007,23 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
         Tcl_DecrRefCount(option_maxage_ptr);
     }
 
+    // TODO: remove these
+    Tcl_SetObjResult(interp, remObjv[1]);
+    Tcl_DecrRefCount(headerValuePtr);
+    Tcl_DecrRefCount(headerNamePtr);
+    ckfree(remObjv);
+    return TCL_OK;
+
     Tcl_Obj *responseDictPtr;
     if (TCL_OK != tws_AddHeader(interp, remObjv[1], headerNamePtr, headerValuePtr, &responseDictPtr)) {
+        ckfree(remObjv);
         Tcl_DecrRefCount(headerValuePtr);
         Tcl_DecrRefCount(headerNamePtr);
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(headerValuePtr);
     Tcl_DecrRefCount(headerNamePtr);
+    ckfree(remObjv);
 
     Tcl_SetObjResult(interp, responseDictPtr);
     Tcl_DecrRefCount(responseDictPtr);
@@ -1026,6 +1056,7 @@ static int tws_GetQueryParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj 
             return TCL_ERROR;
         }
         if (listValuePtr) {
+            Tcl_IncrRefCount(listValuePtr);
             *result_ptr = listValuePtr;
             return TCL_OK;
         }
@@ -1053,7 +1084,9 @@ static int tws_GetQueryParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj 
         if (valuePtr) {
             if (option_multi) {
                 Tcl_Obj *listValuePtr = Tcl_NewListObj(0, NULL);
+                Tcl_IncrRefCount(listValuePtr);
                 if (TCL_OK != Tcl_ListObjAppendElement(interp, listValuePtr, valuePtr)) {
+                    Tcl_DecrRefCount(listValuePtr);
                     SetResult("get_query_param: error appending to list");
                     return TCL_ERROR;
                 }
@@ -1071,29 +1104,27 @@ static int tws_GetQueryParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj 
 
 int tws_GetQueryParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "GetQueryParamCmd\n"));
+    CheckArgs(3, 4, 1, "request_dict param_name ?return_list?");
 
     int option_multi = 0;
-    Tcl_ArgvInfo ArgTable[] = {
-            {TCL_ARGV_CONSTANT, "-return_list", INT2PTR(1), &option_multi, "return a list of values"},
-            {TCL_ARGV_END, NULL,                NULL, NULL, NULL}
-    };
-
-    Tcl_Obj **remObjv;
-    Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
-
-    if ((objc < 3) || (objc > 3)) {
-        Tcl_WrongNumArgs(interp, 1, remObjv, "request_dict param_name");
-        return TCL_ERROR;
+    if (objc == 4) {
+        if (TCL_OK != Tcl_GetBooleanFromObj(interp, objv[3], &option_multi)) {
+            return TCL_ERROR;
+        }
     }
 
-    Tcl_Obj *result;
-    if (TCL_OK != tws_GetQueryParam(interp, objv[1], objv[2], option_multi, &result)) {
+    Tcl_Obj *result_ptr;
+    if (TCL_OK != tws_GetQueryParam(interp, objv[1], objv[2], option_multi, &result_ptr)) {
         SetResult("get_query_param: error reading param_name");
         return TCL_ERROR;
     }
 
-    if (result != NULL) {
-        Tcl_SetObjResult(interp, result);
+    if (result_ptr != NULL) {
+        Tcl_SetObjResult(interp, result_ptr);
+    }
+
+    if (option_multi) {
+        Tcl_DecrRefCount(result_ptr);
     }
 
     return TCL_OK;
@@ -1122,7 +1153,9 @@ static int tws_GetPathParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *
         if (valuePtr) {
             if (option_multi) {
                 Tcl_Obj *listValuePtr = Tcl_NewListObj(0, NULL);
+                Tcl_IncrRefCount(listValuePtr);
                 if (TCL_OK != Tcl_ListObjAppendElement(interp, listValuePtr, valuePtr)) {
+                    Tcl_DecrRefCount(listValuePtr);
                     SetResult("get_path_param: error appending to list");
                     return TCL_ERROR;
                 }
@@ -1149,14 +1182,18 @@ int tws_GetPathParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
         }
     }
 
-    Tcl_Obj *result;
-    if (TCL_OK != tws_GetPathParam(interp, objv[1], objv[2], option_multi, &result)) {
+    Tcl_Obj *result_ptr;
+    if (TCL_OK != tws_GetPathParam(interp, objv[1], objv[2], option_multi, &result_ptr)) {
         SetResult("get_path_param: error reading param_name from pathParameters");
         return TCL_ERROR;
     }
 
-    if (result != NULL) {
-        Tcl_SetObjResult(interp, result);
+    if (result_ptr != NULL) {
+        Tcl_SetObjResult(interp, result_ptr);
+    }
+
+    if (option_multi) {
+        Tcl_DecrRefCount(result_ptr);
     }
 
     return TCL_OK;
@@ -1187,6 +1224,7 @@ static int tws_GetHeader(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *par
             return TCL_ERROR;
         }
         if (listValuePtr) {
+            Tcl_IncrRefCount(listValuePtr);
             *result_ptr = listValuePtr;
             return TCL_OK;
         }
@@ -1214,7 +1252,9 @@ static int tws_GetHeader(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *par
         if (valuePtr) {
             if (option_multi) {
                 Tcl_Obj *listValuePtr = Tcl_NewListObj(0, NULL);
+                Tcl_IncrRefCount(listValuePtr);
                 if (TCL_OK != Tcl_ListObjAppendElement(interp, listValuePtr, valuePtr)) {
+                    Tcl_DecrRefCount(listValuePtr);
                     SetResult("get_header: error appending to list");
                     return TCL_ERROR;
                 }
@@ -1242,14 +1282,18 @@ int tws_GetHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
         }
     }
 
-    Tcl_Obj *result;
-    if (TCL_OK != tws_GetHeader(interp, objv[1], objv[2], option_multi, &result)) {
+    Tcl_Obj *result_ptr;
+    if (TCL_OK != tws_GetHeader(interp, objv[1], objv[2], option_multi, &result_ptr)) {
         SetResult("get_header: error reading param_name from headers");
         return TCL_ERROR;
     }
 
-    if (result != NULL) {
-        Tcl_SetObjResult(interp, result);
+    if (result_ptr != NULL) {
+        Tcl_SetObjResult(interp, result_ptr);
+    }
+
+    if (option_multi) {
+        Tcl_DecrRefCount(result_ptr);
     }
 
     return TCL_OK;
@@ -1274,6 +1318,7 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 3) || (objc > 3)) {
+        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "request_dict param_name");
         return TCL_ERROR;
     }
@@ -1284,6 +1329,7 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
 
     if (check_all_p || option_path) {
         if (TCL_OK != tws_GetPathParam(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
+            ckfree(remObjv);
             Tcl_SetObjResult(interp, result_ptr);
             return TCL_OK;
         }
@@ -1291,6 +1337,7 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
 
     if (check_all_p || option_query) {
         if (TCL_OK != tws_GetQueryParam(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
+            ckfree(remObjv);
             Tcl_SetObjResult(interp, result_ptr);
             return TCL_OK;
         }
@@ -1298,11 +1345,13 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
 
     if (check_all_p || option_header) {
         if (TCL_OK != tws_GetHeader(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
+            ckfree(remObjv);
             Tcl_SetObjResult(interp, result_ptr);
             return TCL_OK;
         }
     }
 
+    ckfree(remObjv);
     return TCL_OK;
 }
 
