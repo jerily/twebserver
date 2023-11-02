@@ -74,6 +74,33 @@
   set form_dict [::twebserver::get_form $request_dict]
   ```
 
+* **::twebserver::get_path_param** *request_dict* *param_name* *?return_list?*
+    - returns a path parameter from a request dictionary, if ```return_list``` is true, then a list of values is returned
+  ```tcl
+  set param_value [::twebserver::get_path_param $request_dict $param_name]
+  ```
+
+* **::twebserver::get_query_param** *request_dict* *param_name* *?return_list?*
+    - returns a query parameter from a request dictionary, if ```return_list``` is true, then a list of values is returned
+  ```tcl
+    set param_value [::twebserver::get_query_param $request_dict $param_name]
+    ```
+
+* **::twebserver::get_header** *request_dict* *header_name* *?return_list?*
+    - returns a header from a request dictionary, if ```return_list``` is true, then a list of values is returned
+  ```tcl
+  set header_value [::twebserver::get_header $request_dict $header_name]
+  ```
+* **::twebserver::get_param** *?-return_list?* *?-from_path?* *?-from_query?* *?-from_header?* *request_dict* "param_or_header_name*
+    - returns a parameter or header from a request dictionary,
+  it first checks for a path parameter, then a query parameter, then a header.
+    If ```return_list``` is true, then a list of values is returned.
+  The flags ```-from_path```, ```-from_query```, and ```-from_header``` can be used
+  to restrict where to look for the parameter or header.
+  ```tcl
+  set param_value [::twebserver::get_param $request_dict $param_or_header_name]
+  ```
+  
 ### Utility Commands
 
 #### Encode/Decode URIs

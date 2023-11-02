@@ -43,7 +43,8 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     // iterate listeners_HT hash table and free each listener
     Tcl_HashSearch search;
     Tcl_HashEntry *entry;
-    for (entry = Tcl_FirstHashEntry(&server->listeners_HT, &search); entry != NULL; entry = Tcl_NextHashEntry(&search)) {
+    for (entry = Tcl_FirstHashEntry(&server->listeners_HT, &search);
+         entry != NULL; entry = Tcl_NextHashEntry(&search)) {
         tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_GetHashValue(entry);
         Tcl_DeleteFileHandler(accept_ctx->server_fd);
         if (!accept_ctx->option_http) {
@@ -456,7 +457,7 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     int option_http = 0;
     Tcl_ArgvInfo ArgTable[] = {
             {TCL_ARGV_CONSTANT, "-http", INT2PTR(1), &option_http, "http (not https) listener"},
-            {TCL_ARGV_END, NULL,           NULL, NULL, NULL}
+            {TCL_ARGV_END, NULL,         NULL, NULL, NULL}
     };
     Tcl_Obj **remObjv;
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
@@ -902,7 +903,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
             {TCL_ARGV_INT,      "-maxage",      NULL,       &option_maxage,      "number of seconds until the cookie expires"},
             {TCL_ARGV_CONSTANT, "-httponly",    INT2PTR(1), &option_httponly,    "HttpOnly attribute is set"},
             {TCL_ARGV_CONSTANT, "-partitioned", INT2PTR(1), &option_partitioned, "indicates that the cookie should be stored using partitioned storage"},
-            {TCL_ARGV_CONSTANT, "-insecure", INT2PTR(1), &option_insecure, "indicates whether to not set the Secure attribute"},
+            {TCL_ARGV_CONSTANT, "-insecure",    INT2PTR(1), &option_insecure,    "indicates whether to not set the Secure attribute"},
             {TCL_ARGV_END, NULL,                NULL, NULL, NULL}
     };
 
@@ -991,6 +992,312 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     return TCL_OK;
 }
 
+static int tws_GetQueryParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *param_name_ptr, int option_multi, Tcl_Obj **result_ptr) {
+    // Check request_dict for the following keys:
+    //    multiValueQueryStringParameters
+    //    queryStringParameters
+
+    // If "multiValueQueryStringParameters" exists, check if "param_name" is part of it and return it
+
+    Tcl_Obj *multi_value_query_string_parameters_key_ptr = Tcl_NewStringObj("multiValueQueryStringParameters", -1);
+    Tcl_IncrRefCount(multi_value_query_string_parameters_key_ptr);
+    Tcl_Obj *multi_value_query_string_parameters_ptr;
+    if (TCL_OK != Tcl_DictObjGet(interp, req_dict_ptr, multi_value_query_string_parameters_key_ptr,
+                                 &multi_value_query_string_parameters_ptr)) {
+        Tcl_DecrRefCount(multi_value_query_string_parameters_key_ptr);
+        SetResult("get_query_param: error reading multiValueQueryStringParameters from request_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(multi_value_query_string_parameters_key_ptr);
+
+    if (multi_value_query_string_parameters_ptr) {
+        // check if "param_name" is part of it and return it
+        Tcl_Obj *listValuePtr;
+        if (TCL_OK != Tcl_DictObjGet(interp, multi_value_query_string_parameters_ptr, param_name_ptr, &listValuePtr)) {
+            SetResult("get_query_param: error reading param_name from multiValueQueryStringParameters");
+            return TCL_ERROR;
+        }
+        if (listValuePtr) {
+            *result_ptr = listValuePtr;
+            return TCL_OK;
+        }
+    }
+
+    // If queryStringParameters exists, check if "param_name" is part of it and return it
+
+    Tcl_Obj *query_string_parameters_key_ptr = Tcl_NewStringObj("queryStringParameters", -1);
+    Tcl_IncrRefCount(query_string_parameters_key_ptr);
+    Tcl_Obj *query_string_parameters_ptr;
+    if (TCL_OK != Tcl_DictObjGet(interp, req_dict_ptr, query_string_parameters_key_ptr, &query_string_parameters_ptr)) {
+        Tcl_DecrRefCount(query_string_parameters_key_ptr);
+        SetResult("get_query_param: error reading queryStringParameters from request_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(query_string_parameters_key_ptr);
+
+    if (query_string_parameters_ptr) {
+        // check if "param_name" is part of it and return it
+        Tcl_Obj *valuePtr;
+        if (TCL_OK != Tcl_DictObjGet(interp, query_string_parameters_ptr, param_name_ptr, &valuePtr)) {
+            SetResult("get_query_param: error reading param_name from queryStringParameters");
+            return TCL_ERROR;
+        }
+        if (valuePtr) {
+            if (option_multi) {
+                Tcl_Obj *listValuePtr = Tcl_NewListObj(0, NULL);
+                if (TCL_OK != Tcl_ListObjAppendElement(interp, listValuePtr, valuePtr)) {
+                    SetResult("get_query_param: error appending to list");
+                    return TCL_ERROR;
+                }
+                *result_ptr = listValuePtr;
+                return TCL_OK;
+            } else {
+                *result_ptr = valuePtr;
+                return TCL_OK;
+            }
+        }
+    }
+    *result_ptr = NULL;
+    return TCL_OK;
+}
+
+int tws_GetQueryParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "GetQueryParamCmd\n"));
+
+    int option_multi = 0;
+    Tcl_ArgvInfo ArgTable[] = {
+            {TCL_ARGV_CONSTANT, "-return_list", INT2PTR(1), &option_multi, "return a list of values"},
+            {TCL_ARGV_END, NULL,                NULL, NULL, NULL}
+    };
+
+    Tcl_Obj **remObjv;
+    Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
+
+    if ((objc < 3) || (objc > 3)) {
+        Tcl_WrongNumArgs(interp, 1, remObjv, "request_dict param_name");
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *result;
+    if (TCL_OK != tws_GetQueryParam(interp, objv[1], objv[2], option_multi, &result)) {
+        SetResult("get_query_param: error reading param_name");
+        return TCL_ERROR;
+    }
+
+    if (result != NULL) {
+        Tcl_SetObjResult(interp, result);
+    }
+
+    return TCL_OK;
+}
+
+static int tws_GetPathParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *param_name_ptr, int option_multi, Tcl_Obj **result_ptr) {
+    // Check if "pathParameters" exists, check if "param_name" is part of it and return it
+
+    Tcl_Obj *path_parameters_key_ptr = Tcl_NewStringObj("pathParameters", -1);
+    Tcl_IncrRefCount(path_parameters_key_ptr);
+    Tcl_Obj *path_parameters_ptr;
+    if (TCL_OK != Tcl_DictObjGet(interp, req_dict_ptr, path_parameters_key_ptr, &path_parameters_ptr)) {
+        Tcl_DecrRefCount(path_parameters_key_ptr);
+        SetResult("get_path_param: error reading pathParameters from request_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(path_parameters_key_ptr);
+
+    if (path_parameters_ptr) {
+        // check if "param_name" is part of it and return it
+        Tcl_Obj *valuePtr;
+        if (TCL_OK != Tcl_DictObjGet(interp, path_parameters_ptr, param_name_ptr, &valuePtr)) {
+            SetResult("get_path_param: error reading param_name from pathParameters");
+            return TCL_ERROR;
+        }
+        if (valuePtr) {
+            if (option_multi) {
+                Tcl_Obj *listValuePtr = Tcl_NewListObj(0, NULL);
+                if (TCL_OK != Tcl_ListObjAppendElement(interp, listValuePtr, valuePtr)) {
+                    SetResult("get_path_param: error appending to list");
+                    return TCL_ERROR;
+                }
+                *result_ptr = listValuePtr;
+                return TCL_OK;
+            } else {
+                *result_ptr = valuePtr;
+                return TCL_OK;
+            }
+        }
+    }
+    *result_ptr = NULL;
+    return TCL_OK;
+}
+
+int tws_GetPathParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "GetPathParamCmd\n"));
+    CheckArgs(3, 4, 1, "request_dict param_name ?return_list?");
+
+    int option_multi = 0;
+    if (objc == 4) {
+        if (TCL_OK != Tcl_GetBooleanFromObj(interp, objv[3], &option_multi)) {
+            return TCL_ERROR;
+        }
+    }
+
+    Tcl_Obj *result;
+    if (TCL_OK != tws_GetPathParam(interp, objv[1], objv[2], option_multi, &result)) {
+        SetResult("get_path_param: error reading param_name from pathParameters");
+        return TCL_ERROR;
+    }
+
+    if (result != NULL) {
+        Tcl_SetObjResult(interp, result);
+    }
+
+    return TCL_OK;
+}
+
+static int tws_GetHeader(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *param_name_ptr, int option_multi, Tcl_Obj **result_ptr) {
+    // Check request_dict for the following keys:
+    //    multiValueHeaders
+    //    headers
+
+    // If "multiValueHeaders" exists, check if "header_name" is part of it and return it
+
+    Tcl_Obj *multi_value_headers_key_ptr = Tcl_NewStringObj("multiValueHeaders", -1);
+    Tcl_IncrRefCount(multi_value_headers_key_ptr);
+    Tcl_Obj *multi_value_headers_ptr;
+    if (TCL_OK != Tcl_DictObjGet(interp, req_dict_ptr, multi_value_headers_key_ptr, &multi_value_headers_ptr)) {
+        Tcl_DecrRefCount(multi_value_headers_key_ptr);
+        SetResult("get_header: error reading multiValueHeaders from request_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(multi_value_headers_key_ptr);
+
+    if (multi_value_headers_ptr) {
+        // check if "header_name" is part of it and return it
+        Tcl_Obj *listValuePtr;
+        if (TCL_OK != Tcl_DictObjGet(interp, multi_value_headers_ptr, param_name_ptr, &listValuePtr)) {
+            SetResult("get_header: error reading param_name from multiValueHeaders");
+            return TCL_ERROR;
+        }
+        if (listValuePtr) {
+            *result_ptr = listValuePtr;
+            return TCL_OK;
+        }
+    }
+
+    // If "headers" exists, check if "header_name" is part of it and return it
+
+    Tcl_Obj *headers_key_ptr = Tcl_NewStringObj("headers", -1);
+    Tcl_IncrRefCount(headers_key_ptr);
+    Tcl_Obj *headers_ptr;
+    if (TCL_OK != Tcl_DictObjGet(interp, req_dict_ptr, headers_key_ptr, &headers_ptr)) {
+        Tcl_DecrRefCount(headers_key_ptr);
+        SetResult("get_header: error reading headers from request_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(headers_key_ptr);
+
+    if (headers_ptr) {
+        // check if "header_name" is part of it and return it
+        Tcl_Obj *valuePtr;
+        if (TCL_OK != Tcl_DictObjGet(interp, headers_ptr, param_name_ptr, &valuePtr)) {
+            SetResult("get_header: error reading param_name from headers");
+            return TCL_ERROR;
+        }
+        if (valuePtr) {
+            if (option_multi) {
+                Tcl_Obj *listValuePtr = Tcl_NewListObj(0, NULL);
+                if (TCL_OK != Tcl_ListObjAppendElement(interp, listValuePtr, valuePtr)) {
+                    SetResult("get_header: error appending to list");
+                    return TCL_ERROR;
+                }
+                *result_ptr = listValuePtr;
+                return TCL_OK;
+            } else {
+                *result_ptr = valuePtr;
+                return TCL_OK;
+            }
+        }
+    }
+
+    *result_ptr = NULL;
+    return TCL_OK;
+}
+
+int tws_GetHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "GetPathParamCmd\n"));
+    CheckArgs(3, 4, 1, "request_dict header_name ?return_list?");
+
+    int option_multi = 0;
+    if (objc == 4) {
+        if (TCL_OK != Tcl_GetBooleanFromObj(interp, objv[3], &option_multi)) {
+            return TCL_ERROR;
+        }
+    }
+
+    Tcl_Obj *result;
+    if (TCL_OK != tws_GetHeader(interp, objv[1], objv[2], option_multi, &result)) {
+        SetResult("get_header: error reading param_name from headers");
+        return TCL_ERROR;
+    }
+
+    if (result != NULL) {
+        Tcl_SetObjResult(interp, result);
+    }
+
+    return TCL_OK;
+}
+
+int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "GetParamCmd\n"));
+
+    int option_multi = 0;
+    int option_query = 0;
+    int option_path = 0;
+    int option_header = 0;
+    Tcl_ArgvInfo ArgTable[] = {
+            {TCL_ARGV_CONSTANT, "-return_list", INT2PTR(1), &option_multi,  "return a list of values"},
+            {TCL_ARGV_CONSTANT, "-from_query",  INT2PTR(1), &option_query,  "return query parameter"},
+            {TCL_ARGV_CONSTANT, "-from_path",   INT2PTR(1), &option_path,   "return path parameter"},
+            {TCL_ARGV_CONSTANT, "-from_header", INT2PTR(1), &option_header, "return header value"},
+            {TCL_ARGV_END, NULL,                NULL, NULL, NULL}
+    };
+
+    Tcl_Obj **remObjv;
+    Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
+
+    if ((objc < 3) || (objc > 3)) {
+        Tcl_WrongNumArgs(interp, 1, remObjv, "request_dict param_name");
+        return TCL_ERROR;
+    }
+
+    int check_all_p = !option_path & !option_query & !option_header;
+
+    Tcl_Obj *result_ptr = NULL;
+
+    if (check_all_p || option_path) {
+        if (TCL_OK != tws_GetPathParam(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
+            Tcl_SetObjResult(interp, result_ptr);
+            return TCL_OK;
+        }
+    }
+
+    if (check_all_p || option_query) {
+        if (TCL_OK != tws_GetQueryParam(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
+            Tcl_SetObjResult(interp, result_ptr);
+            return TCL_OK;
+        }
+    }
+
+    if (check_all_p || option_header) {
+        if (TCL_OK != tws_GetHeader(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
+            Tcl_SetObjResult(interp, result_ptr);
+            return TCL_OK;
+        }
+    }
+
+    return TCL_OK;
+}
+
 static void tws_ExitHandler(ClientData unused) {
     tws_DeleteServerNameHT();
     tws_DeleteConnNameHT();
@@ -1055,6 +1362,10 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::sha512", tws_Sha512Cmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::get_form", tws_GetFormCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::get_header", tws_GetHeaderCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::get_query_param", tws_GetQueryParamCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::get_path_param", tws_GetPathParamCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::get_param", tws_GetParamCmd, NULL, NULL);
 
     return Tcl_PkgProvide(interp, "twebserver", XSTR(VERSION));
 }
