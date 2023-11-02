@@ -106,7 +106,7 @@ set server_handle [::twebserver::create_server $config_dict process_conn $init_s
 # listen for an HTTPS connection on port 4433
 ::twebserver::listen_server $server_handle 4433
 
-# list for an HTTP connection on port 8080
+# listen for an HTTP connection on port 8080
 ::twebserver::listen_server -http $server_handle 8080
 
 # wait forever
