@@ -1007,13 +1007,6 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
         Tcl_DecrRefCount(option_maxage_ptr);
     }
 
-    // TODO: remove these
-    Tcl_SetObjResult(interp, remObjv[1]);
-    Tcl_DecrRefCount(headerValuePtr);
-    Tcl_DecrRefCount(headerNamePtr);
-    ckfree(remObjv);
-    return TCL_OK;
-
     Tcl_Obj *responseDictPtr;
     if (TCL_OK != tws_AddHeader(interp, remObjv[1], headerNamePtr, headerValuePtr, &responseDictPtr)) {
         ckfree(remObjv);
