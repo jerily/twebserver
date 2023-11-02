@@ -28,7 +28,7 @@
 
 #endif
 
-#define MAX_EVENTS 10
+#define MAX_EVENTS 100
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
 #define MAX_BUFFER_SIZE 1024
 #endif
