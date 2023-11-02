@@ -38,6 +38,7 @@ int tws_RandomBytesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_
     }
 
     Tcl_SetObjResult(interp, Tcl_NewByteArrayObj(output, num_bytes));
+    Tcl_Free((char *) output);
     return TCL_OK;
 }
 
