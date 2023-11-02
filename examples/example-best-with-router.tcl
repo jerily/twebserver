@@ -13,8 +13,7 @@ set init_script {
             return $req
         }
         proc leave {ctx req res} {
-            dict set res headers [list Set-Cookie "session_id=[dict get $req session id]; path=/;"]
-            return $res
+            return [::twebserver::add_cookie -maxage 3600 $res session_id [dict get $req session id]]
         }
     }
 
