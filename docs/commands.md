@@ -102,7 +102,7 @@
   ```
 
 * **::twebserver::build_response** *?-return_file?* status_code mimetype body
-    - builds a response dictionary
+    - builds a response dictionary, when ```-return_file``` is specified, the body is treated as a file path
   ```tcl
   set response_dict [::twebserver::build_response 200 text/plain "hello world"]
   set response_dict [::twebserver::build_response -return_file 200 image/png plume.png]
