@@ -18,3 +18,4 @@ you may want to set this to a low number. Default is 0, which means unlimited.
 * **gzip** - whether gzip is on or off (Default: 1)
 * **gzip_min_length** - the minimum length of a response to gzip (Default: 8192)
 * **gzip_types** - compresses responses only with MIME type text/html. To compress responses with other MIME types, list the additional types of content to gzip.
+* **rootdir** - the root directory for serving files (Default: "")
