@@ -100,6 +100,13 @@
   ```tcl
   set param_value [::twebserver::get_param $request_dict $param_or_header_name]
   ```
+
+* **::twebserver::build_response** *?-return_file?* status_code mimetype body
+    - builds a response dictionary
+  ```tcl
+  set response_dict [::twebserver::build_response 200 text/plain "hello world"]
+  set response_dict [::twebserver::build_response -return_file 200 image/png plume.png]
+  ```
   
 ### Utility Commands
 
@@ -146,3 +153,8 @@ These commands are provided for convenience.
     - encodes a string in hex
 * **::twebserver::hex_decode** *hex_encoded_string*
     - decodes a hex encoded string
+
+#### Info
+
+* **::twebserver::get_rootdir** *server_handle*
+    - returns the root directory of a server

@@ -18,6 +18,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <signal.h>
+#include <sys/stat.h>
 
 static int tws_ModuleInitialized;
 
@@ -38,6 +39,9 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     Tcl_DecrRefCount(server->cmdPtr);
     if (server->scriptPtr != NULL) {
         Tcl_DecrRefCount(server->scriptPtr);
+    }
+    if (server->rootdirPtr != NULL) {
+        Tcl_DecrRefCount(server->rootdirPtr);
     }
 
     // iterate listeners_HT hash table and free each listener
@@ -60,6 +64,20 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
 }
 
 static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server_ctx, Tcl_Obj *const configDictPtr) {
+    Tcl_Obj *rootdirPtr;
+    Tcl_Obj *rootdirKeyPtr = Tcl_NewStringObj("rootdir", -1);
+    Tcl_IncrRefCount(rootdirKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, rootdirKeyPtr, &rootdirPtr)) {
+        Tcl_DecrRefCount(rootdirKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(rootdirKeyPtr);
+    if (rootdirPtr) {
+        server_ctx->rootdirPtr = rootdirPtr;
+        Tcl_IncrRefCount(server_ctx->rootdirPtr);
+    }
+
     Tcl_Obj *maxRequestReadBytesPtr;
     Tcl_Obj *maxRequestReadBytesKeyPtr = Tcl_NewStringObj("max_request_read_bytes", -1);
     Tcl_IncrRefCount(maxRequestReadBytesKeyPtr);
@@ -403,6 +421,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int ob
     }
     Tcl_InitHashTable(&server_ptr->listeners_HT, TCL_ONE_WORD_KEYS);
     server_ptr->threadId = Tcl_GetCurrentThread();
+    server_ptr->rootdirPtr = NULL;
 
     // configuration
     server_ptr->max_request_read_bytes = 10 * 1024 * 1024;
@@ -434,11 +453,10 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int ob
         return TCL_ERROR;
     }
 
-    char handle[40];
-    CMD_SERVER_NAME(handle, server_ptr);
-    tws_RegisterServerName(handle, server_ptr);
+    CMD_SERVER_NAME(server_ptr->handle, server_ptr);
+    tws_RegisterServerName(server_ptr->handle, server_ptr);
 
-    SetResult(handle);
+    SetResult(server_ptr->handle);
     return TCL_OK;
 
 }
@@ -484,7 +502,7 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
 
 static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "AddContextCmd\n"));
-    CheckArgs(5, 5, 1, "handle hostname key cert");
+    CheckArgs(5, 5, 1, "server_handle hostname key cert");
 
     int handle_len;
     const char *handle = Tcl_GetStringFromObj(objv[1], &handle_len);
@@ -1023,6 +1041,198 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     return TCL_OK;
 }
 
+static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "BuildResponseCmd\n"));
+
+    int option_file = 0;
+    Tcl_ArgvInfo ArgTable[] = {
+            {TCL_ARGV_CONSTANT, "-return_file",    INT2PTR(1), &option_file,    "indicates whether the last parameter is a file path"},
+            {TCL_ARGV_END, NULL,                NULL, NULL, NULL}
+    };
+
+    Tcl_Obj **remObjv;
+    Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
+
+    if ((objc < 4) || (objc > 4)) {
+        ckfree(remObjv);
+        Tcl_WrongNumArgs(interp, 1, remObjv, "status_code mimetype body");
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *response_dict_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(response_dict_ptr);
+
+    Tcl_Obj *status_code_key_ptr = Tcl_NewStringObj("statusCode", -1);
+    Tcl_IncrRefCount(status_code_key_ptr);
+    if (TCL_OK != Tcl_DictObjPut(interp, response_dict_ptr, status_code_key_ptr, remObjv[1])) {
+        Tcl_DecrRefCount(status_code_key_ptr);
+        Tcl_DecrRefCount(response_dict_ptr);
+        ckfree(remObjv);
+        SetResult("build_response: error writing status_code to response_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(status_code_key_ptr);
+
+    Tcl_Obj *headers_key_ptr = Tcl_NewStringObj("headers", -1);
+    Tcl_IncrRefCount(headers_key_ptr);
+    Tcl_Obj *headers_dict_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(headers_dict_ptr);
+
+    Tcl_Obj *content_type_key_ptr = Tcl_NewStringObj("Content-Type", -1);
+    Tcl_IncrRefCount(content_type_key_ptr);
+    if (TCL_OK != Tcl_DictObjPut(interp, headers_dict_ptr, content_type_key_ptr, remObjv[2])) {
+        Tcl_DecrRefCount(content_type_key_ptr);
+        Tcl_DecrRefCount(headers_dict_ptr);
+        Tcl_DecrRefCount(headers_key_ptr);
+        Tcl_DecrRefCount(response_dict_ptr);
+        ckfree(remObjv);
+        SetResult("build_response: error writing Content-Type to headers_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(content_type_key_ptr);
+
+    if (TCL_OK != Tcl_DictObjPut(interp, response_dict_ptr, headers_key_ptr, headers_dict_ptr)) {
+        Tcl_DecrRefCount(headers_key_ptr);
+        Tcl_DecrRefCount(headers_dict_ptr);
+        Tcl_DecrRefCount(response_dict_ptr);
+        ckfree(remObjv);
+        SetResult("build_response: error writing headers to response_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(headers_key_ptr);
+    Tcl_DecrRefCount(headers_dict_ptr);
+
+    int mimetype_length;
+    const char *mimetype = Tcl_GetStringFromObj(remObjv[2], &mimetype_length);
+    int is_binary_type = tws_IsBinaryType(mimetype, mimetype_length);
+
+    Tcl_Obj *input_ptr;
+    if (option_file) {
+        // read the file denoted by the last parameter
+
+        int filename_length;
+        const char *filename = Tcl_GetStringFromObj(remObjv[3], &filename_length);
+        const char *mode_string = is_binary_type ? "rb" : "r";
+
+        struct stat statbuf;
+        if (Tcl_Stat(filename, &statbuf) != 0) {
+            Tcl_DecrRefCount(response_dict_ptr);
+            ckfree(remObjv);
+            SetResult("build_response: error stating file");
+            return TCL_ERROR;
+        }
+
+        int file_data_length = statbuf.st_size;
+
+        Tcl_Channel channel = Tcl_OpenFileChannel(interp, filename, mode_string, 0);
+        if (channel == NULL) {
+            Tcl_DecrRefCount(response_dict_ptr);
+            ckfree(remObjv);
+            SetResult("build_response: error opening file");
+            return TCL_ERROR;
+        }
+
+        char *file_data = Tcl_Alloc(file_data_length);
+        int bytes_read = Tcl_ReadRaw(channel, file_data, file_data_length);
+        if (bytes_read < 0) {
+            Tcl_Free(file_data);
+            Tcl_DecrRefCount(response_dict_ptr);
+            ckfree(remObjv);
+            SetResult("build_response: error reading file");
+            return TCL_ERROR;
+        }
+
+        // close channel
+        Tcl_Close(interp, channel);
+
+        input_ptr = is_binary_type ?
+                Tcl_NewByteArrayObj(file_data, file_data_length)
+                : Tcl_NewStringObj(file_data, file_data_length);
+
+        Tcl_IncrRefCount(input_ptr);
+        Tcl_Free(file_data);
+    } else {
+        input_ptr = remObjv[3];
+    }
+
+    if (is_binary_type) {
+
+        // set the "isBase64Encoded" key to 1
+        Tcl_Obj *is_base64_encoded_key_ptr = Tcl_NewStringObj("isBase64Encoded", -1);
+        Tcl_IncrRefCount(is_base64_encoded_key_ptr);
+        if (TCL_OK != Tcl_DictObjPut(interp, response_dict_ptr, is_base64_encoded_key_ptr, Tcl_NewBooleanObj(1))) {
+            if (option_file) {
+                Tcl_DecrRefCount(input_ptr);
+            }
+            Tcl_DecrRefCount(is_base64_encoded_key_ptr);
+            Tcl_DecrRefCount(response_dict_ptr);
+            ckfree(remObjv);
+            SetResult("build_response: error writing isBase64Encoded to response_dict");
+            return TCL_ERROR;
+        }
+        Tcl_DecrRefCount(is_base64_encoded_key_ptr);
+
+        // base64 encode the body
+        int input_length;
+        const char *input = Tcl_GetByteArrayFromObj(input_ptr, &input_length);
+        char *output = Tcl_Alloc(input_length * 2);
+        size_t output_length;
+        if (TCL_OK != base64_encode(input, input_length, output, &output_length)) {
+            if (option_file) {
+                Tcl_DecrRefCount(input_ptr);
+            }
+            Tcl_Free(output);
+            Tcl_DecrRefCount(response_dict_ptr);
+            ckfree(remObjv);
+            SetResult("build_response: error base64 encoding body");
+            return TCL_ERROR;
+        }
+
+        Tcl_Obj *value_ptr = Tcl_NewStringObj(output, output_length);
+        Tcl_IncrRefCount(value_ptr);
+        Tcl_Obj *body_key_ptr = Tcl_NewStringObj("body", -1);
+        Tcl_IncrRefCount(body_key_ptr);
+        if (TCL_OK != Tcl_DictObjPut(interp, response_dict_ptr, body_key_ptr, value_ptr)) {
+            if (option_file) {
+                Tcl_DecrRefCount(input_ptr);
+            }
+            Tcl_DecrRefCount(body_key_ptr);
+            Tcl_DecrRefCount(value_ptr);
+            Tcl_DecrRefCount(response_dict_ptr);
+            Tcl_Free(output);
+            ckfree(remObjv);
+            SetResult("build_response: error writing body to response_dict");
+            return TCL_ERROR;
+        }
+        Tcl_DecrRefCount(body_key_ptr);
+        Tcl_DecrRefCount(value_ptr);
+        Tcl_Free(output);
+
+    } else {
+        Tcl_Obj *body_key_ptr = Tcl_NewStringObj("body", -1);
+        Tcl_IncrRefCount(body_key_ptr);
+        if (TCL_OK != Tcl_DictObjPut(interp, response_dict_ptr, body_key_ptr, input_ptr)) {
+            if (option_file) {
+                Tcl_DecrRefCount(input_ptr);
+            }
+            Tcl_DecrRefCount(body_key_ptr);
+            Tcl_DecrRefCount(response_dict_ptr);
+            ckfree(remObjv);
+            SetResult("build_response: error writing body to response_dict");
+            return TCL_ERROR;
+        }
+        Tcl_DecrRefCount(body_key_ptr);
+    }
+
+    Tcl_SetObjResult(interp, response_dict_ptr);
+    if (option_file) {
+        Tcl_DecrRefCount(input_ptr);
+    }
+    Tcl_DecrRefCount(response_dict_ptr);
+    ckfree(remObjv);
+    return TCL_OK;
+}
+
 static int tws_GetQueryParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *param_name_ptr, int option_multi, Tcl_Obj **result_ptr) {
     // Check request_dict for the following keys:
     //    multiValueQueryStringParameters
@@ -1348,6 +1558,24 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
     return TCL_OK;
 }
 
+static int tws_GetRootdirCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "GetRootdirCmd\n"));
+    CheckArgs(2, 2, 1, "server_handle");
+
+    int handle_len;
+    const char *handle = Tcl_GetStringFromObj(objv[1], &handle_len);
+    tws_server_t *server = tws_GetInternalFromServerName(handle);
+    if (!server) {
+        SetResult("server handle not found");
+        return TCL_ERROR;
+    }
+
+    if (server->rootdirPtr != NULL) {
+        Tcl_SetObjResult(interp, server->rootdirPtr);
+    }
+    return TCL_OK;
+}
+
 static void tws_ExitHandler(ClientData unused) {
     tws_DeleteServerNameHT();
     tws_DeleteConnNameHT();
@@ -1387,6 +1615,7 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::listen_server", tws_ListenCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_context", tws_AddContextCmd, NULL, NULL);
 
+    Tcl_CreateObjCommand(interp, "::twebserver::get_rootdir", tws_GetRootdirCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::info_conn", tws_InfoConnCmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::encode_uri_component", tws_EncodeURIComponentCmd, NULL, NULL);
@@ -1405,6 +1634,7 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::parse_cookie", tws_ParseCookieCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_header", tws_AddHeaderCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_cookie", tws_AddCookieCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::build_response", tws_BuildResponseCmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::random_bytes", tws_RandomBytesCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::sha1", tws_Sha1Cmd, NULL, NULL);

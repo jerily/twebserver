@@ -267,3 +267,36 @@ char *tws_strndup(const char *s, size_t n) {
     result[l] = '\0';
     return result;
 }
+
+int tws_IsBinaryType(const char *content_type, int content_type_length) {
+    int is_binary_type = 0;
+    if (content_type_length >= 5 && content_type[0] == 't' && content_type[1] == 'e' && content_type[2] == 'x' && content_type[3] == 't' && content_type[4] == '/') {
+        // text/*
+        is_binary_type = 0;
+    } else if (content_type_length >= 33 && content_type[0] == 'a' && content_type[11] == '/' && content_type[18] == 'f' && strncmp(content_type, "application/x-www-form-urlencoded", 33) == 0) {
+        // application/x-www-form-urlencoded
+        is_binary_type = 0;
+    } else if (content_type_length >= 16 && content_type[0] == 'a' && content_type[11] == '/' && content_type[12] == 'j' && strncmp(content_type, "application/json", 16) == 0) {
+        // application/json
+        is_binary_type = 0;
+    } else if (content_type_length >= 15 && content_type[0] == 'a' && content_type[11] == '/' && content_type[12] == 'x' && strncmp(content_type, "application/xml", 15) == 0) {
+        // application/xml
+        is_binary_type = 0;
+    } else if (content_type_length >= 19 && content_type[0] == 'm' && content_type[9] == '/' && content_type[10] == 'f' && strncmp(content_type, "multipart/form-data", 19) == 0) {
+        // multipart/form-data
+        is_binary_type = 1;
+    } else if (content_type_length >= 12 && content_type[0] == 'a' && content_type[11] == '/' && strncmp(content_type, "application/", 12) == 0) {
+        // application/*
+        is_binary_type = 1;
+    } else if (content_type_length >= 6 && content_type[0] == 'i' && content_type[5] == '/' && strncmp(content_type, "image/", 6) == 0) {
+        // image/*
+        is_binary_type = 1;
+    } else if (content_type_length >= 6 && content_type[0] == 'a' && content_type[5] == '/' && strncmp(content_type, "audio/", 6) == 0) {
+        // audio/*
+        is_binary_type = 1;
+    } else if (content_type_length >= 6 && content_type[0] == 'v' && content_type[5] == '/' && strncmp(content_type, "video/", 6) == 0) {
+        // video/*
+        is_binary_type = 1;
+    }
+    return is_binary_type;
+}

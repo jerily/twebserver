@@ -689,20 +689,9 @@ int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj
     if (content_type_ptr) {
         int content_type_length;
         const char *content_type = Tcl_GetStringFromObj(content_type_ptr, &content_type_length);
+        base64_encode_it = tws_IsBinaryType(content_type, content_type_length);
         // check if binary mime type: application/* (except application/json and application/xml), image/*, audio/*, video/*
-        if (content_type_length >= 5 && content_type[0] == 't' && content_type[1] == 'e' && content_type[2] == 'x' && content_type[3] == 't' && content_type[4] == '/') {
-            // text/*
-            base64_encode_it = 0;
-        } else if (content_type_length >= 33 && content_type[0] == 'a' && content_type[11] == '/' && content_type[18] == 'f' && strncmp(content_type, "application/x-www-form-urlencoded", 33) == 0) {
-            // application/x-www-form-urlencoded
-            base64_encode_it = 0;
-        } else if (content_type_length >= 16 && content_type[0] == 'a' && content_type[11] == '/' && content_type[12] == 'j' && strncmp(content_type, "application/json", 16) == 0) {
-            // application/json
-            base64_encode_it = 0;
-        } else if (content_type_length >= 15 && content_type[0] == 'a' && content_type[11] == '/' && content_type[12] == 'x' && strncmp(content_type, "application/xml", 15) == 0) {
-            // application/xml
-            base64_encode_it = 0;
-        } else if (content_type_length >= 19 && content_type[0] == 'm' && content_type[9] == '/' && content_type[10] == 'f' && strncmp(content_type, "multipart/form-data", 19) == 0) {
+        if (base64_encode_it && content_type_length >= 19 && content_type[0] == 'm' && content_type[9] == '/' && content_type[10] == 'f' && strncmp(content_type, "multipart/form-data", 19) == 0) {
             // multipart/form-data
             base64_encode_it = 1;
             // find semicolon
@@ -727,20 +716,6 @@ int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj
                     Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("multipartBoundary", -1), Tcl_NewStringObj(p, content_type_end - p));
                 }
             }
-
-
-        } else if (content_type_length >= 12 && content_type[0] == 'a' && content_type[11] == '/' && strncmp(content_type, "application/", 12) == 0) {
-            // application/*
-            base64_encode_it = 1;
-        } else if (content_type_length >= 6 && content_type[0] == 'i' && content_type[5] == '/' && strncmp(content_type, "image/", 6) == 0) {
-            // image/*
-            base64_encode_it = 1;
-        } else if (content_type_length >= 6 && content_type[0] == 'a' && content_type[5] == '/' && strncmp(content_type, "audio/", 6) == 0) {
-            // audio/*
-            base64_encode_it = 1;
-        } else if (content_type_length >= 6 && content_type[0] == 'v' && content_type[5] == '/' && strncmp(content_type, "video/", 6) == 0) {
-            // video/*
-            base64_encode_it = 1;
         }
     }
     Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(base64_encode_it));

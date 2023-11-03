@@ -13,7 +13,8 @@ set init_script {
             return $req
         }
         proc leave {ctx req res} {
-            return [::twebserver::add_cookie -maxage 3600 $res session_id [dict get $req session id]]
+            set res [::twebserver::add_cookie -maxage 3600 $res session_id [dict get $req session id]]
+            return $res
         }
     }
 
@@ -26,6 +27,9 @@ set init_script {
         -leave_proc simple_session_manager::leave \
         $router
 
+    # add a route that will be called if the request method is GET and the path is "/"
+    ::twebserver::add_route -strict $router GET / get_index_page_handler
+
     # add a route that has a path parameter called "user_id"
     # when the route path expression matches, it will call "get_blog_entry_handler" proc
     ::twebserver::add_route -strict $router GET /blog/:user_id/sayhi get_blog_entry_handler
@@ -36,16 +40,42 @@ set init_script {
     # add a route that will be called if the request method is POST and the path is "/example"
     ::twebserver::add_route -strict $router POST /example post_example_handler
 
+    # add a route that will be called if the request method is GET and the path is "/logo"
+    ::twebserver::add_route -strict $router GET /logo get_logo_handler
+
     # add a catchall route that will be called if no other route matches a GET request
     ::twebserver::add_route $router GET "*" get_catchall_handler
 
     # make sure that the router will be called when the server receives a connection
     interp alias {} process_conn {} $router
 
+    proc get_index_page_handler {ctx req} {
+        set html {
+            <html>
+                <body>
+                    <img src=/logo />
+                    <h1>hello world</h1>
+                    <ul>
+                        <li><a href=/blog/123/sayhi>click here to see how path parameters work</a></li>
+                        <a href=/addr>click here to see your IP address</a>
+                    </ul>
+                </body>
+            </html>
+        }
+        set res [::twebserver::build_response 200 text/html $html]
+        return $res
+    }
+
+    proc get_logo_handler {ctx req} {
+        set server_handle [dict get $ctx server]
+        set dir [::twebserver::get_rootdir $server_handle]
+        set filepath [file join $dir plume.png]
+        set res [::twebserver::build_response -return_file 200 image/png $filepath]
+        return $res
+    }
+
     proc get_catchall_handler {ctx req} {
-        dict set res statusCode 404
-        dict set res headers {content-type text/plain}
-        dict set res body "not found"
+        set res [::twebserver::build_response 404 text/plain "not found"]
         return $res
     }
 
@@ -54,9 +84,9 @@ set init_script {
         #puts form=$form
 
         # build the response dictionary
-        dict set res statusCode 200
-        dict set res headers {content-type text/plain}
-        dict set res body "test message POST addr=[dict get $ctx addr] headers=[dict get $req headers] fields=[dict get $form fields]"
+        set res [::twebserver::build_response 200 text/plain \
+            "test message POST addr=[dict get $ctx addr] headers=[dict get $req headers] fields=[dict get $form fields]"
+
         return $res
     }
 
@@ -73,17 +103,13 @@ set init_script {
         set user_id [::twebserver::get_path_param $req user_id]
 
         # build the response dictionary
-        dict set res statusCode 200
-        dict set res headers {content-type text/plain}
-        dict set res body "test message GET user_id=$user_id addr=$addr isSecureProto=$isSecureProto"
-
+        set res [::twebserver::build_response 200 text/plain \
+            "test message GET user_id=$user_id addr=$addr isSecureProto=$isSecureProto"]
         return $res
     }
 
     proc get_addr_handler {ctx req} {
-        dict set res statusCode 200
-        dict set res headers {Content-Type text/plain}
-        dict set res body "addr=[dict get $ctx addr]"
+        set res [::twebserver::build_response 200 text/plain "addr=[dict get $ctx addr]"]
         return $res
     }
 
@@ -92,6 +118,7 @@ set init_script {
 # use threads and gzip compression
 set config_dict [dict create \
     num_threads 10 \
+    rootdir [file dirname [info script]] \
     gzip on \
     gzip_types [list text/plain application/json] \
     gzip_min_length 20]
@@ -108,6 +135,9 @@ set server_handle [::twebserver::create_server $config_dict process_conn $init_s
 
 # listen for an HTTP connection on port 8080
 ::twebserver::listen_server -http $server_handle 8080
+
+# print that the server is running
+puts "server is running. go to https://localhost:4433/ or http://localhost:8080/"
 
 # wait forever
 vwait forever

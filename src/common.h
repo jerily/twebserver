@@ -58,7 +58,9 @@ static const char *ssl_errors[] = {
 typedef struct {
     Tcl_Obj *cmdPtr;
     Tcl_Obj *scriptPtr;
+    Tcl_Obj *rootdirPtr;
     Tcl_ThreadId threadId;
+    char handle[30];
     Tcl_HashTable listeners_HT;
     Tcl_ThreadId *conn_thread_ids;
     int max_request_read_bytes;
@@ -217,6 +219,7 @@ int tws_RegisterRouterName(const char *name, tws_router_t *internal);
 int tws_UnregisterRouterName(const char *name);
 tws_router_t *tws_GetInternalFromRouterName(const char *name);
 char *tws_strndup(const char *s, size_t n);
+int tws_IsBinaryType(const char *content_type, int content_type_length);
 
 /*
  * Macros used to cast between pointers and integers (e.g. when storing an int
