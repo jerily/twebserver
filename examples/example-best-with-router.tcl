@@ -85,7 +85,7 @@ set init_script {
 
         # build the response dictionary
         set res [::twebserver::build_response 200 text/plain \
-            "test message POST addr=[dict get $ctx addr] headers=[dict get $req headers] fields=[dict get $form fields]"
+            "test message POST addr=[dict get $ctx addr] headers=[dict get $req headers] fields=[dict get $form fields]"]
 
         return $res
     }
