@@ -898,6 +898,8 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     dataPtr->cmdPtr = Tcl_DuplicateObj(ctrl->server->cmdPtr);
     dataPtr->mutex = &mutex;
     dataPtr->thread_index = ctrl->thread_index;
+    dataPtr->numRequests = 0;
+    dataPtr->numConns = 0;
     dataPtr->firstConnPtr = NULL;
     dataPtr->lastConnPtr = NULL;
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
