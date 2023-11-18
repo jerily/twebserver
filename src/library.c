@@ -191,6 +191,30 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         return TCL_ERROR;
     }
 
+    Tcl_Obj *garbageCollectionCleanupThresholdPtr;
+    Tcl_Obj *garbageCollectionCleanupThresholdKeyPtr = Tcl_NewStringObj("garbage_collection_cleanup_threshold", -1);
+    Tcl_IncrRefCount(garbageCollectionCleanupThresholdKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, garbageCollectionCleanupThresholdKeyPtr,
+                                 &garbageCollectionCleanupThresholdPtr)) {
+        Tcl_DecrRefCount(garbageCollectionCleanupThresholdKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(garbageCollectionCleanupThresholdKeyPtr);
+    if (garbageCollectionCleanupThresholdPtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, garbageCollectionCleanupThresholdPtr,
+                                        &server_ctx->garbage_collection_cleanup_threshold)) {
+            SetResult("garbage_collection_interval_millis must be an integer");
+            return TCL_ERROR;
+        }
+    }
+
+    // check that garbage_collection_interval_millis is between 1 and 1 hour
+    if (server_ctx->garbage_collection_cleanup_threshold < 1) {
+        SetResult("garbage_collection_cleanup_threshold must be greater than zero");
+        return TCL_ERROR;
+    }
+
     // read keepalive flag
     Tcl_Obj *keepalivePtr;
     Tcl_Obj *keepaliveKeyPtr = Tcl_NewStringObj("keepalive", -1);
@@ -428,6 +452,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int ob
     server_ptr->max_read_buffer_size = 1024 * 1024;
     server_ptr->backlog = SOMAXCONN;
     server_ptr->conn_timeout_millis = 2 * 60 * 1000;  // 2 minutes
+    server_ptr->garbage_collection_cleanup_threshold = 10 * 1000;  // attempt cleanup every 10000 requests
     server_ptr->garbage_collection_interval_millis = 10 * 1000;  // 10 seconds
     server_ptr->keepalive = 1;
     server_ptr->keepidle = 10;

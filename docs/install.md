@@ -33,9 +33,9 @@ make install
 
 ### Build the twebserver extension
 ```
-wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.10.tar.gz
-tar -xzf v1.47.10.tar.gz
-export TWS_DIR=$(pwd)/twebserver-1.47.10
+wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.11.tar.gz
+tar -xzf v1.47.11.tar.gz
+export TWS_DIR=$(pwd)/twebserver-1.47.11
 cd ${TWS_DIR}
 mkdir build
 cd build

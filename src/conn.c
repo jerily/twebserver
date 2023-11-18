@@ -300,8 +300,9 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     DBG(fprintf(stderr, "done shutdown\n"));
 }
 
-static void tws_CleanupConnections(ClientData clientData) {
-    tws_server_t *server = (tws_server_t *) clientData;
+static int tws_CleanupConnections(Tcl_Event *evPtr, int flags) {
+    tws_event_t *cleanupEvPtr = (tws_event_t *) evPtr;
+    tws_server_t *server = (tws_server_t *) cleanupEvPtr->clientData;
 
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
     DBG(fprintf(stderr, "CleanupConnections currentThreadId=%p\n", currentThreadId));
@@ -350,7 +351,9 @@ static void tws_CleanupConnections(ClientData clientData) {
     Tcl_MutexUnlock(dataPtr->mutex);
 
     DBG(fprintf(stderr, "reviewed count: %d marked_for_deletion: %d\n", count, count_mark_for_deletion));
-    Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, clientData);
+//    Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, clientData);
+
+    return 1;
 }
 
 static void tws_CreateFileHandler(int fd, ClientData clientData) {
@@ -381,7 +384,7 @@ static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
     DBG(fprintf(stderr, "CreateFileHandlerForKeepaliveConn conn=%p client=%d\n", conn, conn->client));
     tws_CreateFileHandler(conn->client, conn);
-//    Tcl_CreateFileHandler(conn->client, TCL_READABLE, tws_KeepaliveConnHandler, conn);
+
     return 1;
 }
 
@@ -421,6 +424,20 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
                 Tcl_ThreadAlert(conn->threadId);
             }
         }
+    }
+
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+    dataPtr->numRequests = (dataPtr->numRequests + 1) % INT_MAX;
+    tws_server_t *server = conn->accept_ctx->server;
+    // make sure that garbage collection does not start the same time on all threads
+    int thread_pivot = dataPtr->thread_index * (server->garbage_collection_cleanup_threshold / server->num_threads);
+    if (dataPtr->numRequests % server->garbage_collection_cleanup_threshold == thread_pivot) {
+        tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+        evPtr->proc = tws_CleanupConnections;
+        evPtr->nextPtr = NULL;
+        evPtr->clientData = (ClientData *) conn->accept_ctx->server;
+        Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+        Tcl_ThreadAlert(conn->threadId);
     }
 
     return TCL_OK;
@@ -880,6 +897,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     dataPtr->interp = Tcl_CreateInterp();
     dataPtr->cmdPtr = Tcl_DuplicateObj(ctrl->server->cmdPtr);
     dataPtr->mutex = &mutex;
+    dataPtr->thread_index = ctrl->thread_index;
     dataPtr->firstConnPtr = NULL;
     dataPtr->lastConnPtr = NULL;
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -912,9 +930,9 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
 
     // make sure that garbage collection does not start the same time on all threads
-    int first_timer_millis =
-            ctrl->thread_index * (ctrl->server->garbage_collection_interval_millis / ctrl->server->num_threads);
-    Tcl_CreateTimerHandler(first_timer_millis, tws_CleanupConnections, ctrl->server);
+//    int first_timer_millis =
+//            ctrl->thread_index * (ctrl->server->garbage_collection_interval_millis / ctrl->server->num_threads);
+//    Tcl_CreateTimerHandler(first_timer_millis, tws_CleanupConnections, ctrl->server);
 
     // notify the main thread that we are done initializing
     Tcl_ConditionNotify(&ctrl->condWait);
@@ -1204,6 +1222,9 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, Tcl_Ob
         dataPtr->interp = NULL;
         dataPtr->cmdPtr = NULL;
         dataPtr->mutex = &tws_Thread_Mutex;
+        dataPtr->thread_index = 0;
+        dataPtr->numRequests = 0;
+        dataPtr->numConns = 0;
         dataPtr->firstConnPtr = NULL;
         dataPtr->lastConnPtr = NULL;
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -1213,7 +1234,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, Tcl_Ob
 #endif
         Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
 
-        Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, server);
+//        Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, server);
     }
     return TCL_OK;
 }

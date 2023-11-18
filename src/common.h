@@ -67,6 +67,7 @@ typedef struct {
     int max_read_buffer_size;
     int backlog;
     int conn_timeout_millis;
+    int garbage_collection_cleanup_threshold;
     int garbage_collection_interval_millis;
     int keepalive;  // whether keepalive is on or off
     int keepidle;   // the time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes
@@ -148,7 +149,9 @@ typedef struct {
     Tcl_Mutex *mutex;
     tws_conn_t *firstConnPtr;
     tws_conn_t *lastConnPtr;
+    int thread_index;
     int numConns;
+    int numRequests;
     int epoll_fd;
 } tws_thread_data_t;
 
