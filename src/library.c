@@ -1585,11 +1585,17 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
 
 static int tws_GetRootdirCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "GetRootdirCmd\n"));
-    CheckArgs(2, 2, 1, "server_handle");
+    CheckArgs(1, 2, 1, "?server_handle?");
 
-    int handle_len;
-    const char *handle = Tcl_GetStringFromObj(objv[1], &handle_len);
-    tws_server_t *server = tws_GetInternalFromServerName(handle);
+    tws_server_t *server = NULL;
+    if (objc == 2) {
+        int handle_len;
+        const char *handle = Tcl_GetStringFromObj(objv[1], &handle_len);
+        server = tws_GetInternalFromServerName(handle);
+    } else {
+        server = tws_GetCurrentServer();
+    }
+
     if (!server) {
         SetResult("server handle not found");
         return TCL_ERROR;

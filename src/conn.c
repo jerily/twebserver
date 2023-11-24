@@ -52,6 +52,11 @@ enum {
     TWS_MODE_NONBLOCKING
 };
 
+tws_server_t *tws_GetCurrentServer() {
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+    return dataPtr->server;
+}
+
 static int tws_SetBlockingMode(
         int fd,
         int mode            /* Either TWS_MODE_BLOCKING or TWS_MODE_NONBLOCKING. */
@@ -897,6 +902,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     dataPtr->interp = Tcl_CreateInterp();
     dataPtr->cmdPtr = Tcl_DuplicateObj(ctrl->server->cmdPtr);
     dataPtr->mutex = &mutex;
+    dataPtr->server = ctrl->server;
     dataPtr->thread_index = ctrl->thread_index;
     dataPtr->numRequests = 0;
     dataPtr->numConns = 0;
@@ -1224,6 +1230,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, Tcl_Ob
         dataPtr->interp = NULL;
         dataPtr->cmdPtr = NULL;
         dataPtr->mutex = &tws_Thread_Mutex;
+        dataPtr->server = server;
         dataPtr->thread_index = 0;
         dataPtr->numRequests = 0;
         dataPtr->numConns = 0;

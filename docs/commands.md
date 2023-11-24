@@ -156,5 +156,5 @@ These commands are provided for convenience.
 
 #### Info
 
-* **::twebserver::get_rootdir** *server_handle*
-    - returns the root directory of a server
+* **::twebserver::get_rootdir** *?server_handle?*
+    - returns the root directory of the current server or the specified server
