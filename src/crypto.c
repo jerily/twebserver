@@ -113,7 +113,7 @@ int tws_HexDecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
     const char *hex_str = Tcl_GetStringFromObj(objv[1], &hex_length);
 
     const char sep = '\0';
-    int buf_n = hex_length / 2;
+    Tcl_Size buf_n = hex_length / 2;
     unsigned char *buf = (unsigned char *) Tcl_Alloc(buf_n);
 
     if (!OPENSSL_hexstr2buf_ex(buf, buf_n, NULL, hex_str, sep)) {

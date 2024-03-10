@@ -1150,7 +1150,7 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
             return TCL_ERROR;
         }
 
-        int file_data_length = statbuf.st_size;
+        Tcl_Size file_data_length = statbuf.st_size;
 
         Tcl_Channel channel = Tcl_OpenFileChannel(interp, filename, mode_string, 0);
         if (channel == NULL) {
@@ -1161,7 +1161,7 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
         }
 
         char *file_data = Tcl_Alloc(file_data_length);
-        int bytes_read = Tcl_ReadRaw(channel, file_data, file_data_length);
+        Tcl_Size bytes_read = Tcl_ReadRaw(channel, file_data, file_data_length);
         if (bytes_read < 0) {
             Tcl_Free(file_data);
             Tcl_DecrRefCount(response_dict_ptr);

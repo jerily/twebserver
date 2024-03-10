@@ -23,7 +23,7 @@ const char *tws_strpbrk(const char *s, const char *end, const char *accept) {
     return NULL;
 }
 
-int tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, int value_length, Tcl_Obj *resultPtr) {
+int tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, Tcl_Size value_length, Tcl_Obj *resultPtr) {
     // check if url decoding is needed, value is not '\0' terminated
     const char *p = value;
     const char *end = value + value_length;
@@ -289,13 +289,13 @@ tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Ob
     return TCL_OK;
 }
 
-static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding, const char *url, int url_length,
+static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding, const char *url, Tcl_Size url_length,
                                        Tcl_Obj *resultPtr) {
     // parse "path" and "queryStringParameters" from "url"
     const char *p2 = url;
     while (p2 < url + url_length && *p2 != '\0') {
         if (*p2 == '?') {
-            int path_length = p2 - url;
+            Tcl_Size path_length = p2 - url;
             Tcl_Obj *pathPtr = Tcl_NewStringObj("", 0);
             Tcl_IncrRefCount(pathPtr);
             if (TCL_OK != tws_UrlDecode(interp, encoding, url, path_length, pathPtr)) {
@@ -310,7 +310,7 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding
             }
             Tcl_DecrRefCount(pathPtr);
 
-            int query_string_length = url + url_length - p2 - 1;
+            Tcl_Size query_string_length = url + url_length - p2 - 1;
             Tcl_Obj *queryStringPtr = Tcl_NewStringObj(p2 + 1, query_string_length);
             Tcl_IncrRefCount(queryStringPtr);
             if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), queryStringPtr)) {
@@ -409,7 +409,7 @@ static int tws_ParseRequestLine(Tcl_Interp *interp, Tcl_Encoding encoding, const
     curr++;
 //    char *url = strndup(p, curr - p);
 //    url[curr - p - 1] = '\0';
-    int url_length = curr - p - 1;
+    Tcl_Size url_length = curr - p - 1;
 
     if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("url", -1), Tcl_NewStringObj(p, url_length))) {
         SetResult("request line parse error: dict put error");
