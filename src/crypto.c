@@ -92,7 +92,7 @@ int tws_HexEncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
     unsigned char *bytes = Tcl_GetByteArrayFromObj(objv[1], &num_bytes);
 
     const char sep = '\0';
-    int str_n = num_bytes * 2 + 1;
+    Tcl_Size str_n = num_bytes * 2 + 1;
     char *str = Tcl_Alloc(str_n);
     if (!OPENSSL_buf2hexstr_ex(str, str_n, NULL, bytes, num_bytes, sep)) {
         Tcl_Free(str);

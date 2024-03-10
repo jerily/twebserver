@@ -659,7 +659,7 @@ static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
     const char *input = Tcl_GetStringFromObj(objv[1], &input_length);
 
     char *output = Tcl_Alloc(3 * input_length / 4 + 2);
-    size_t output_length;
+    Tcl_Size output_length;
     if (base64_decode(input, input_length, output, &output_length)) {
         Tcl_Free(output);
         SetResult("base64_decode failed");

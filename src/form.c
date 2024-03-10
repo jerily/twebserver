@@ -535,7 +535,7 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
         const char *body_b64 = Tcl_GetStringFromObj(body_ptr, &body_b64_length);
 
         char *body = Tcl_Alloc(3 * body_b64_length / 4 + 2);
-        size_t body_length;
+        Tcl_Size body_length;
         if (base64_decode(body_b64, body_b64_length, body, &body_length)) {
             Tcl_DecrRefCount(result_ptr);
             Tcl_Free(body);

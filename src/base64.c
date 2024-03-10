@@ -1,9 +1,8 @@
 #include "base64.h"
 #include "base64/cdecode.h"
 #include "base64/cencode.h"
-#include <stdio.h>
 
-int base64_encode(const char *input, size_t input_length, char *output, size_t *output_length) {
+int base64_encode(const char *input, Tcl_Size input_length, char *output, Tcl_Size *output_length) {
     /* keep track of our encoded position */
     char* c = output;
     /* store the number of bytes encoded by a single call */
@@ -32,7 +31,7 @@ int base64_encode(const char *input, size_t input_length, char *output, size_t *
     return 0;
 }
 
-int base64_decode(const char *input, size_t input_length, char *output, size_t *output_length) {
+int base64_decode(const char *input, Tcl_Size input_length, char *output, Tcl_Size *output_length) {
     /* keep track of our decoded position */
     char* c = output;
     /* store the number of bytes decoded by a single call */
