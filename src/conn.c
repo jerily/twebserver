@@ -397,7 +397,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force,
                 conn->keepalive, conn->created_file_handler_p));
 
-    Tcl_DStringTrunc(&conn->ds, 0);
+    Tcl_DStringSetLength(&conn->ds, 0);
     conn->offset = 0;
     conn->content_length = 0;
     conn->requestDictPtr = NULL;
@@ -657,7 +657,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_DStringInit(&ds);
     Tcl_DStringAppend(&ds, "HTTP/1.1 ", 9);
 
-    int status_code_length;
+    Tcl_Size status_code_length;
     const char *status_code = Tcl_GetStringFromObj(statusCodePtr, &status_code_length);
     Tcl_DStringAppend(&ds, status_code, status_code_length);
 
@@ -679,11 +679,11 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
                 }
             }
             Tcl_DStringAppend(&ds, "\r\n", 2);
-            int key_length;
+            Tcl_Size key_length;
             const char *key = Tcl_GetStringFromObj(keyPtr, &key_length);
             Tcl_DStringAppend(&ds, key, key_length);
             Tcl_DStringAppend(&ds, ": ", 2);
-            int value_length;
+            Tcl_Size value_length;
             const char *value = Tcl_GetStringFromObj(valuePtr, &value_length);
             Tcl_DStringAppend(&ds, value, value_length);
         }
@@ -698,18 +698,18 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
              Tcl_DictObjNext(&mvHeadersSearch, &keyPtr, &valuePtr, &done)) {
 
             Tcl_DStringAppend(&ds, "\r\n", 2);
-            int key_length;
+            Tcl_Size key_length;
             const char *key = Tcl_GetStringFromObj(keyPtr, &key_length);
             Tcl_DStringAppend(&ds, key, key_length);
             Tcl_DStringAppend(&ds, ": ", 2);
 
             // "valuePtr" is a list, iterate over its elements
-            int list_length;
+            Tcl_Size list_length;
             Tcl_ListObjLength(interp, valuePtr, &list_length);
             for (int i = 0; i < list_length; i++) {
                 Tcl_Obj *elemPtr;
                 Tcl_ListObjIndex(interp, valuePtr, i, &elemPtr);
-                int value_length;
+                Tcl_Size value_length;
                 const char *value = Tcl_GetStringFromObj(elemPtr, &value_length);
                 Tcl_DStringAppend(&ds, value, value_length);
                 if (i < value_length - 1) {
@@ -727,13 +727,13 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         Tcl_GetBooleanFromObj(interp, isBase64EncodedPtr, &isBase64Encoded);
     }
 
-    int body_length = 0;
+    Tcl_Size body_length = 0;
     char *body = NULL;
     int body_alloc = 0;
     int rc;
     if (isBase64Encoded) {
 
-        int b64_body_length;
+        Tcl_Size b64_body_length;
         const char *b64_body = Tcl_GetStringFromObj(bodyPtr, &b64_body_length);
         if (b64_body_length > 0) {
             body = Tcl_Alloc(3 * b64_body_length / 4 + 2);
@@ -774,7 +774,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
 
         // check if content type is in gzip_types_HT
         if (contentTypePtr) {
-            int contentTypeLength;
+            Tcl_Size contentTypeLength;
             char *contentType = Tcl_GetStringFromObj(contentTypePtr, &contentTypeLength);
             if (contentTypeLength > 0) {
                 // find the first ";" in contentType
@@ -829,7 +829,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
 
     Tcl_Obj *contentLengthPtr = Tcl_NewIntObj(body_length);
     Tcl_IncrRefCount(contentLengthPtr);
-    int content_length_str_len;
+    Tcl_Size content_length_str_len;
     const char *content_length_str = Tcl_GetStringFromObj(contentLengthPtr, &content_length_str_len);
     Tcl_DStringAppend(&ds, "\r\n", 2);
     Tcl_DStringAppend(&ds, "Content-Length: ", 16);

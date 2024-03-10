@@ -168,7 +168,7 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
 
     DBG(fprintf(stderr, "PathExprToTokens - lex tokens: %s\n", Tcl_GetString(lexTokensListPtr)));
 
-    int lexTokensLen;
+    Tcl_Size lexTokensLen;
     Tcl_Obj **lexTokens;
     if (TCL_OK != Tcl_ListObjGetElements(interp, lexTokensListPtr, &lexTokensLen, &lexTokens)) {
         SetResult("failed to read list of lex tokens");
@@ -195,7 +195,7 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
 
             int appended = 0;
             if (charPtr) {
-                int prefix_len;
+                Tcl_Size prefix_len;
                 const char *prefix = Tcl_GetStringFromObj(charPtr, &prefix_len);
                 if (prefix[0] != '.' && prefix[0] != '/') {
                     Tcl_DStringAppend(&path, prefix, prefix_len);
@@ -207,7 +207,7 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
             if (Tcl_DStringLength(&path)) {
                 Tcl_ListObjAppendElement(interp, tokensListPtr, Tcl_NewIntObj(STRING_TOKEN));
                 Tcl_ListObjAppendElement(interp, tokensListPtr, Tcl_NewStringObj(Tcl_DStringValue(&path), Tcl_DStringLength(&path)));
-                Tcl_DStringTrunc(&path, 0);
+                Tcl_DStringSetLength(&path, 0);
             }
 
             Tcl_Obj *dictPtr = Tcl_NewDictObj();
@@ -224,7 +224,7 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
 
         Tcl_Obj *valuePtr = charPtr ? charPtr : tws_TryConsume(lexTokens, &i, ESCAPED_CHAR);
         if (valuePtr != NULL) {
-            int value_len;
+            Tcl_Size value_len;
             const char *value = Tcl_GetStringFromObj(valuePtr, &value_len);
             Tcl_DStringAppend(&path, value, value_len);
             continue;
@@ -233,7 +233,7 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
         if (Tcl_DStringLength(&path)) {
             Tcl_ListObjAppendElement(interp, tokensListPtr, Tcl_NewIntObj(STRING_TOKEN));
             Tcl_ListObjAppendElement(interp, tokensListPtr, Tcl_NewStringObj(Tcl_DStringValue(&path), Tcl_DStringLength(&path)));
-            Tcl_DStringTrunc(&path, 0);
+            Tcl_DStringSetLength(&path, 0);
         }
 
         Tcl_Obj *openPtr = tws_TryConsume(lexTokens, &i, OPEN);
@@ -300,7 +300,7 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
     }
 
     Tcl_Obj **tokens;
-    int tokens_len;
+    Tcl_Size tokens_len;
     if (TCL_OK != Tcl_ListObjGetElements(interp, tokensListPtr, &tokens_len, &tokens)) {
         SetResult("failed to read list of tokens");
         return TCL_ERROR;
@@ -316,7 +316,7 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
         Tcl_Obj *tokenPtr = tokens[i + 1];
 
         if (type == STRING_TOKEN) {
-            int token_len;
+            Tcl_Size token_len;
             const char *token = Tcl_GetStringFromObj(tokenPtr, &token_len);
             tws_DStringAppendEscaped(dsPtr, token, token_len);
         } else {
@@ -365,13 +365,13 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
             }
             Tcl_DecrRefCount(modifierKeyPtr);
 
-            int pattern_len;
+            Tcl_Size pattern_len;
             const char *pattern = Tcl_GetStringFromObj(patternPtr, &pattern_len);
-            int prefix_len;
+            Tcl_Size prefix_len;
             const char *prefix = Tcl_GetStringFromObj(prefixPtr, &prefix_len);
-            int suffix_len;
+            Tcl_Size suffix_len;
             const char *suffix = Tcl_GetStringFromObj(suffixPtr, &suffix_len);
-            int modifier_len;
+            Tcl_Size modifier_len;
             const char *modifier = Tcl_GetStringFromObj(modifierPtr, &modifier_len);
 
             if (pattern_len > 0) {
@@ -459,7 +459,7 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
             return TCL_ERROR;
         }
         Tcl_Obj *endTokenPtr = tokens[tokens_len - 1];
-        int endTokenLen;
+        Tcl_Size endTokenLen;
         const char *endToken = Tcl_GetStringFromObj(endTokenPtr, &endTokenLen);
 
         int isEndDelimited = endTokenType == STRING_TOKEN ?

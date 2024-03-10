@@ -88,7 +88,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
     Tcl_DecrRefCount(maxRequestReadBytesKeyPtr);
     if (maxRequestReadBytesPtr) {
-        if (TCL_OK != Tcl_GetIntFromObj(interp, maxRequestReadBytesPtr, &server_ctx->max_request_read_bytes)) {
+        if (TCL_OK != Tcl_GetSizeIntFromObj(interp, maxRequestReadBytesPtr, &server_ctx->max_request_read_bytes)) {
             SetResult("max_request_read_bytes must be an integer");
             return TCL_ERROR;
         }
@@ -110,7 +110,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
     Tcl_DecrRefCount(maxReadBufferSizeKeyPtr);
     if (maxReadBufferSizePtr) {
-        if (TCL_OK != Tcl_GetIntFromObj(interp, maxReadBufferSizePtr, &server_ctx->max_read_buffer_size)) {
+        if (TCL_OK != Tcl_GetSizeIntFromObj(interp, maxReadBufferSizePtr, &server_ctx->max_read_buffer_size)) {
             SetResult("max_read_buffer_size must be an integer");
             return TCL_ERROR;
         }
@@ -132,7 +132,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
     Tcl_DecrRefCount(backlogKeyPtr);
     if (backlogPtr) {
-        if (TCL_OK != Tcl_GetIntFromObj(interp, backlogPtr, &server_ctx->backlog)) {
+        if (TCL_OK != Tcl_GetSizeIntFromObj(interp, backlogPtr, &server_ctx->backlog)) {
             SetResult("backlog must be an integer");
             return TCL_ERROR;
         }
@@ -312,7 +312,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
     Tcl_DecrRefCount(gzipMinLengthKeyPtr);
     if (gzipMinLengthPtr) {
-        if (TCL_OK != Tcl_GetIntFromObj(interp, gzipMinLengthPtr, &server_ctx->gzip_min_length)) {
+        if (TCL_OK != Tcl_GetSizeIntFromObj(interp, gzipMinLengthPtr, &server_ctx->gzip_min_length)) {
             SetResult("gzip_min_length must be an integer");
             return TCL_ERROR;
         }
@@ -334,7 +334,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
     Tcl_DecrRefCount(gzipTypesKeyPtr);
     if (gzipTypesPtr) {
-        int gzip_types_count;
+        Tcl_Size gzip_types_count;
         Tcl_Obj **gzip_types;
         if (TCL_OK != Tcl_ListObjGetElements(interp, gzipTypesPtr, &gzip_types_count,
                                              &gzip_types)) {
@@ -391,7 +391,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
     Tcl_DecrRefCount(threadStacksizeKeyPtr);
     if (threadStacksizePtr) {
-        if (TCL_OK != Tcl_GetIntFromObj(interp, threadStacksizePtr, &server_ctx->thread_stacksize)) {
+        if (TCL_OK != Tcl_GetSizeIntFromObj(interp, threadStacksizePtr, &server_ctx->thread_stacksize)) {
             SetResult("thread_stacksize must be an integer");
             return TCL_ERROR;
         }
@@ -494,7 +494,7 @@ static int tws_DestroyServerCmd(ClientData clientData, Tcl_Interp *interp, int o
 
 }
 
-static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "ListenCmd\n"));
 
     int option_http = 0;
@@ -503,6 +503,7 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
             {TCL_ARGV_END, NULL,         NULL, NULL, NULL}
     };
     Tcl_Obj **remObjv;
+    Tcl_Size objc = incoming_objc;
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 3) || (objc > 3)) {
@@ -529,7 +530,7 @@ static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int objc
     DBG(fprintf(stderr, "AddContextCmd\n"));
     CheckArgs(5, 5, 1, "server_handle hostname key cert");
 
-    int handle_len;
+    Tcl_Size handle_len;
     const char *handle = Tcl_GetStringFromObj(objv[1], &handle_len);
 
     tws_server_t *server = tws_GetInternalFromServerName(handle);
@@ -538,21 +539,21 @@ static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int objc
         return TCL_ERROR;
     }
 
-    int hostname_len;
+    Tcl_Size hostname_len;
     const char *hostname = Tcl_GetStringFromObj(objv[2], &hostname_len);
     if (hostname_len == 0) {
         SetResult("hostname must not be empty");
         return TCL_ERROR;
     }
 
-    int keyfile_len;
+    Tcl_Size keyfile_len;
     const char *keyfile = Tcl_GetStringFromObj(objv[3], &keyfile_len);
     if (keyfile_len == 0) {
         SetResult("keyfile must not be empty");
         return TCL_ERROR;
     }
 
-    int certfile_len;
+    Tcl_Size certfile_len;
     const char *certfile = Tcl_GetStringFromObj(objv[4], &certfile_len);
     if (certfile_len == 0) {
         SetResult("certfile must not be empty");
@@ -577,7 +578,7 @@ static int tws_EncodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
 
     int enc_flags = CHAR_COMPONENT;
 
-    int length;
+    Tcl_Size length;
     const char *text = Tcl_GetStringFromObj(objv[1], &length);
 
     Tcl_Obj *valuePtr;
@@ -594,7 +595,7 @@ static int tws_EncodeQueryCmd(ClientData clientData, Tcl_Interp *interp, int obj
 
     int enc_flags = CHAR_QUERY;
 
-    int length;
+    Tcl_Size length;
     const char *text = Tcl_GetStringFromObj(objv[1], &length);
 
     Tcl_Obj *valuePtr;
@@ -610,7 +611,7 @@ static int tws_DecodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
     DBG(fprintf(stderr, "DecodeURIComponentCmd\n"));
     CheckArgs(2, 3, 1, "encoded_text ?encoding_name?");
 
-    int length;
+    Tcl_Size length;
     const char *encoded_text = Tcl_GetStringFromObj(objv[1], &length);
 
     Tcl_Encoding encoding;
@@ -635,7 +636,7 @@ static int tws_Base64EncodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
     DBG(fprintf(stderr, "Base64EncodeCmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
-    int input_length;
+    Tcl_Size input_length;
     const char *input = (const char *) Tcl_GetByteArrayFromObj(objv[1], &input_length);
 
     char *output = Tcl_Alloc(input_length * 2);
@@ -654,7 +655,7 @@ static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
     DBG(fprintf(stderr, "Base64DecodeCmd\n"));
     CheckArgs(2, 2, 1, "base64_encoded_string");
 
-    int input_length;
+    Tcl_Size input_length;
     const char *input = Tcl_GetStringFromObj(objv[1], &input_length);
 
     char *output = Tcl_Alloc(3 * input_length / 4 + 2);
@@ -846,7 +847,7 @@ static int tws_ParseCookieCmd(ClientData clientData, Tcl_Interp *interp, int obj
     DBG(fprintf(stderr, "ParseCookieCmd\n"));
     CheckArgs(2, 2, 1, "cookie_header");
 
-    int cookie_header_len;
+    Tcl_Size cookie_header_len;
     const char *cookie_header = Tcl_GetStringFromObj(objv[1], &cookie_header_len);
 
     Tcl_Obj *cookie_dict = Tcl_NewDictObj();
@@ -946,7 +947,7 @@ static int tws_AddHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     return TCL_OK;
 }
 
-static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "AddCookieCmd\n"));
 
     const char *option_path = NULL;
@@ -970,6 +971,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     };
 
     Tcl_Obj **remObjv;
+    Tcl_Size objc = incoming_objc;
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 4) || (objc > 4)) {
@@ -990,7 +992,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     // encode the cookie value
     int enc_flags = CHAR_COMPONENT;
     Tcl_Obj *cookieValuePtr;
-    int cookie_value_length;
+    Tcl_Size cookie_value_length;
     const char *cookie_value = Tcl_GetStringFromObj(remObjv[3], &cookie_value_length);
     if (TCL_OK != tws_UrlEncode(interp, enc_flags, cookie_value, cookie_value_length, &cookieValuePtr)) {
         ckfree(remObjv);
@@ -1066,7 +1068,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc,
     return TCL_OK;
 }
 
-static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "BuildResponseCmd\n"));
 
     int option_file = 0;
@@ -1076,6 +1078,7 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int o
     };
 
     Tcl_Obj **remObjv;
+    Tcl_Size objc = incoming_objc;
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 4) || (objc > 4)) {
@@ -1127,7 +1130,7 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int o
     Tcl_DecrRefCount(headers_key_ptr);
     Tcl_DecrRefCount(headers_dict_ptr);
 
-    int mimetype_length;
+    Tcl_Size mimetype_length;
     const char *mimetype = Tcl_GetStringFromObj(remObjv[2], &mimetype_length);
     int is_binary_type = tws_IsBinaryType(mimetype, mimetype_length);
 
@@ -1135,7 +1138,7 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int o
     if (option_file) {
         // read the file denoted by the last parameter
 
-        int filename_length;
+        Tcl_Size filename_length;
         const char *filename = Tcl_GetStringFromObj(remObjv[3], &filename_length);
         const char *mode_string = is_binary_type ? "rb" : "r";
 
@@ -1198,7 +1201,7 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int o
         Tcl_DecrRefCount(is_base64_encoded_key_ptr);
 
         // base64 encode the body
-        int input_length;
+        Tcl_Size input_length;
         const char *input = Tcl_GetByteArrayFromObj(input_ptr, &input_length);
         char *output = Tcl_Alloc(input_length * 2);
         size_t output_length;
@@ -1527,7 +1530,7 @@ int tws_GetHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
     return TCL_OK;
 }
 
-int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "GetParamCmd\n"));
 
     int option_multi = 0;
@@ -1543,6 +1546,7 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
     };
 
     Tcl_Obj **remObjv;
+    Tcl_Size objc = incoming_objc;
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 3) || (objc > 3)) {
@@ -1589,7 +1593,7 @@ static int tws_GetRootdirCmd(ClientData clientData, Tcl_Interp *interp, int objc
 
     tws_server_t *server = NULL;
     if (objc == 2) {
-        int handle_len;
+        Tcl_Size handle_len;
         const char *handle = Tcl_GetStringFromObj(objv[1], &handle_len);
         server = tws_GetInternalFromServerName(handle);
     } else {
@@ -1634,7 +1638,12 @@ void tws_InitModule() {
 }
 
 int Twebserver_Init(Tcl_Interp *interp) {
-    if (Tcl_InitStubs(interp, "8.6", 0) == NULL) {
+
+    int major, minor, patchLevel, type;
+    Tcl_GetVersion(&major, &minor, &patchLevel, &type);
+
+    const char *version = major == 9 ? "9.0" : "8.6";
+    if (Tcl_InitStubs(interp, version, 0) == NULL) {
         return TCL_ERROR;
     }
 

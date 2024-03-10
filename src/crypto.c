@@ -46,7 +46,7 @@ int tws_Sha1Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *co
     DBG(fprintf(stderr, "Sha1Cmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
-    int num_bytes;
+    Tcl_Size num_bytes;
     unsigned char *bytes = Tcl_GetByteArrayFromObj(objv[1], &num_bytes);
 
     unsigned char hash[SHA_DIGEST_LENGTH];
@@ -60,7 +60,7 @@ int tws_Sha256Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *
     DBG(fprintf(stderr, "Sha256Cmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
-    int num_bytes;
+    Tcl_Size num_bytes;
     unsigned char *bytes = Tcl_GetByteArrayFromObj(objv[1], &num_bytes);
 
     unsigned char hash[SHA256_DIGEST_LENGTH];
@@ -74,7 +74,7 @@ int tws_Sha512Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *
     DBG(fprintf(stderr, "Sha512Cmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
-    int num_bytes;
+    Tcl_Size num_bytes;
     unsigned char *bytes = Tcl_GetByteArrayFromObj(objv[1], &num_bytes);
 
     unsigned char hash[SHA512_DIGEST_LENGTH];
@@ -88,7 +88,7 @@ int tws_HexEncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
     DBG(fprintf(stderr, "HexEncodeCmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
-    int num_bytes;
+    Tcl_Size num_bytes;
     unsigned char *bytes = Tcl_GetByteArrayFromObj(objv[1], &num_bytes);
 
     const char sep = '\0';
@@ -109,7 +109,7 @@ int tws_HexDecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
     DBG(fprintf(stderr, "HexDecodeCmd\n"));
     CheckArgs(2, 2, 1, "hex_encoded_string");
 
-    int hex_length;
+    Tcl_Size hex_length;
     const char *hex_str = Tcl_GetStringFromObj(objv[1], &hex_length);
 
     const char sep = '\0';

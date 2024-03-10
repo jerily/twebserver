@@ -41,7 +41,7 @@ static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_
 
         DBG(fprintf(stderr, "matched pattern: %s\n", route_ptr->pattern));
 
-        int keys_objc;
+        Tcl_Size keys_objc;
         Tcl_Obj **keys_objv;
         Tcl_ListObjGetElements(interp, route_ptr->keys, &keys_objc, &keys_objv);
         Tcl_Obj *pathParametersDictPtr = Tcl_NewDictObj();
@@ -72,7 +72,7 @@ static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_
 }
 
 static int tws_MatchExactRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *path_ptr, int *matched) {
-    int path_len;
+    Tcl_Size path_len;
     char *path = Tcl_GetStringFromObj(path_ptr, &path_len);
 
     if (route_ptr->option_nocase) {
@@ -105,7 +105,7 @@ static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *r
         return TCL_OK;
     }
 
-    int http_method_len;
+    Tcl_Size http_method_len;
     const char *http_method = Tcl_GetStringFromObj(http_method_ptr, &http_method_len);
 
     Tcl_Obj *path_key_ptr = Tcl_NewStringObj("path", -1);
@@ -356,7 +356,7 @@ static int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
         Tcl_DecrRefCount(contentLengthKeyPtr);
 
         if (contentLengthPtr) {
-            if (TCL_OK != Tcl_GetIntFromObj(interp, contentLengthPtr, &conn->content_length)) {
+            if (TCL_OK != Tcl_GetSizeIntFromObj(interp, contentLengthPtr, &conn->content_length)) {
                 Tcl_DecrRefCount(req_dict_ptr);
                 return TCL_ERROR;
             }
@@ -575,7 +575,7 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
 
 }
 
-int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "AddRouteCmd\n"));
 
     int option_prefix = 0;
@@ -588,6 +588,7 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
             {TCL_ARGV_END, NULL,           NULL, NULL, NULL}
     };
     Tcl_Obj **remObjv;
+    Tcl_Size objc = incoming_objc;
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 5) || (objc > 5)) {
@@ -605,11 +606,11 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
         SetResult("add_route: router handle not found");
         return TCL_ERROR;
     }
-    int http_method_len;
+    Tcl_Size http_method_len;
     const char *http_method = Tcl_GetStringFromObj(remObjv[2], &http_method_len);
-    int path_len;
+    Tcl_Size path_len;
     const char *path = Tcl_GetStringFromObj(remObjv[3], &path_len);
-    int proc_name_len;
+    Tcl_Size proc_name_len;
     const char *proc_name = Tcl_GetStringFromObj(remObjv[4], &proc_name_len);
 
     tws_route_t *route_ptr = (tws_route_t *) Tcl_Alloc(sizeof(tws_route_t));
@@ -745,7 +746,7 @@ int tws_InfoRoutesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
 }
 
 
-int tws_AddMiddlewareCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+int tws_AddMiddlewareCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "AddMiddlewareCmd\n"));
 
     const char *enter_proc;
@@ -756,6 +757,7 @@ int tws_AddMiddlewareCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
             {TCL_ARGV_END, NULL,             NULL, NULL, NULL}
     };
     Tcl_Obj **remObjv;
+    Tcl_Size objc = incoming_objc;
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 2) || (objc > 2)) {

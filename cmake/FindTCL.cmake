@@ -48,6 +48,7 @@ set(TCL_POSSIBLE_LIB_PATH_SUFFIXES
 find_library(TCL_LIBRARY
   NAMES
   tcl
+  tcl90 tcl9.0 tcl90t tcl9.0t
   tcl87 tcl8.7 tcl87t tcl8.7t
   tcl86 tcl8.6 tcl86t tcl8.6t
   tcl85 tcl8.5
@@ -68,6 +69,7 @@ set(TCL_POSSIBLE_INCLUDE_PATHS
   )
 
 set(TCL_POSSIBLE_INCLUDE_PATH_SUFFIXES
+  include/tcl9.0
   include/tcl8.7
   include/tcl8.6
   include/tcl8.5

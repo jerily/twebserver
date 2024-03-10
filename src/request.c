@@ -104,7 +104,7 @@ int tws_UrlDecode(Tcl_Interp *interp, Tcl_Encoding encoding, const char *value, 
     return TCL_OK;
 }
 
-int tws_UrlEncode(Tcl_Interp *interp, int enc_flags, const char *value, int value_length, Tcl_Obj **valuePtrPtr) {
+int tws_UrlEncode(Tcl_Interp *interp, int enc_flags, const char *value, Tcl_Size value_length, Tcl_Obj **valuePtrPtr) {
     // use "enc" to encode "value" into "valuePtr"
     // allocate memory for "valuePtr"
     char *valuePtr = (char *) Tcl_Alloc(3 * value_length + 1);
@@ -226,7 +226,7 @@ tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Ob
     Tcl_IncrRefCount(queryStringParametersPtr);
     Tcl_Obj *multiValueQueryStringParametersPtr = Tcl_NewDictObj();
     Tcl_IncrRefCount(multiValueQueryStringParametersPtr);
-    int query_string_length;
+    Tcl_Size query_string_length;
     const char *query_string = Tcl_GetStringFromObj(queryStringPtr, &query_string_length);
     const char *p = query_string;
     const char *end = query_string + query_string_length;
@@ -687,7 +687,7 @@ int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj
 
     int base64_encode_it = 0;
     if (content_type_ptr) {
-        int content_type_length;
+        Tcl_Size content_type_length;
         const char *content_type = Tcl_GetStringFromObj(content_type_ptr, &content_type_length);
         base64_encode_it = tws_IsBinaryType(content_type, content_type_length);
         // check if binary mime type: application/* (except application/json and application/xml), image/*, audio/*, video/*
@@ -743,7 +743,7 @@ int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj
     return TCL_OK;
 }
 
-int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsPtr, Tcl_Obj *dictPtr, int *offset) {
+int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsPtr, Tcl_Obj *dictPtr, Tcl_Size *offset) {
 
 //    String version;
 //    String path;
@@ -866,7 +866,7 @@ int tws_ParseConnectionKeepalive(Tcl_Interp *interp, Tcl_Obj *headersPtr, int *k
         return TCL_OK;
     }
 
-    int connection_length;
+    Tcl_Size connection_length;
     const char *connection = Tcl_GetStringFromObj(connectionPtr, &connection_length);
     if (connection_length == 10 && strncmp(connection, "keep-alive", 10) == 0) {
         *keepalive = 1;
@@ -891,7 +891,7 @@ int tws_ParseAcceptEncoding(Tcl_Interp *interp, Tcl_Obj *headersPtr, tws_compres
         return TCL_OK;
     }
 
-    int accept_encoding_length;
+    Tcl_Size accept_encoding_length;
     const char *accept_encoding = Tcl_GetStringFromObj(acceptEncodingPtr, &accept_encoding_length);
 
     /*

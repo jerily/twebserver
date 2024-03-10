@@ -232,7 +232,7 @@ tws_ParseMultipartForm(Tcl_Interp *interp, const char *body, int body_length, Tc
     const char *end = body + body_length;
 
     // parse the multipart/form-data body
-    int boundary_length;
+    Tcl_Size boundary_length;
     const char *boundary = Tcl_GetStringFromObj(multipart_boundary_ptr, &boundary_length);
 
     // find boundary start (bs)
@@ -430,7 +430,7 @@ tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *mul
 static int tws_ParseUrlEncodedForm(Tcl_Interp *interp, Tcl_Obj *body_ptr, Tcl_Obj *result_ptr) {
     DBG(fprintf(stderr, "ParseUrlEncodedForm\n"));
 
-    int body_length;
+    Tcl_Size body_length;
     const char *body = Tcl_GetStringFromObj(body_ptr, &body_length);
 
     Tcl_Obj *fields_ptr = Tcl_NewDictObj();
@@ -531,7 +531,7 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
     if (multipart_boundary_ptr) {
         DBG(fprintf(stderr, "multipart form data with boundary=%s\n", Tcl_GetString(multipart_boundary_ptr)));
 
-        int body_b64_length;
+        Tcl_Size body_b64_length;
         const char *body_b64 = Tcl_GetStringFromObj(body_ptr, &body_b64_length);
 
         char *body = Tcl_Alloc(3 * body_b64_length / 4 + 2);
@@ -579,7 +579,7 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
             Tcl_DecrRefCount(content_type_key_ptr);
 
             if (content_type_ptr) {
-                int content_type_length;
+                Tcl_Size content_type_length;
                 const char *content_type = Tcl_GetStringFromObj(content_type_ptr, &content_type_length);
 
                 if (content_type_length >= 33 && strncmp(content_type, "application/x-www-form-urlencoded", 33) == 0) {

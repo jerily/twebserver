@@ -1,6 +1,6 @@
 # Installation Guide
 
-The extension depends on OpenSSL (3.0.2 or later) and TCL (8.6.13).
+The extension depends on OpenSSL (3.0.2 or later) and TCL (8.6.13 or later).
 
 ### Install Dependencies
 
@@ -25,7 +25,7 @@ To install TCL with threads from source:
 ```bash
 # Download and extract the source
 # https://www.tcl.tk/software/tcltk/download.html
-cd tcl8.6.13/unix
+cd tcl8.6.14/unix
 ./configure --enable-threads
 make
 make install
@@ -33,9 +33,9 @@ make install
 
 ### Build the twebserver extension
 ```
-wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.12.tar.gz
-tar -xzf v1.47.12.tar.gz
-export TWS_DIR=$(pwd)/twebserver-1.47.12
+wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.13.tar.gz
+tar -xzf v1.47.13.tar.gz
+export TWS_DIR=$(pwd)/twebserver-1.47.13
 cd ${TWS_DIR}
 mkdir build
 cd build

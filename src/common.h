@@ -12,6 +12,14 @@
 #include <ctype.h>
 #include <arpa/inet.h>
 
+#ifndef TCL_SIZE_MAX
+typedef int Tcl_Size;
+# define Tcl_GetSizeIntFromObj Tcl_GetIntFromObj
+# define Tcl_NewSizeIntObj Tcl_NewIntObj
+# define TCL_SIZE_MAX      INT_MAX
+# define TCL_SIZE_MODIFIER ""
+#endif
+
 #define XSTR(s) STR(s)
 #define STR(s) #s
 
@@ -63,9 +71,9 @@ typedef struct {
     char handle[30];
     Tcl_HashTable listeners_HT;
     Tcl_ThreadId *conn_thread_ids;
-    int max_request_read_bytes;
-    int max_read_buffer_size;
-    int backlog;
+    Tcl_Size max_request_read_bytes;
+    Tcl_Size max_read_buffer_size;
+    Tcl_Size backlog;
     int conn_timeout_millis;
     int garbage_collection_cleanup_threshold;
     int garbage_collection_interval_millis;
@@ -74,10 +82,10 @@ typedef struct {
     int keepintvl;  // the time (in seconds) between individual keepalive probes
     int keepcnt;    // The maximum number of keepalive probes TCP should send before dropping the connection
     int num_threads; // number of threads to handle connections
-    int thread_stacksize; // the stack size for each thread in bytes
+    Tcl_Size thread_stacksize; // the stack size for each thread in bytes
     int thread_max_concurrent_conns; // the maximum number of concurrent connections per thread
     int gzip; // whether gzip compression is on or off
-    int gzip_min_length; // the minimum length of the response body to apply gzip compression
+    Tcl_Size gzip_min_length; // the minimum length of the response body to apply gzip compression
     Tcl_HashTable gzip_types_HT; // the list of mime types to apply gzip compression
 } tws_server_t;
 
@@ -124,8 +132,8 @@ typedef struct tws_conn_t_ {
     Tcl_DString ds;
     Tcl_ThreadDataKey *dataKeyPtr;
     Tcl_Obj *requestDictPtr;
-    int offset;
-    int content_length;
+    Tcl_Size offset;
+    Tcl_Size content_length;
 
     int error;
 } tws_conn_t;
