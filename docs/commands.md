@@ -154,6 +154,11 @@ These commands are provided for convenience.
 * **::twebserver::hex_decode** *hex_encoded_string*
     - decodes a hex encoded string
 
+#### IP
+
+* **::twebserver::ipv6_to_ipv4** *ipv6_address*
+    - converts an ipv6 address to an ipv4 address if it can be mapped
+
 #### Info
 
 * **::twebserver::get_rootdir** *?server_handle?*

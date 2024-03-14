@@ -109,7 +109,9 @@ set init_script {
     }
 
     proc get_addr_handler {ctx req} {
-        set res [::twebserver::build_response 200 text/plain "addr=[dict get $ctx addr]"]
+        set ipv6_addr [dict get $ctx addr]
+        set ipv4_addr [::twebserver::ipv6_to_ipv4 $ipv6_addr]
+        set res [::twebserver::build_response 200 text/plain "addr=$ipv6_addr addr_ipv4=$ipv4_addr"]
         return $res
     }
 

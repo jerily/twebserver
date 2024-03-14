@@ -1587,6 +1587,37 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
     return TCL_OK;
 }
 
+int tws_IpV6ToIpV4Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "IpV6ToIpV4Cmd\n"));
+    CheckArgs(2, 2, 1, "ipv6_address");
+
+    // check if the input is a valid IPv6 address and whether it can be mapped to IPv4
+    const char *ipv6_address = Tcl_GetString(objv[1]);
+    struct in6_addr addr;
+    if (inet_pton(AF_INET6, ipv6_address, &addr) != 1) {
+        SetResult("to_ipv4: invalid IPv6 address");
+        return TCL_ERROR;
+    }
+
+    // check if the address can be mapped to IPv4
+    struct in_addr addr4;
+    if (IN6_IS_ADDR_V4MAPPED(&addr)) {
+        memcpy(&addr4, addr.s6_addr + 12, 4);
+    } else {
+        return TCL_OK;
+    }
+
+    // convert the IPv4 address to a string
+    char ip_address_v4[INET_ADDRSTRLEN];
+    if (inet_ntop(AF_INET, &addr4, ip_address_v4, INET_ADDRSTRLEN) == NULL) {
+        SetResult("to_ipv4: error converting IPv4 address to string");
+        return TCL_ERROR;
+    }
+
+    SetResult(ip_address_v4);
+    return TCL_OK;
+}
+
 static int tws_GetRootdirCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "GetRootdirCmd\n"));
     CheckArgs(1, 2, 1, "?server_handle?");
@@ -1686,6 +1717,8 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::get_query_param", tws_GetQueryParamCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::get_path_param", tws_GetPathParamCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::get_param", tws_GetParamCmd, NULL, NULL);
+
+    Tcl_CreateObjCommand(interp, "::twebserver::ipv6_to_ipv4", tws_IpV6ToIpV4Cmd, NULL, NULL);
 
     return Tcl_PkgProvide(interp, "twebserver", XSTR(VERSION));
 }
