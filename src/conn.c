@@ -97,6 +97,11 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
         DBG(fprintf(stderr, "setsockopt SO_REUSEADDR failed"));
     }
 
+    int reuseport = 1;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, (char *) &reuseport, sizeof(reuseport))) {
+        DBG(fprintf(stderr, "setsockopt SO_REUSEPORT failed"));
+    }
+
     if (server->keepalive) {
         if (setsockopt(server_fd, SOL_SOCKET, SO_KEEPALIVE, &server->keepalive, sizeof(int))) {
             DBG(fprintf(stderr, "setsockopt SO_KEEPALIVE failed"));
