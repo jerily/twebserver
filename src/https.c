@@ -140,39 +140,6 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
     fprintf(stderr, "ja3=%s\n", Tcl_DStringValue(&ds));
     Tcl_DStringFree(&ds);
 
-//    /* extract/check clientHello information */
-//    int has_rsa_sig = 0, has_ecdsa_sig = 0;
-//    if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_signature_algorithms, &extension_data, &extension_len)) {
-//        uint8_t sign;
-////        size_t len;
-//        if (extension_len < 2)
-//            goto abort;
-//        len = (*extension_data++) << 8;
-//        len |= *extension_data++;
-//        if (len + 2 != extension_len)
-//            goto abort;
-//        if (len % 2 != 0)
-//            goto abort;
-//        for (; len > 0; len -= 2) {
-//            extension_data++; /* hash */
-//            sign = *extension_data++;
-//            switch (sign) {
-//                case TLSEXT_signature_rsa:
-//                    has_rsa_sig = 1;
-//                    break;
-//                case TLSEXT_signature_ecdsa:
-//                    has_ecdsa_sig = 1;
-//                    break;
-//                default:
-//                    continue;
-//            }
-//            if (has_ecdsa_sig && has_rsa_sig)
-//                break;
-//        }
-//    } else {
-//        /* without TLSEXT_TYPE_signature_algorithms extension (< TLSv1.2) */
-//        goto abort;
-//    }
 
     SSL_CTX *ctx = tws_GetInternalFromHostName(servername);
     if (!ctx) {
