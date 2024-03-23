@@ -48,55 +48,131 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
     // "extension_data" is not null-terminated, so we need to copy it to a new buffer
     DBG(fprintf(stderr, "servername=%.*s\n", (int) len, p));
 
-#ifdef TWS_JA3
-    /* extract/check clientHello information */
-    int has_rsa_sig = 0, has_ecdsa_sig = 0;
-    if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_signature_algorithms, &extension_data, &extension_len)) {
-        uint8_t sign;
-//        size_t len;
-        if (extension_len < 2)
-            goto abort;
-        len = (*extension_data++) << 8;
-        len |= *extension_data++;
-        if (len + 2 != extension_len)
-            goto abort;
-        if (len % 2 != 0)
-            goto abort;
-        for (; len > 0; len -= 2) {
-            extension_data++; /* hash */
-            sign = *extension_data++;
-            switch (sign) {
-                case TLSEXT_signature_rsa:
-                    has_rsa_sig = 1;
-                    break;
-                case TLSEXT_signature_ecdsa:
-                    has_ecdsa_sig = 1;
-                    break;
-                default:
-                    continue;
-            }
-            if (has_ecdsa_sig && has_rsa_sig)
-                break;
-        }
-    } else {
-        /* without TLSEXT_TYPE_signature_algorithms extension (< TLSv1.2) */
-        goto abort;
-    }
-
-    // TODO: JA3 fingerprint
+    Tcl_DString ds;
+    Tcl_DStringInit(&ds);
+    /* version */
+    uint16_t version = SSL_version(ssl);
+    char buf[6];
+    snprintf(buf, sizeof(buf), "%d", version);
+    Tcl_DStringAppend(&ds, buf, -1);
+    Tcl_DStringAppend(&ds, ",", 1);
+    /* ciphers */
     const SSL_CIPHER *cipher;
     const uint8_t *cipher_suites;
     len = SSL_client_hello_get0_ciphers(ssl, &cipher_suites);
     if (len % 2 != 0)
         goto abort;
-//    for (; len != 0; len -= 2, cipher_suites += 2) {
-//        cipher = SSL_CIPHER_find(ssl, cipher_suites);
-//        if (cipher && SSL_CIPHER_get_auth_nid(cipher) == NID_auth_ecdsa) {
-//            has_ecdsa_sig = 1;
-//            break;
+    for (; len != 0; len -= 2, cipher_suites += 2) {
+        cipher = SSL_CIPHER_find(ssl, cipher_suites);
+        if (cipher) {
+            DBG(fprintf(stderr, "cipher=%s\n", SSL_CIPHER_get_name(cipher)));
+            uint16_t cipher_protocol_id = SSL_CIPHER_get_protocol_id(cipher);
+            snprintf(buf, sizeof(buf), "%d", cipher_protocol_id);
+            Tcl_DStringAppend(&ds, buf, -1);
+            if (len > 2) {
+                Tcl_DStringAppend(&ds, "-", 1);
+            }
+        }
+    }
+    Tcl_DStringAppend(&ds, ",", 1);
+
+    /* extensions */
+    int *out;
+    size_t outlen;
+    if (SSL_client_hello_get1_extensions_present(ssl, &out, &outlen)) {
+        fprintf(stderr, "extslen=%zd\n", outlen);
+        for (; outlen > 0; outlen--) {
+            snprintf(buf, sizeof(buf), "%d", *out++);
+            Tcl_DStringAppend(&ds, buf, -1);
+            if (outlen > 1) {
+                Tcl_DStringAppend(&ds, "-", 1);
+            }
+        }
+    }
+    Tcl_DStringAppend(&ds, ",", 1);
+
+    /* Supported Groups (elliptic curves) */
+    const unsigned char *exts;
+    size_t extslen;
+    if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_supported_groups, &exts, &extslen)) {
+        if (extslen < 2)
+            goto abort;
+        len = (*exts++) << 8;
+        len |= *exts++;
+        if (len + 2 != extslen)
+            goto abort;
+        if (len % 2 != 0)
+            goto abort;
+
+        for (; len > 0; len -= 2) {
+            uint16_t group;
+            group = *exts++;
+            group <<= 8;
+            group |= *exts++;
+            snprintf(buf, sizeof(buf), "%d", group);
+            Tcl_DStringAppend(&ds, buf, -1);
+            if (len > 2) {
+                Tcl_DStringAppend(&ds, "-", 1);
+            }
+        }
+    }
+    Tcl_DStringAppend(&ds, ",", 1);
+
+    /* elliptic curve point formats */
+    if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_ec_point_formats, &exts, &extslen)) {
+        if (extslen < 1)
+            goto abort;
+        len = *exts++;
+        if (len + 1 != extslen)
+            goto abort;
+
+        for (; len > 0; len--) {
+            uint8_t format = *exts++;
+            snprintf(buf, sizeof(buf), "%d", format);
+            Tcl_DStringAppend(&ds, buf, -1);
+            if (len > 1) {
+                Tcl_DStringAppend(&ds, "-", 1);
+            }
+        }
+    }
+
+    // firefox: 772,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-34-51-43-13-45-28-65037,29-23-24-25-256-257,0
+    fprintf(stderr, "ja3=%s\n", Tcl_DStringValue(&ds));
+    Tcl_DStringFree(&ds);
+
+//    /* extract/check clientHello information */
+//    int has_rsa_sig = 0, has_ecdsa_sig = 0;
+//    if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_signature_algorithms, &extension_data, &extension_len)) {
+//        uint8_t sign;
+////        size_t len;
+//        if (extension_len < 2)
+//            goto abort;
+//        len = (*extension_data++) << 8;
+//        len |= *extension_data++;
+//        if (len + 2 != extension_len)
+//            goto abort;
+//        if (len % 2 != 0)
+//            goto abort;
+//        for (; len > 0; len -= 2) {
+//            extension_data++; /* hash */
+//            sign = *extension_data++;
+//            switch (sign) {
+//                case TLSEXT_signature_rsa:
+//                    has_rsa_sig = 1;
+//                    break;
+//                case TLSEXT_signature_ecdsa:
+//                    has_ecdsa_sig = 1;
+//                    break;
+//                default:
+//                    continue;
+//            }
+//            if (has_ecdsa_sig && has_rsa_sig)
+//                break;
 //        }
+//    } else {
+//        /* without TLSEXT_TYPE_signature_algorithms extension (< TLSv1.2) */
+//        goto abort;
 //    }
-#endif
 
     SSL_CTX *ctx = tws_GetInternalFromHostName(servername);
     if (!ctx) {
