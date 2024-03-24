@@ -100,7 +100,7 @@ set init_script {
         set isSecureProto [dict get $ctx isSecureProto]
 
         # get the JA3 fingerprint of the client
-        set ja3_fingerprint [dict get $ctx ja3_fingerprint]
+        set ja3_fingerprint [dict get $ctx ja3]
 
         # get a path parameter from the request dictionary
         set user_id [::twebserver::get_path_param $req user_id]

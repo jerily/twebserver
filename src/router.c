@@ -203,7 +203,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
         SetResult("Could not encode bytes to hex string");
         return TCL_ERROR;
     }
-    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("ja3_fingerprint", -1), Tcl_NewStringObj(str, 32));
+    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("ja3", -1), Tcl_NewStringObj(str, 32));
 
     tws_route_t *route_ptr = router_ptr->firstRoutePtr;
     while (route_ptr != NULL) {

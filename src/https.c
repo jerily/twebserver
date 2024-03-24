@@ -7,12 +7,38 @@
 #include "https.h"
 #include "md5/md5.h"
 
-#define IS_GREASE_CODE(code) 0
+/* ExtensionType value from RFC6961 */
+#ifndef TLSEXT_TYPE_status_request_v2
+# define TLSEXT_TYPE_status_request_v2           17
+#endif
+/* [draft-ietf-tls-certificate-compression] */
+#ifndef TLSEXT_TYPE_compress_certificate
+# define TLSEXT_TYPE_compress_certificate        27
+#endif
+/* ExtensionType value from RFC8449 */
+#ifndef TLSEXT_TYPE_record_size_limit
+# define TLSEXT_TYPE_record_size_limit           28
+#endif
+/* ExtensionType value from RFC7639 */
+#ifndef TLSEXT_TYPE_application_settings
+# define TLSEXT_TYPE_application_settings        17513
+#endif
+#ifndef TLSEXT_TYPE_delegated_credentials
+# define TLSEXT_TYPE_delegated_credentials        34
+#endif
+#ifndef TLSEXT_TYPE_extensionEncryptedClientHello
+# define TLSEXT_TYPE_extensionEncryptedClientHello  65037
+#endif
+#ifndef TLSEXT_TYPE_extensionRenegotiationInfo
+# define TLSEXT_TYPE_extensionRenegotiationInfo  65281
+#endif
+
+#define IS_GREASE_CODE(code) (((code)&0x0f0f) == 0x0a0a && ((code)&0xff) == ((code)>>8))
 
 void tws_MD5HexString(char *input, Tcl_Size input_length, unsigned char result[16]) {
     MD5Context ctx;
     md5Init(&ctx);
-    md5Update(&ctx, (uint8_t *)input, input_length);
+    md5Update(&ctx, (uint8_t *) input, input_length);
     md5Finalize(&ctx);
 
     memcpy(result, ctx.digest, 16);
@@ -93,21 +119,31 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
     Tcl_DStringAppend(&ds, ",", 1);
 
     /* extensions */
-    int *out;
-    size_t outlen;
-    if (SSL_client_hello_get1_extensions_present(ssl, &out, &outlen)) {
-        fprintf(stderr, "outlen=%zd\n", outlen);
-        for (; outlen > 0; outlen--) {
-            uint16_t ext_id = *out++;
-            if (IS_GREASE_CODE(ext_id)) {
-                continue;
-            }
-            snprintf(buf, sizeof(buf), "%d", ext_id);
-            Tcl_DStringAppend(&ds, buf, -1);
-            if (outlen > 1) {
-                Tcl_DStringAppend(&ds, "-", 1);
+    size_t num_exts;
+    uint16_t *out;
+    if (SSL_client_hello_get_extension_order(ssl, NULL, &num_exts)) {
+        fprintf(stderr, "num_exts=%zd\n", num_exts);
+        out = OPENSSL_malloc(sizeof(*out) * num_exts);
+        if (out == NULL) {
+            // handle malloc failure
+            goto abort;
+        }
+        if (SSL_client_hello_get_extension_order(ssl, out, &num_exts)) {
+            // Now exts contains the ordered list of extension types
+            for (int i = 0; i < num_exts; i++) {
+                uint16_t ext_id = out[i];
+                printf("ext_id=%d\n", ext_id);
+//                if (IS_GREASE_CODE(ext_id)) {
+//                    continue;
+//                }
+                snprintf(buf, sizeof(buf), "%d", ext_id);
+                Tcl_DStringAppend(&ds, buf, -1);
+                if (i < num_exts - 1) {
+                    Tcl_DStringAppend(&ds, "-", 1);
+                }
             }
         }
+        OPENSSL_free(out);
     }
     Tcl_DStringAppend(&ds, ",", 1);
 
@@ -160,8 +196,9 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
     }
 
     // firefox: 772,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-34-51-43-13-45-28-65037,29-23-24-25-256-257,0
-    // -------: 771,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-34-51-43-13-45-28-65037,29-23-24-25-256-257,0
-    // -------: 772,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-16-5-51-43-13-45-41,29-23-24-25-256-257,0
+    // -------: 772,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-  -16-5-  -51-43-13-45-28-41   ,29-23-24-25-256-257,0
+    // -------: 772,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11   -16-5-34-51-43-13-45-28-41,29-23-24-25-256-257,0
+
     fprintf(stderr, "ja3=%s\n", Tcl_DStringValue(&ds));
     tws_MD5HexString(Tcl_DStringValue(&ds), Tcl_DStringLength(&ds), accept_ctx->ja3_fingerprint);
     Tcl_DStringFree(&ds);
@@ -203,6 +240,25 @@ int tws_CreateSslContext(Tcl_Interp *interp, SSL_CTX **sslCtx) {
     SSL_CTX_set_max_proto_version(ctx, TLS1_3_VERSION);
     SSL_CTX_set_read_ahead(ctx, 1);
 
+    int context = SSL_EXT_CLIENT_HELLO | SSL_EXT_IGNORE_ON_RESUMPTION;
+    SSL_CTX_add_custom_ext(ctx, TLSEXT_TYPE_status_request_v2, context, NULL, NULL, NULL, NULL,
+                           NULL);
+    SSL_CTX_add_custom_ext(ctx, TLSEXT_TYPE_compress_certificate, context, NULL, NULL, NULL, NULL,
+                           NULL);
+    SSL_CTX_add_custom_ext(ctx, TLSEXT_TYPE_record_size_limit, context, NULL, NULL, NULL, NULL,
+                           NULL);
+    SSL_CTX_add_custom_ext(ctx, TLSEXT_TYPE_application_settings, context, NULL, NULL, NULL, NULL,
+                           NULL);
+    SSL_CTX_add_custom_ext(ctx, TLSEXT_TYPE_delegated_credentials, context, NULL, NULL, NULL, NULL,
+                           NULL);
+    SSL_CTX_add_custom_ext(ctx, TLSEXT_TYPE_session_ticket, context, NULL, NULL, NULL, NULL,
+                           NULL);
+    SSL_CTX_add_custom_ext(ctx, TLSEXT_TYPE_extensionEncryptedClientHello, context, NULL, NULL, NULL, NULL,
+                           NULL);
+    SSL_CTX_add_custom_ext(ctx, TLSEXT_TYPE_extensionEncryptedClientHello, context, NULL, NULL, NULL, NULL,
+                           NULL);
+    SSL_CTX_add_custom_ext(ctx, TLSEXT_TYPE_extensionRenegotiationInfo, context, NULL, NULL, NULL, NULL, NULL);
+
     *sslCtx = ctx;
     return TCL_OK;
 }
@@ -227,7 +283,8 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, int size) {
 
     long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes;
     int max_buffer_size =
-            size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size);
+            size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size,
+                                                                             conn->accept_ctx->server->max_read_buffer_size);
 
     char *buf = (char *) Tcl_Alloc(max_buffer_size);
     long total_read = 0;
