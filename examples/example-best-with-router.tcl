@@ -99,12 +99,15 @@ set init_script {
         # it should be true when you make HTTPS requests to the server, false for HTTP requests
         set isSecureProto [dict get $ctx isSecureProto]
 
+        # get the JA3 fingerprint of the client
+        set ja3_fingerprint [dict get $ctx ja3_fingerprint]
+
         # get a path parameter from the request dictionary
         set user_id [::twebserver::get_path_param $req user_id]
 
         # build the response dictionary
         set res [::twebserver::build_response 200 text/plain \
-            "test message GET user_id=$user_id addr=$addr isSecureProto=$isSecureProto"]
+            "test message GET user_id=$user_id addr=$addr isSecureProto=$isSecureProto ja3_fingerprint=$ja3_fingerprint"]
         return $res
     }
 

@@ -5,10 +5,23 @@
  */
 
 #include "https.h"
+#include "md5/md5.h"
 
+#define IS_GREASE_CODE(code) 0
+
+void tws_MD5HexString(char *input, Tcl_Size input_length, unsigned char result[16]) {
+    MD5Context ctx;
+    md5Init(&ctx);
+    md5Update(&ctx, (uint8_t *)input, input_length);
+    md5Finalize(&ctx);
+
+    memcpy(result, ctx.digest, 16);
+}
 
 // ClientHello callback
 int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
+
+    tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) arg;
 
     const unsigned char *extension_data;
     size_t extension_len;
@@ -67,6 +80,9 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
         if (cipher) {
             DBG(fprintf(stderr, "cipher=%s\n", SSL_CIPHER_get_name(cipher)));
             uint16_t cipher_protocol_id = SSL_CIPHER_get_protocol_id(cipher);
+            if (IS_GREASE_CODE(cipher_protocol_id)) {
+                continue;
+            }
             snprintf(buf, sizeof(buf), "%d", cipher_protocol_id);
             Tcl_DStringAppend(&ds, buf, -1);
             if (len > 2) {
@@ -80,9 +96,13 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
     int *out;
     size_t outlen;
     if (SSL_client_hello_get1_extensions_present(ssl, &out, &outlen)) {
-        fprintf(stderr, "extslen=%zd\n", outlen);
+        fprintf(stderr, "outlen=%zd\n", outlen);
         for (; outlen > 0; outlen--) {
-            snprintf(buf, sizeof(buf), "%d", *out++);
+            uint16_t ext_id = *out++;
+            if (IS_GREASE_CODE(ext_id)) {
+                continue;
+            }
+            snprintf(buf, sizeof(buf), "%d", ext_id);
             Tcl_DStringAppend(&ds, buf, -1);
             if (outlen > 1) {
                 Tcl_DStringAppend(&ds, "-", 1);
@@ -109,6 +129,9 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
             group = *exts++;
             group <<= 8;
             group |= *exts++;
+            if (IS_GREASE_CODE(group)) {
+                continue;
+            }
             snprintf(buf, sizeof(buf), "%d", group);
             Tcl_DStringAppend(&ds, buf, -1);
             if (len > 2) {
@@ -137,7 +160,10 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
     }
 
     // firefox: 772,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-34-51-43-13-45-28-65037,29-23-24-25-256-257,0
+    // -------: 771,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-34-51-43-13-45-28-65037,29-23-24-25-256-257,0
+    // -------: 772,4865-4867-4866-49195-49199-52393-52392-49196-49200-49162-49161-49171-49172-156-157-47-53,0-23-65281-10-11-16-5-51-43-13-45-41,29-23-24-25-256-257,0
     fprintf(stderr, "ja3=%s\n", Tcl_DStringValue(&ds));
+    tws_MD5HexString(Tcl_DStringValue(&ds), Tcl_DStringLength(&ds), accept_ctx->ja3_fingerprint);
     Tcl_DStringFree(&ds);
 
 

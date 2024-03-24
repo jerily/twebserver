@@ -1179,7 +1179,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, Tcl_Ob
             Tcl_Free((char *) accept_ctx);
             return TCL_ERROR;
         }
-        SSL_CTX_set_client_hello_cb(accept_ctx->sslCtx, tws_ClientHelloCallback, NULL);
+        SSL_CTX_set_client_hello_cb(accept_ctx->sslCtx, tws_ClientHelloCallback, accept_ctx);
     }
 
     accept_ctx->option_http = option_http;

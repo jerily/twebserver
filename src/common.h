@@ -102,6 +102,7 @@ typedef struct {
     SSL_CTX *sslCtx;
     int (*read_fn)(tws_conn_t *conn, Tcl_DString *dsPtr, int size);
     int (*write_fn)(tws_conn_t *conn, const char *buf, int len);
+    unsigned char ja3_fingerprint[16];
 } tws_accept_ctx_t;
 
 typedef enum tws_CompressionMethod {

@@ -16,7 +16,12 @@ message(STATUS "TCL_LIBRARY: ${TCL_LIBRARY}")
 set(CMAKE_C_FLAGS  "-DTCL_THREADS -DVERSION=${PROJECT_VERSION} ${CMAKE_C_FLAGS}")
 
 
-add_library(twebserver SHARED src/library.c src/base64.c src/base64/cencode.c src/base64/cdecode.c
+add_library(twebserver SHARED
+        src/library.c
+        src/base64.c
+        src/base64/cencode.c
+        src/base64/cdecode.c
+        src/md5/md5.c
         src/router.c
         src/conn.c
         src/common.c
