@@ -900,7 +900,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     tws_thread_ctrl_t *ctrl = (tws_thread_ctrl_t *) clientData;
 
     DBG(Tcl_ThreadId threadId = Tcl_GetCurrentThread());
-    Tcl_Mutex mutex;
+    static Tcl_Mutex mutex;
     // Get a pointer to the thread data for the current thread
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
     // Create a new interp for this thread and store it in the thread data
@@ -950,7 +950,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     // notify the main thread that we are done initializing
     Tcl_ConditionNotify(&ctrl->condWait);
 
-    DBG(fprintf(stderr, "HandleConnThread: in (%p) - first timer millis: %d\n", threadId, first_timer_millis));
+    DBG(fprintf(stderr, "HandleConnThread: in (%p)\n", threadId));
     while (1) {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
     }
