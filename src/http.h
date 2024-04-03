@@ -10,7 +10,7 @@
 #include <tcl.h>
 #include "common.h"
 
-int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, int size);
-int tws_WriteHttpConnAsync(tws_conn_t *conn, const char *buf, int len);
+int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size);
+int tws_WriteHttpConnAsync(tws_conn_t *conn, const char *buf, Tcl_Size len);
 
 #endif //TWEBSERVER_HTTP_H

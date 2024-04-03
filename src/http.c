@@ -7,18 +7,19 @@
 #include <unistd.h>
 #include "http.h"
 
-int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, int size) {
+int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
     long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes;
-    int max_buffer_size =
+    Tcl_Size max_buffer_size =
             size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size);
 
     char *buf = (char *) Tcl_Alloc(max_buffer_size);
-    int total_read = 0;
-    int bytes_read = 0;
+    Tcl_Size total_read = 0;
+    Tcl_Size bytes_read = 0;
 
-    int rc;
+    ssize_t rc;
     for (;;) {
         rc = read(conn->client, buf, max_buffer_size);
+
         if (rc > 0) {
             bytes_read = rc;
             Tcl_DStringAppend(dsPtr, buf, bytes_read);
@@ -52,8 +53,8 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, int size) {
     }
 }
 
-int tws_WriteHttpConnAsync(tws_conn_t *conn, const char *buf, int len) {
-    int rc = write(conn->client, buf, len);
+int tws_WriteHttpConnAsync(tws_conn_t *conn, const char *buf, Tcl_Size len) {
+    ssize_t rc = write(conn->client, buf, len);
     if (rc == len) {
         return TWS_DONE;
     } else {

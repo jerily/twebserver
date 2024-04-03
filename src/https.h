@@ -13,7 +13,7 @@
 int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg);
 int tws_CreateSslContext(Tcl_Interp *interp, SSL_CTX **sslCtx);
 int tws_ConfigureSslContext(Tcl_Interp *interp, SSL_CTX *ctx, const char *key_file, const char *cert_file);
-int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, int size);
-int tws_WriteSslConnAsync(tws_conn_t *conn, const char *buf, int len);
+int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size);
+int tws_WriteSslConnAsync(tws_conn_t *conn, const char *buf, Tcl_Size len);
 
 #endif //TWEBSERVER_HTTPS_H

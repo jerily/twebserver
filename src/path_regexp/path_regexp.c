@@ -324,6 +324,7 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
             Tcl_IncrRefCount(nameKeyPtr);
             Tcl_Obj *namePtr;
             if (TCL_OK != Tcl_DictObjGet(interp, tokenPtr, nameKeyPtr, &namePtr)) {
+                Tcl_DecrRefCount(nameKeyPtr);
                 SetResult("failed to read token name");
                 return TCL_ERROR;
             }
@@ -333,6 +334,7 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
             Tcl_IncrRefCount(prefixKeyPtr);
             Tcl_Obj *prefixPtr;
             if (TCL_OK != Tcl_DictObjGet(interp, tokenPtr, prefixKeyPtr, &prefixPtr)) {
+                Tcl_DecrRefCount(prefixKeyPtr);
                 SetResult("failed to read token prefix");
                 return TCL_ERROR;
             }
@@ -342,6 +344,7 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
             Tcl_IncrRefCount(suffixKeyPtr);
             Tcl_Obj *suffixPtr;
             if (TCL_OK != Tcl_DictObjGet(interp, tokenPtr, suffixKeyPtr, &suffixPtr)) {
+                Tcl_DecrRefCount(suffixKeyPtr);
                 SetResult("failed to read token suffix");
                 return TCL_ERROR;
             }
@@ -351,6 +354,7 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
             Tcl_IncrRefCount(patternKeyPtr);
             Tcl_Obj *patternPtr;
             if (TCL_OK != Tcl_DictObjGet(interp, tokenPtr, patternKeyPtr, &patternPtr)) {
+                Tcl_DecrRefCount(patternKeyPtr);
                 SetResult("failed to read token pattern");
                 return TCL_ERROR;
             }
@@ -360,6 +364,7 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
             Tcl_IncrRefCount(modifierKeyPtr);
             Tcl_Obj *modifierPtr;
             if (TCL_OK != Tcl_DictObjGet(interp, tokenPtr, modifierKeyPtr, &modifierPtr)) {
+                Tcl_DecrRefCount(modifierKeyPtr);
                 SetResult("failed to read token modifier");
                 return TCL_ERROR;
             }
@@ -479,7 +484,9 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
 int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int flags, Tcl_Obj **keys, char **pattern) {
 
     Tcl_Obj *tokensListPtr = Tcl_NewListObj(0, NULL);
+    Tcl_IncrRefCount(tokensListPtr);
     if (TCL_OK != tws_PathExprToTokens(interp, path, path_len, flags, tokensListPtr)) {
+        Tcl_DecrRefCount(tokensListPtr);
 //        SetResult("tws_PathExprToTokens failed");
         return TCL_ERROR;
     }
@@ -491,6 +498,7 @@ int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int fla
     Tcl_Obj *keysListPtr = Tcl_NewListObj(0, NULL);
     Tcl_IncrRefCount(keysListPtr);
     if (TCL_OK != tws_TokensToRegExp(interp, tokensListPtr, flags, keysListPtr, &ds)) {
+        Tcl_DecrRefCount(tokensListPtr);
         Tcl_DecrRefCount(keysListPtr);
         SetResult("tws_TokensToRegExp failed");
         return TCL_ERROR;
@@ -501,6 +509,7 @@ int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int fla
     (*pattern)[Tcl_DStringLength(&ds)] = '\0';
     DBG(fprintf(stderr, "PathToRegExp - pattern: %s\n", *pattern));
     *keys = keysListPtr;
+    Tcl_DecrRefCount(tokensListPtr);
     Tcl_DStringFree(&ds);
     return TCL_OK;
 }

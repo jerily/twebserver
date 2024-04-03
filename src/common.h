@@ -100,8 +100,8 @@ typedef struct {
     Tcl_Interp *interp;
     tws_server_t *server;
     SSL_CTX *sslCtx;
-    int (*read_fn)(tws_conn_t *conn, Tcl_DString *dsPtr, int size);
-    int (*write_fn)(tws_conn_t *conn, const char *buf, int len);
+    int (*read_fn)(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size);
+    int (*write_fn)(tws_conn_t *conn, const char *buf, Tcl_Size len);
 } tws_accept_ctx_t;
 
 typedef enum tws_CompressionMethod {

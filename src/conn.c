@@ -361,7 +361,6 @@ static int tws_CleanupConnections(Tcl_Event *evPtr, int flags) {
     Tcl_MutexUnlock(dataPtr->mutex);
 
     DBG(fprintf(stderr, "reviewed count: %d marked_for_deletion: %d\n", count, count_mark_for_deletion));
-//    Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, clientData);
 
     return 1;
 }
@@ -501,9 +500,7 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
     Tcl_DecrRefCount(portPtr);
 
 
-    if (accept_ctx->server->num_threads > 0) {
-        Tcl_MutexUnlock(dataPtr->mutex);
-    } else {
+    if (accept_ctx->server->num_threads == 0) {
         Tcl_MutexUnlock(&tws_Eval_Mutex);
     }
 

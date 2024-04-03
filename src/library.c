@@ -50,6 +50,7 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     for (entry = Tcl_FirstHashEntry(&server->listeners_HT, &search);
          entry != NULL; entry = Tcl_NextHashEntry(&search)) {
         tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_GetHashValue(entry);
+        SSL_CTX_free(accept_ctx->sslCtx);
         Tcl_DeleteFileHandler(accept_ctx->server_fd);
         if (!accept_ctx->option_http) {
             SSL_CTX_free(accept_ctx->sslCtx);

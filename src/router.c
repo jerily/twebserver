@@ -45,26 +45,36 @@ static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_
         Tcl_Obj **keys_objv;
         Tcl_ListObjGetElements(interp, route_ptr->keys, &keys_objc, &keys_objv);
         Tcl_Obj *pathParametersDictPtr = Tcl_NewDictObj();
+        Tcl_IncrRefCount(pathParametersDictPtr);
         const char *start;
         const char *end;
         for (int i = 0; i < keys_objc; i++) {
             Tcl_RegExpRange(regexp, i + 1, &start, &end);
             Tcl_Obj *key_ptr = keys_objv[i];
             Tcl_Obj *value_ptr = Tcl_NewStringObj(start, end - start);
+            Tcl_IncrRefCount(value_ptr);
 
             DBG(fprintf(stderr, "key: %s, value: %s\n", Tcl_GetString(key_ptr), Tcl_GetString(value_ptr)));
 
             if (TCL_OK != Tcl_DictObjPut(interp, pathParametersDictPtr, key_ptr, value_ptr)) {
+                Tcl_DecrRefCount(value_ptr);
+                Tcl_DecrRefCount(pathParametersDictPtr);
                 SetResult("MatchRoute: dict put failed");
                 return TCL_ERROR;
             }
+            Tcl_DecrRefCount(value_ptr);
         }
 
         Tcl_Obj *pathParametersKeyPtr = Tcl_NewStringObj("pathParameters", -1);
+        Tcl_IncrRefCount(pathParametersKeyPtr);
         if (TCL_OK != Tcl_DictObjPut(interp, requestDictPtr, pathParametersKeyPtr, pathParametersDictPtr)) {
+            Tcl_DecrRefCount(pathParametersKeyPtr);
+            Tcl_DecrRefCount(pathParametersDictPtr);
             SetResult("MatchRoute: dict put failed");
             return TCL_ERROR;
         }
+        Tcl_DecrRefCount(pathParametersKeyPtr);
+        Tcl_DecrRefCount(pathParametersDictPtr);
     } else {
         *matched = 0;
     }
@@ -421,7 +431,6 @@ static int tws_ShouldReadMore(tws_conn_t *conn) {
 
 static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
     DBG(fprintf(stderr, "HandleRecv: %s\n", conn->conn_handle));
-
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(conn->dataKeyPtr, sizeof(tws_thread_data_t));
 
     if (tws_ShouldParseTopPart(conn)) {
@@ -440,9 +449,10 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
 
     int remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
     int ret = conn->accept_ctx->read_fn(conn, &conn->ds, conn->content_length - remaining_unprocessed);
+
     if (TWS_AGAIN == ret) {
         if (tws_ShouldReadMore(conn)) {
-            DBG(fprintf(stderr, "retry dslen=%d reqdictptr=%p\n", Tcl_DStringLength(&conn->ds), conn->requestDictPtr));
+            DBG(fprintf(stderr, "retry dslen=%zd reqdictptr=%p\n", Tcl_DStringLength(&conn->ds), conn->requestDictPtr));
             return 0;
         }
     } else if (TWS_ERROR == ret) {

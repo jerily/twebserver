@@ -48,56 +48,6 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
     // "extension_data" is not null-terminated, so we need to copy it to a new buffer
     DBG(fprintf(stderr, "servername=%.*s\n", (int) len, p));
 
-#ifdef TWS_JA3
-    /* extract/check clientHello information */
-    int has_rsa_sig = 0, has_ecdsa_sig = 0;
-    if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_signature_algorithms, &extension_data, &extension_len)) {
-        uint8_t sign;
-//        size_t len;
-        if (extension_len < 2)
-            goto abort;
-        len = (*extension_data++) << 8;
-        len |= *extension_data++;
-        if (len + 2 != extension_len)
-            goto abort;
-        if (len % 2 != 0)
-            goto abort;
-        for (; len > 0; len -= 2) {
-            extension_data++; /* hash */
-            sign = *extension_data++;
-            switch (sign) {
-                case TLSEXT_signature_rsa:
-                    has_rsa_sig = 1;
-                    break;
-                case TLSEXT_signature_ecdsa:
-                    has_ecdsa_sig = 1;
-                    break;
-                default:
-                    continue;
-            }
-            if (has_ecdsa_sig && has_rsa_sig)
-                break;
-        }
-    } else {
-        /* without TLSEXT_TYPE_signature_algorithms extension (< TLSv1.2) */
-        goto abort;
-    }
-
-    // TODO: JA3 fingerprint
-    const SSL_CIPHER *cipher;
-    const uint8_t *cipher_suites;
-    len = SSL_client_hello_get0_ciphers(ssl, &cipher_suites);
-    if (len % 2 != 0)
-        goto abort;
-//    for (; len != 0; len -= 2, cipher_suites += 2) {
-//        cipher = SSL_CIPHER_find(ssl, cipher_suites);
-//        if (cipher && SSL_CIPHER_get_auth_nid(cipher) == NID_auth_ecdsa) {
-//            has_ecdsa_sig = 1;
-//            break;
-//        }
-//    }
-#endif
-
     SSL_CTX *ctx = tws_GetInternalFromHostName(servername);
     if (!ctx) {
         DBG(fprintf(stderr, "servername not found in clienthello callback\n"));
@@ -153,11 +103,11 @@ int tws_ConfigureSslContext(Tcl_Interp *interp, SSL_CTX *ctx, const char *key_fi
     return TCL_OK;
 }
 
-int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, int size) {
+int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
     DBG(fprintf(stderr, "ReadConn client: %d\n", conn->client));
 
     long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes;
-    int max_buffer_size =
+    Tcl_Size max_buffer_size =
             size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size);
 
     char *buf = (char *) Tcl_Alloc(max_buffer_size);
@@ -223,6 +173,6 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, int size) {
 
 }
 
-int tws_WriteSslConnAsync(tws_conn_t *conn, const char *buf, int len) {
+int tws_WriteSslConnAsync(tws_conn_t *conn, const char *buf, Tcl_Size len) {
     return SSL_write(conn->ssl, buf, len);
 }
