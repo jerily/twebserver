@@ -50,7 +50,6 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     for (entry = Tcl_FirstHashEntry(&server->listeners_HT, &search);
          entry != NULL; entry = Tcl_NextHashEntry(&search)) {
         tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_GetHashValue(entry);
-        SSL_CTX_free(accept_ctx->sslCtx);
         Tcl_DeleteFileHandler(accept_ctx->server_fd);
         if (!accept_ctx->option_http) {
             SSL_CTX_free(accept_ctx->sslCtx);
@@ -1619,6 +1618,17 @@ int tws_IpV6ToIpV4Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
     return TCL_OK;
 }
 
+static int tws_WaitCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "VarWaitCmd\n"));
+    CheckArgs(1, 1, 1, "");
+
+    while (1) {
+        Tcl_DoOneEvent(TCL_ALL_EVENTS);
+    }
+
+    return TCL_OK;
+}
+
 static int tws_GetRootdirCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "GetRootdirCmd\n"));
     CheckArgs(1, 2, 1, "?server_handle?");
@@ -1687,6 +1697,7 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::listen_server", tws_ListenCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_context", tws_AddContextCmd, NULL, NULL);
 
+    Tcl_CreateObjCommand(interp, "::twebserver::wait", tws_WaitCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::get_rootdir", tws_GetRootdirCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::info_conn", tws_InfoConnCmd, NULL, NULL);
 

@@ -150,7 +150,7 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
                 goto done;
             }
 
-            fprintf(stderr, "SSL_read error: %s err=%d rc=%d total_read=%zd size=%d\n",
+            fprintf(stderr, "SSL_read error: %s err=%d rc=%d total_read=%zd size=%ld\n",
                     ssl_errors[err], err, rc, total_read, size);
 
             Tcl_Free(buf);

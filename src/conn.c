@@ -25,6 +25,7 @@
 
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
+#include <signal.h>
 
 #endif
 
@@ -136,6 +137,8 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
         SetResult("Unable to bind");
         return TCL_ERROR;
     }
+
+    tws_SetBlockingMode(server_fd, TWS_MODE_NONBLOCKING);
 
     int backlog = server->backlog; // the maximum length to which the  queue  of pending  connections  for sockfd may grow
     if (listen(server_fd, backlog) < 0) {
@@ -530,24 +533,29 @@ int tws_HandleHttpHandshake(tws_conn_t *conn) {
 }
 
 int tws_HandleSslHandshake(tws_conn_t *conn) {
-    ERR_clear_error();
+//    ERR_clear_error();
     int rc = SSL_accept(conn->ssl);
-    if (rc <= 0) {
-        int err = SSL_get_error(conn->ssl, rc);
-        if (err == SSL_ERROR_WANT_READ) {
-            DBG(fprintf(stderr, "HandleHandshake: SSL_ERROR_WANT_READ\n"));
-            return 0;
-        }
-        fprintf(stderr, "SSL_accept <= 0 client: %d err=%s\n", conn->client, ssl_errors[err]);
-        conn->error = 1;
-        tws_CloseConn(conn, 1);
-        ERR_print_errors_fp(stderr);
-        return 1;
-    } else {
+    if (rc == 1) {
         DBG(fprintf(stderr, "HandleHandshake: success\n"));
         tws_ThreadQueueProcessingEvent(conn);
         return 1;
     }
+
+    int err = SSL_get_error(conn->ssl, rc);
+    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+        DBG(fprintf(stderr, "HandleHandshake: SSL_ERROR_WANT_READ or SSL_ERROR_WANT_WRITE\n"));
+        return 0;
+    } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
+        fprintf(stderr, "peer closed connection in SSL handshake\n");
+        conn->error = 1;
+        tws_CloseConn(conn, 1);
+        return 1;
+    }
+    fprintf(stderr, "SSL_accept <= 0 client: %d err=%s\n", conn->client, ssl_errors[err]);
+    conn->error = 1;
+    tws_CloseConn(conn, 1);
+    ERR_print_errors_fp(stderr);
+    return 1;
 }
 
 static int tws_HandleHandshakeEventInThread(Tcl_Event *evPtr, int flags) {
@@ -915,6 +923,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 #else
     dataPtr->epoll_fd = epoll_create1(0);
 #endif
+    tws_SetBlockingMode(dataPtr->epoll_fd, TWS_MODE_NONBLOCKING);
 
     Tcl_IncrRefCount(dataPtr->cmdPtr);
 
@@ -925,7 +934,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         DBG(fprintf(stderr, "error initializing Tcl\n"));
         Tcl_FinalizeThread();
         Tcl_ExitThread(TCL_ERROR);
-        return TCL_THREAD_CREATE_RETURN;
+        TCL_THREAD_CREATE_RETURN;
     }
     if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->server->scriptPtr)) {
         fprintf(stderr, "error evaluating init script\n");
@@ -933,7 +942,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         fprintf(stderr, "%s\n", Tcl_GetVar2(dataPtr->interp, "::errorInfo", NULL, TCL_GLOBAL_ONLY));
         Tcl_FinalizeThread();
         Tcl_ExitThread(TCL_ERROR);
-        return TCL_THREAD_CREATE_RETURN;
+        TCL_THREAD_CREATE_RETURN;
     }
 
     // create a file handler for the epoll fd for this thread
@@ -953,7 +962,6 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     }
     Tcl_FinalizeThread();
     Tcl_ExitThread(TCL_OK);
-    DBG(fprintf(stderr, "HandleConnThread: out (%p)\n", threadId));
     TCL_THREAD_CREATE_RETURN;
 }
 
@@ -1073,7 +1081,7 @@ void tws_AcceptConn(void *data, int mask) {
             int client = accept(accept_ctx->server_fd, (struct sockaddr *) &client_addr, &len);
             DBG(fprintf(stderr, "client: %d\n", client));
             if (client < 0) {
-                DBG(fprintf(stderr, "Unable to accept"));
+                DBG(fprintf(stderr, "Unable to accept\n"));
                 return;
             }
 

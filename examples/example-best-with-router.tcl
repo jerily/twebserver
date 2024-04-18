@@ -142,7 +142,9 @@ set server_handle [::twebserver::create_server $config_dict process_conn $init_s
 puts "server is running. go to https://localhost:4433/ or http://localhost:8080/"
 
 # wait forever
-vwait forever
+::twebserver::wait
+#vwait -nowindowevents -notimerevents -noidleevents forever
+#vwait forever
 
 # destroy the server
 ::twebserver::destroy_server $server_handle
