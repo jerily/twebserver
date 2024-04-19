@@ -33,9 +33,6 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
         return TCL_ERROR;
     }
 
-    if (server->conn_thread_ids != NULL) {
-        Tcl_Free((char *) server->conn_thread_ids);
-    }
     Tcl_DecrRefCount(server->cmdPtr);
     if (server->scriptPtr != NULL) {
         Tcl_DecrRefCount(server->scriptPtr);
@@ -354,18 +351,11 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
             return TCL_ERROR;
         }
     }
-    if (server_ctx->num_threads < 0) {
-        SetResult("num_threads must be >= 0");
+    if (server_ctx->num_threads <= 0) {
+        SetResult("num_threads must be > 0");
         return TCL_ERROR;
     }
-    if (server_ctx->num_threads > 0 && !server_ctx->scriptPtr) {
-        SetResult("num_threads must be 0 if no thread_init_script is provided");
-        return TCL_ERROR;
-    }
-    if (server_ctx->num_threads == 0 && server_ctx->scriptPtr != NULL) {
-        SetResult("num_threads must be > 0 if a thread_init_script is provided");
-        return TCL_ERROR;
-    }
+
 
     Tcl_Obj *threadStacksizePtr;
     Tcl_Obj *threadStacksizeKeyPtr = Tcl_NewStringObj("thread_stacksize", -1);
@@ -413,7 +403,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
 
 static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "CreateCmd\n"));
-    CheckArgs(3, 4, 1, "config_dict cmd_name ?init_script?");
+    CheckArgs(4, 4, 1, "config_dict cmd_name init_script");
 
     tws_server_t *server_ptr = (tws_server_t *) Tcl_Alloc(sizeof(tws_server_t));
     if (!server_ptr) {
@@ -454,7 +444,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int ob
         Tcl_SetHashValue(entryPtr, (ClientData) NULL);
     }
 
-    server_ptr->num_threads = 0;
+    server_ptr->num_threads = 10;
     server_ptr->thread_stacksize = TCL_THREAD_STACK_DEFAULT;
     server_ptr->thread_max_concurrent_conns = 0;
 
@@ -483,8 +473,10 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int incoming
     DBG(fprintf(stderr, "ListenCmd\n"));
 
     int option_http = 0;
+    int option_num_threads = 0;
     Tcl_ArgvInfo ArgTable[] = {
             {TCL_ARGV_CONSTANT, "-http", INT2PTR(1), &option_http, "http (not https) listener"},
+            {TCL_ARGV_INT, "-num_threads", NULL, &option_num_threads, "num threads for listener"},
             {TCL_ARGV_END, NULL,         NULL, NULL, NULL}
     };
     Tcl_Obj **remObjv;
@@ -505,7 +497,11 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int incoming
         return TCL_ERROR;
     }
 
-    int result = tws_Listen(interp, server, option_http, remObjv[2]);
+    if (option_num_threads == 0) {
+        option_num_threads = server->num_threads;
+    }
+
+    int result = tws_Listen(interp, server, option_http, option_num_threads, remObjv[2]);
     ckfree(remObjv);
     return result;
 

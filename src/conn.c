@@ -35,7 +35,6 @@
 #endif
 
 static Tcl_Mutex tws_Thread_Mutex;
-static Tcl_Mutex tws_Eval_Mutex;
 static Tcl_ThreadDataKey dataKey;
 
 long long current_time_in_millis() {
@@ -227,7 +226,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     if (accept_ctx->server->num_threads > 0) {
 //        fprintf(stderr, "tws_NewConn - num_threads: %d\n", accept_ctx->server->num_threads);
 //        fprintf(stderr, "tws_NewConn - client: %d\n", client);
-        conn->threadId = Tcl_GetCurrentThread(); // accept_ctx->server->conn_thread_ids[client % accept_ctx->server->num_threads];
+        conn->threadId = Tcl_GetCurrentThread();
     } else {
         conn->threadId = accept_ctx->server->threadId;
     }
@@ -499,18 +498,12 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
     tws_thread_data_t *dataPtr;
     Tcl_Interp *interp;
     Tcl_Obj *cmdPtr;
-    if (accept_ctx->server->num_threads > 0) {
-        // Get a pointer to the thread data for the current thread
-        dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
-        // Get the interp from the thread data
-        interp = dataPtr->interp;
-        cmdPtr = dataPtr->cmdPtr;
-    } else {
-        // Get the interp from the main thread
-        interp = accept_ctx->interp;
-        cmdPtr = accept_ctx->server->cmdPtr;
-        Tcl_MutexLock(&tws_Eval_Mutex);
-    }
+
+    // Get a pointer to the thread data for the current thread
+    dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+    // Get the interp from the thread data
+    interp = dataPtr->interp;
+    cmdPtr = dataPtr->cmdPtr;
 
     Tcl_Obj *const connPtr = Tcl_NewStringObj(conn->conn_handle, -1);
     Tcl_Obj *const addrPtr = Tcl_NewStringObj(conn->client_ip, -1);
@@ -529,20 +522,11 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
         Tcl_DecrRefCount(addrPtr);
         Tcl_DecrRefCount(portPtr);
 
-        if (accept_ctx->server->num_threads == 0) {
-            Tcl_MutexUnlock(&tws_Eval_Mutex);
-        }
-
         return 1;
     }
     Tcl_DecrRefCount(connPtr);
     Tcl_DecrRefCount(addrPtr);
     Tcl_DecrRefCount(portPtr);
-
-
-    if (accept_ctx->server->num_threads == 0) {
-        Tcl_MutexUnlock(&tws_Eval_Mutex);
-    }
 
     return 1;
 }
@@ -1205,7 +1189,7 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
 
 }
 
-int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, Tcl_Obj *portPtr) {
+int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int option_num_threads, Tcl_Obj *portPtr) {
 
     int port;
     if (Tcl_GetIntFromObj(interp, portPtr, &port) != TCL_OK) {
@@ -1213,54 +1197,28 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, Tcl_Ob
         return TCL_ERROR;
     }
 
-    if (server->num_threads == 0) {
-        server->conn_thread_ids = NULL;
-    } else {
-        server->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(sizeof(Tcl_ThreadId) * server->num_threads);
-        for (int i = 0; i < server->num_threads; i++) {
-            Tcl_MutexLock(&tws_Thread_Mutex);
-            Tcl_ThreadId id;
-            tws_thread_ctrl_t ctrl;
-            ctrl.condWait = NULL;
-            ctrl.server = server;
-            ctrl.thread_index = i;
-            ctrl.port = port;
-            ctrl.option_http = option_http;
-            if (TCL_OK !=
-                Tcl_CreateThread(&id, tws_HandleConnThread, &ctrl, server->thread_stacksize, TCL_THREAD_NOFLAGS)) {
-                Tcl_MutexUnlock(&tws_Thread_Mutex);
-                SetResult("Unable to create thread");
-                return TCL_ERROR;
-            }
-            server->conn_thread_ids[i] = id;
-
-            // Wait for the thread to start because it is using something on our stack!
-            Tcl_ConditionWait(&ctrl.condWait, &tws_Thread_Mutex, NULL);
+    for (int i = 0; i < option_num_threads; i++) {
+        Tcl_MutexLock(&tws_Thread_Mutex);
+        Tcl_ThreadId id;
+        tws_thread_ctrl_t ctrl;
+        ctrl.condWait = NULL;
+        ctrl.server = server;
+        ctrl.thread_index = i;
+        ctrl.port = port;
+        ctrl.option_http = option_http;
+        if (TCL_OK !=
+            Tcl_CreateThread(&id, tws_HandleConnThread, &ctrl, server->thread_stacksize, TCL_THREAD_NOFLAGS)) {
             Tcl_MutexUnlock(&tws_Thread_Mutex);
-            Tcl_ConditionFinalize(&ctrl.condWait);
-            DBG(fprintf(stderr, "Listen - created thread: %p\n", id));
+            SetResult("Unable to create thread");
+            return TCL_ERROR;
         }
+
+        // Wait for the thread to start because it is using something on our stack!
+        Tcl_ConditionWait(&ctrl.condWait, &tws_Thread_Mutex, NULL);
+        Tcl_MutexUnlock(&tws_Thread_Mutex);
+        Tcl_ConditionFinalize(&ctrl.condWait);
+        DBG(fprintf(stderr, "Listen - created thread: %p\n", id));
     }
 
-    if (server->num_threads == 0) {
-        tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
-        dataPtr->interp = NULL;
-        dataPtr->cmdPtr = NULL;
-        dataPtr->mutex = &tws_Thread_Mutex;
-        dataPtr->server = server;
-        dataPtr->thread_index = 0;
-        dataPtr->numRequests = 0;
-        dataPtr->numConns = 0;
-        dataPtr->firstConnPtr = NULL;
-        dataPtr->lastConnPtr = NULL;
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-        dataPtr->epoll_fd = kqueue();
-#else
-        dataPtr->epoll_fd = epoll_create1(0);
-#endif
-        Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
-
-//        Tcl_CreateTimerHandler(server->garbage_collection_interval_millis, tws_CleanupConnections, server);
-    }
     return TCL_OK;
 }

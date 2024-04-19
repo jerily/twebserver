@@ -119,8 +119,6 @@ set init_script {
 
 # use threads and gzip compression
 set config_dict [dict create \
-    num_threads 10 \
-    max_read_buffer_size 32768 \
     rootdir [file dirname [info script]] \
     gzip on \
     gzip_types [list text/plain application/json] \
@@ -134,10 +132,10 @@ set server_handle [::twebserver::create_server $config_dict process_conn $init_s
 ::twebserver::add_context $server_handle www.example.com "../certs/host2/key.pem" "../certs/host2/cert.pem"
 
 # listen for an HTTPS connection on port 4433
-::twebserver::listen_server $server_handle 4433
+::twebserver::listen_server -num_threads 8 $server_handle 4433
 
 # listen for an HTTP connection on port 8080
-::twebserver::listen_server -http $server_handle 8080
+::twebserver::listen_server -http -num_threads 4 $server_handle 8080
 
 # print that the server is running
 puts "server is running. go to https://localhost:4433/ or http://localhost:8080/"

@@ -69,7 +69,6 @@ typedef struct {
     Tcl_Obj *rootdirPtr;
     Tcl_ThreadId threadId;
     char handle[30];
-    Tcl_ThreadId *conn_thread_ids;
     Tcl_Size max_request_read_bytes;
     Tcl_Size max_read_buffer_size;
     Tcl_Size backlog;

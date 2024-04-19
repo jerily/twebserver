@@ -3,7 +3,7 @@
 
 ### High-Level Commands
 
-* **::twebserver::create_server** *config_dict* *request_processor_proc* *?thread_init_script?*
+* **::twebserver::create_server** *config_dict* *request_processor_proc* *thread_init_script*
     - returns a handle to a server, see [Server Configuration](config.md) for configuration parameters
   ```tcl
   set server_handle [::twebserver::create_server [dict create] process_conn]
@@ -14,11 +14,12 @@
   ::twebserver::add_context $server_handle localhost "../certs/host1/key.pem" "../certs/host1/cert.pem"
   ::twebserver::add_context $server_handle www.example.com "../certs/host2/key.pem" "../certs/host2/cert.pem"
   ```
-* **::twebserver::listen_server** *?-http?* *handle* *port*
+* **::twebserver::listen_server** *?-http?* *?-num_threads n?* *handle* *port*
     - starts listening for HTTPS on a port. if the flag ```-http``` is specified, then the server will listen for HTTP on the port.
+        The option ```-num_threads``` can be used to specify the number of threads to use for the listener.
   ```tcl
   ::twebserver::listen_server $server_handle 4433
-  ::twebserver::listen_server -http $server_handle 8080
+  ::twebserver::listen_server -http -num_threads 4 $server_handle 8080
   ```
 * **::twebserver::destroy_server** *handle*
     - destroys a server
