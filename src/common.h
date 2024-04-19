@@ -133,6 +133,7 @@ typedef struct tws_conn_t_ {
     Tcl_Obj *requestDictPtr;
     Tcl_Size offset;
     Tcl_Size content_length;
+    Tcl_Size blank_line_offset;
 
     int error;
 } tws_conn_t;

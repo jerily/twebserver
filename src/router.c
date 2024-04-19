@@ -416,8 +416,24 @@ static int tws_ParseBottomPart(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *re
     return TCL_ERROR;
 }
 
+static int tws_FoundBlankLine(tws_conn_t *conn) {
+    const char *s = Tcl_DStringValue(&conn->ds);
+    const char *p = s + conn->blank_line_offset;
+    const char *end = s + Tcl_DStringLength(&conn->ds) - 3;
+    while (p < end) {
+        if ((*p == '\r' && *(p + 1) == '\n' && *(p + 2) == '\r' && *(p + 3) == '\n') || (*p == '\n' && *(p + 1) == '\n')) {
+            conn->blank_line_offset = p - s;
+            return 1;
+        }
+        p++;
+    }
+
+    conn->blank_line_offset = p - s;
+    return 0;
+}
+
 static int tws_ShouldParseTopPart(tws_conn_t *conn) {
-    return conn->requestDictPtr == NULL && Tcl_DStringLength(&conn->ds) > 0;
+    return conn->requestDictPtr == NULL && Tcl_DStringLength(&conn->ds) > 0 && tws_FoundBlankLine(conn);
 }
 
 static int tws_ShouldParseBottomPart(tws_conn_t *conn) {
@@ -425,8 +441,11 @@ static int tws_ShouldParseBottomPart(tws_conn_t *conn) {
 }
 
 static int tws_ShouldReadMore(tws_conn_t *conn) {
-    int unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
-    return conn->offset == 0 || conn->content_length - unprocessed > 0;
+    if (conn->content_length > 0) {
+        int unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
+        return conn->content_length - unprocessed > 0;
+    }
+    return !tws_FoundBlankLine(conn);
 }
 
 static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
@@ -447,12 +466,13 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
         }
     }
 
-    int remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
-    int ret = conn->accept_ctx->read_fn(conn, &conn->ds, conn->content_length - remaining_unprocessed);
+    Tcl_Size remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
+    Tcl_Size bytes_to_read = conn->content_length == 0 ? 0 : conn->content_length - remaining_unprocessed;
+    int ret = conn->accept_ctx->read_fn(conn, &conn->ds, bytes_to_read);
 
     if (TWS_AGAIN == ret) {
         if (tws_ShouldReadMore(conn)) {
-            DBG(fprintf(stderr, "retry dslen=%zd reqdictptr=%p\n", Tcl_DStringLength(&conn->ds), conn->requestDictPtr));
+            DBG(fprintf(stderr, "retry dslen=%zd offset=%zd reqdictptr=%p\n", Tcl_DStringLength(&conn->ds), conn->offset, conn->requestDictPtr));
             return 0;
         }
     } else if (TWS_ERROR == ret) {

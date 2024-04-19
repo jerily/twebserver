@@ -222,6 +222,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->offset = 0;
     conn->content_length = 0;
     conn->error = 0;
+    conn->blank_line_offset = 0;
 
     if (accept_ctx->server->num_threads > 0) {
 //        fprintf(stderr, "tws_NewConn - num_threads: %d\n", accept_ctx->server->num_threads);
@@ -442,6 +443,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
 
     Tcl_DStringSetLength(&conn->ds, 0);
     conn->offset = 0;
+    conn->blank_line_offset = 0;
     conn->content_length = 0;
     conn->requestDictPtr = NULL;
 
