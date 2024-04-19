@@ -72,7 +72,7 @@ static int tws_SetBlockingMode(
     return fcntl(fd, F_SETFL, flags);
 }
 
-static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int *sock) {
+static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int *server_sock, int *epoll_sock) {
     int server_fd;
     struct sockaddr_in6 server_addr;
 
@@ -146,7 +146,46 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
         return TCL_ERROR;
     }
 
-    *sock = server_fd;
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    // Create a kqueue instance
+    int epoll_fd = kqueue();
+    if (epoll_fd == -1) {
+        SetResult("Unable to create kqueue instance");
+        return TCL_ERROR;
+    }
+#else
+    // Create an epoll instance
+    int epoll_fd = epoll_create1(0);
+    if (epoll_fd == -1) {
+        SetResult("Unable to create epoll instance");
+        return TCL_ERROR;
+    }
+#endif
+
+    tws_SetBlockingMode(server_fd, TWS_MODE_NONBLOCKING);
+
+
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    // Add the server socket to the kqueue set
+    struct kevent ev;
+    EV_SET(&ev, server_fd, EVFILT_READ, EV_ADD, 0, 0, server_fd);
+    if (kevent(epoll_fd, &ev, 1, NULL, 0, NULL) == -1) {
+        SetResult("Unable to add server socket to kqueue set");
+        return TCL_ERROR;
+    }
+#else
+    // Add the server socket to the epoll set
+    struct epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = server_fd;
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &ev) == -1) {
+        SetResult("Unable to add server socket to epoll set");
+        return TCL_ERROR;
+    }
+#endif
+
+    *server_sock = server_fd;
+    *epoll_sock = epoll_fd;
     return TCL_OK;
 }
 
@@ -187,7 +226,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     if (accept_ctx->server->num_threads > 0) {
 //        fprintf(stderr, "tws_NewConn - num_threads: %d\n", accept_ctx->server->num_threads);
 //        fprintf(stderr, "tws_NewConn - client: %d\n", client);
-        conn->threadId = accept_ctx->server->conn_thread_ids[client % accept_ctx->server->num_threads];
+        conn->threadId = Tcl_GetCurrentThread(); // accept_ctx->server->conn_thread_ids[client % accept_ctx->server->num_threads];
     } else {
         conn->threadId = accept_ctx->server->threadId;
     }
@@ -314,9 +353,6 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
 }
 
 static int tws_CleanupConnections(Tcl_Event *evPtr, int flags) {
-    tws_event_t *cleanupEvPtr = (tws_event_t *) evPtr;
-    tws_server_t *server = (tws_server_t *) cleanupEvPtr->clientData;
-
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
     DBG(fprintf(stderr, "CleanupConnections currentThreadId=%p\n", currentThreadId));
 
@@ -444,10 +480,9 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     // make sure that garbage collection does not start the same time on all threads
     int thread_pivot = dataPtr->thread_index * (server->garbage_collection_cleanup_threshold / server->num_threads);
     if (dataPtr->numRequests % server->garbage_collection_cleanup_threshold == thread_pivot) {
-        tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+        Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
         evPtr->proc = tws_CleanupConnections;
         evPtr->nextPtr = NULL;
-        evPtr->clientData = (ClientData *) conn->accept_ctx->server;
         Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
         Tcl_ThreadAlert(conn->threadId);
     }
@@ -522,7 +557,7 @@ static void tws_ThreadQueueProcessingEvent(tws_conn_t *conn) {
     connEvPtr->proc = tws_HandleProcessingEventInThread;
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
-    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(conn->threadId);
     DBG(fprintf(stderr, "ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
 }
@@ -575,7 +610,7 @@ static void tws_ThreadQueueHandshakeEvent(tws_conn_t *conn) {
     connEvPtr->proc = tws_HandleHandshakeEventInThread;
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
-    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(conn->threadId);
     DBG(fprintf(stderr, "ThreadQueueHandshakeEvent done - threadId: %p\n", conn->threadId));
 }
@@ -900,75 +935,7 @@ int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
     return TCL_OK;
 }
 
-Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
-
-    tws_thread_ctrl_t *ctrl = (tws_thread_ctrl_t *) clientData;
-
-    DBG(Tcl_ThreadId threadId = Tcl_GetCurrentThread());
-    static Tcl_Mutex mutex;
-    // Get a pointer to the thread data for the current thread
-    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
-    // Create a new interp for this thread and store it in the thread data
-    dataPtr->interp = Tcl_CreateInterp();
-    dataPtr->cmdPtr = Tcl_DuplicateObj(ctrl->server->cmdPtr);
-    dataPtr->mutex = &mutex;
-    dataPtr->server = ctrl->server;
-    dataPtr->thread_index = ctrl->thread_index;
-    dataPtr->numRequests = 0;
-    dataPtr->numConns = 0;
-    dataPtr->firstConnPtr = NULL;
-    dataPtr->lastConnPtr = NULL;
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    dataPtr->epoll_fd = kqueue();
-#else
-    dataPtr->epoll_fd = epoll_create1(0);
-#endif
-    tws_SetBlockingMode(dataPtr->epoll_fd, TWS_MODE_NONBLOCKING);
-
-    Tcl_IncrRefCount(dataPtr->cmdPtr);
-
-    DBG(fprintf(stderr, "created interp=%p\n", dataPtr->interp));
-
-    Tcl_InitMemory(dataPtr->interp);
-    if (TCL_OK != Tcl_Init(dataPtr->interp)) {
-        DBG(fprintf(stderr, "error initializing Tcl\n"));
-        Tcl_FinalizeThread();
-        Tcl_ExitThread(TCL_ERROR);
-        TCL_THREAD_CREATE_RETURN;
-    }
-    if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->server->scriptPtr)) {
-        fprintf(stderr, "error evaluating init script\n");
-        fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
-        fprintf(stderr, "%s\n", Tcl_GetVar2(dataPtr->interp, "::errorInfo", NULL, TCL_GLOBAL_ONLY));
-        Tcl_FinalizeThread();
-        Tcl_ExitThread(TCL_ERROR);
-        TCL_THREAD_CREATE_RETURN;
-    }
-
-    // create a file handler for the epoll fd for this thread
-    Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
-
-    // make sure that garbage collection does not start the same time on all threads
-//    int first_timer_millis =
-//            ctrl->thread_index * (ctrl->server->garbage_collection_interval_millis / ctrl->server->num_threads);
-//    Tcl_CreateTimerHandler(first_timer_millis, tws_CleanupConnections, ctrl->server);
-
-    // notify the main thread that we are done initializing
-    Tcl_ConditionNotify(&ctrl->condWait);
-
-    DBG(fprintf(stderr, "HandleConnThread: in (%p)\n", threadId));
-    while (1) {
-        Tcl_DoOneEvent(TCL_ALL_EVENTS);
-    }
-    Tcl_FinalizeThread();
-    Tcl_ExitThread(TCL_OK);
-    TCL_THREAD_CREATE_RETURN;
-}
-
-static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
-    DBG(fprintf(stderr, "HandleConnEventInThread\n"));
-    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
-    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
+static int tws_HandleConnEventInThreadHelper(tws_conn_t *conn) {
 
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
     Tcl_MutexLock(dataPtr->mutex);
@@ -995,11 +962,20 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
     }
     dataPtr->numConns++;
 
-    //    fprintf(stderr, "HandleConnEventInThread - numConns: %d FD_SETSIZE: %d thread_limit: %d\n", dataPtr->numConns, FD_SETSIZE, thread_limit);
+    DBG(fprintf(stderr, "HandleConnEventInThread - numConns: %d FD_SETSIZE: %d thread_limit: %d\n", dataPtr->numConns, FD_SETSIZE, thread_limit));
 
     Tcl_MutexUnlock(dataPtr->mutex);
 
     tws_HandleConn(conn);
+
+}
+
+static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
+    DBG(fprintf(stderr, "HandleConnEventInThread\n"));
+    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
+
+    tws_HandleConnEventInThreadHelper(conn);
     return 1;
 }
 
@@ -1014,40 +990,6 @@ static void tws_ThreadQueueConnEvent(tws_conn_t *conn) {
     DBG(fprintf(stderr, "ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
 }
 
-static void tws_KeepaliveConnHandler(void *data, int mask) {
-    DBG(fprintf(stderr, "KeepaliveConnHandler mask=%d\n", mask));
-
-    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
-
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    struct kevent events[MAX_EVENTS];
-    int nfds = kevent(dataPtr->epoll_fd, NULL, 0, events, MAX_EVENTS, NULL);
-    if (nfds == -1) {
-        DBG(fprintf(stderr, "KeepaliveConnHandler: kevent failed"));
-        return;
-    }
-#else
-    struct epoll_event events[MAX_EVENTS];
-    int nfds = epoll_wait(dataPtr->epoll_fd, events, MAX_EVENTS, -1);
-    if (nfds == -1) {
-        DBG(fprintf(stderr, "KeepaliveConnHandler: epoll_wait failed"));
-        return;
-    }
-#endif
-
-    for (int i = 0; i < nfds; i++) {
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-        tws_conn_t *conn = (tws_conn_t *) events[i].udata;
-#else
-        tws_conn_t *conn = (tws_conn_t *) events[i].data.ptr;
-#endif
-        DBG(fprintf(stderr, "KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
-        conn->latest_millis = current_time_in_millis();
-        tws_HandleConn(conn);
-    }
-
-}
-
 void tws_AcceptConn(void *data, int mask) {
     tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) data;
 
@@ -1060,7 +1002,7 @@ void tws_AcceptConn(void *data, int mask) {
     }
 #else
     struct epoll_event events[MAX_EVENTS];
-    int nfds = epoll_wait(accept_ctx->epoll_fd, events, MAX_EVENTS, -1);
+    int nfds = epoll_wait(accept_ctx->epoll_fd, events, MAX_EVENTS, 0);
     if (nfds == -1) {
         DBG(fprintf(stderr, "epoll_wait failed"));
         return;
@@ -1103,7 +1045,8 @@ void tws_AcceptConn(void *data, int mask) {
             tws_RegisterConnName(conn->conn_handle, conn);
 
             if (accept_ctx->server->num_threads > 0) {
-                tws_ThreadQueueConnEvent(conn);
+//                 tws_ThreadQueueConnEvent(conn);
+                tws_HandleConnEventInThreadHelper(conn);
             } else {
                 tws_HandleConn(conn);
             }
@@ -1116,62 +1059,58 @@ void tws_AcceptConn(void *data, int mask) {
     }
 }
 
-int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, Tcl_Obj *portPtr) {
+Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 
-    int port;
-    if (Tcl_GetIntFromObj(interp, portPtr, &port) != TCL_OK) {
-        SetResult("port must be an integer");
-        return TCL_ERROR;
+    tws_thread_ctrl_t *ctrl = (tws_thread_ctrl_t *) clientData;
+
+    DBG(Tcl_ThreadId threadId = Tcl_GetCurrentThread());
+    static Tcl_Mutex mutex;
+    // Get a pointer to the thread data for the current thread
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+    // Create a new interp for this thread and store it in the thread data
+    dataPtr->interp = Tcl_CreateInterp();
+    dataPtr->cmdPtr = Tcl_DuplicateObj(ctrl->server->cmdPtr);
+    dataPtr->mutex = &mutex;
+    dataPtr->server = ctrl->server;
+    dataPtr->thread_index = ctrl->thread_index;
+    dataPtr->numRequests = 0;
+    dataPtr->numConns = 0;
+    dataPtr->firstConnPtr = NULL;
+    dataPtr->lastConnPtr = NULL;
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    dataPtr->epoll_fd = kqueue();
+#else
+    dataPtr->epoll_fd = epoll_create1(0);
+#endif
+    tws_SetBlockingMode(dataPtr->epoll_fd, TWS_MODE_NONBLOCKING);
+
+    Tcl_IncrRefCount(dataPtr->cmdPtr);
+
+    DBG(fprintf(stderr, "created interp=%p\n", dataPtr->interp));
+
+    Tcl_InitMemory(dataPtr->interp);
+    if (TCL_OK != Tcl_Init(dataPtr->interp)) {
+        DBG(fprintf(stderr, "error initializing Tcl\n"));
+        Tcl_FinalizeThread();
+        Tcl_ExitThread(TCL_ERROR);
+        TCL_THREAD_CREATE_RETURN;
     }
+
 
     int server_fd;
-    if (TCL_OK != create_socket(interp, server, port, &server_fd)) {
-        return TCL_ERROR;
-    }
-    if (server_fd < 0) {
-        SetResult("Unable to create socket");
-        return TCL_ERROR;
+    int epoll_fd;
+    if (TCL_OK != create_socket(dataPtr->interp, ctrl->server, ctrl->port, &server_fd, &epoll_fd) || server_fd < 0 || epoll_fd < 0) {
+        fprintf(stderr, "failed to create socket on thread\n");
+        Tcl_FinalizeThread();
+        Tcl_ExitThread(TCL_ERROR);
+        TCL_THREAD_CREATE_RETURN;
     }
 
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    // Create a kqueue instance
-    int epoll_fd = kqueue();
-    if (epoll_fd == -1) {
-        SetResult("Unable to create kqueue instance");
-        return TCL_ERROR;
-    }
-#else
-    // Create an epoll instance
-    int epoll_fd = epoll_create1(0);
-    if (epoll_fd == -1) {
-        SetResult("Unable to create epoll instance");
-        return TCL_ERROR;
-    }
-#endif
-
-
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    // Add the server socket to the kqueue set
-    struct kevent ev;
-    EV_SET(&ev, server_fd, EVFILT_READ, EV_ADD, 0, 0, server_fd);
-    if (kevent(epoll_fd, &ev, 1, NULL, 0, NULL) == -1) {
-        SetResult("Unable to add server socket to kqueue set");
-        return TCL_ERROR;
-    }
-#else
-    // Add the server socket to the epoll set
-    struct epoll_event ev;
-    ev.events = EPOLLIN;
-    ev.data.fd = server_fd;
-    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, server_fd, &ev) == -1) {
-        SetResult("Unable to add server socket to epoll set");
-        return TCL_ERROR;
-    }
-#endif
+    fprintf(stderr, "port: %d - created listening socket on thread: %d\n", ctrl->port, ctrl->thread_index);
 
     tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_Alloc(sizeof(tws_accept_ctx_t));
 
-    if (option_http) {
+    if (ctrl->option_http) {
         accept_ctx->read_fn = tws_ReadHttpConnAsync;
         accept_ctx->write_fn = tws_WriteHttpConnAsync;
     } else {
@@ -1180,31 +1119,97 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, Tcl_Ob
         accept_ctx->write_fn = tws_WriteSslConnAsync;
 
         // it is an https server, so we need to create an SSL_CTX
-        if (TCL_OK != tws_CreateSslContext(interp, &accept_ctx->sslCtx)) {
+        if (TCL_OK != tws_CreateSslContext(dataPtr->interp, &accept_ctx->sslCtx)) {
             Tcl_Free((char *) accept_ctx);
-            return TCL_ERROR;
+            Tcl_FinalizeThread();
+            Tcl_ExitThread(TCL_ERROR);
+            TCL_THREAD_CREATE_RETURN;
         }
         SSL_CTX_set_client_hello_cb(accept_ctx->sslCtx, tws_ClientHelloCallback, NULL);
     }
 
-    accept_ctx->option_http = option_http;
+    accept_ctx->option_http = ctrl->option_http;
     accept_ctx->server_fd = server_fd;
     accept_ctx->epoll_fd = epoll_fd;
-    accept_ctx->port = port;
-    accept_ctx->interp = interp;
-    accept_ctx->server = server;
+    accept_ctx->port = ctrl->port;
+    accept_ctx->interp = dataPtr->interp;
+    accept_ctx->server = ctrl->server;
 
-    // add accept_ctx to listeners_HT hash table
-    int newEntry;
-    Tcl_HashEntry *entry = Tcl_CreateHashEntry(&server->listeners_HT, INT2PTR(server_fd), &newEntry);
-    if (newEntry) {
-        Tcl_SetHashValue(entry, accept_ctx);
-    } else {
-        Tcl_Free((char *) accept_ctx);
-        SetResult("Unable to add server socket to listeners_HT");
-        return TCL_ERROR;
+    Tcl_CreateFileHandler(epoll_fd, TCL_READABLE, tws_AcceptConn, accept_ctx);
+
+    if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->server->scriptPtr)) {
+        fprintf(stderr, "error evaluating init script\n");
+        fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
+        fprintf(stderr, "%s\n", Tcl_GetVar2(dataPtr->interp, "::errorInfo", NULL, TCL_GLOBAL_ONLY));
+        Tcl_FinalizeThread();
+        Tcl_ExitThread(TCL_ERROR);
+        TCL_THREAD_CREATE_RETURN;
     }
 
+    //
+
+    // create a file handler for the epoll fd for this thread
+    Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
+
+    // make sure that garbage collection does not start the same time on all threads
+//    int first_timer_millis =
+//            ctrl->thread_index * (ctrl->server->garbage_collection_interval_millis / ctrl->server->num_threads);
+//    Tcl_CreateTimerHandler(first_timer_millis, tws_CleanupConnections, ctrl->server);
+
+    // notify the main thread that we are done initializing
+    Tcl_ConditionNotify(&ctrl->condWait);
+
+    DBG(fprintf(stderr, "HandleConnThread: in (%p)\n", threadId));
+    while (1) {
+        Tcl_DoOneEvent(TCL_ALL_EVENTS);
+    }
+    Tcl_Free(accept_ctx);
+    Tcl_FinalizeThread();
+    Tcl_ExitThread(TCL_OK);
+    TCL_THREAD_CREATE_RETURN;
+}
+
+static void tws_KeepaliveConnHandler(void *data, int mask) {
+    DBG(fprintf(stderr, "KeepaliveConnHandler mask=%d\n", mask));
+
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    struct kevent events[MAX_EVENTS];
+    int nfds = kevent(dataPtr->epoll_fd, NULL, 0, events, MAX_EVENTS, NULL);
+    if (nfds == -1) {
+        DBG(fprintf(stderr, "KeepaliveConnHandler: kevent failed"));
+        return;
+    }
+#else
+    struct epoll_event events[MAX_EVENTS];
+    int nfds = epoll_wait(dataPtr->epoll_fd, events, MAX_EVENTS, 0);
+    if (nfds == -1) {
+        DBG(fprintf(stderr, "KeepaliveConnHandler: epoll_wait failed"));
+        return;
+    }
+#endif
+
+    for (int i = 0; i < nfds; i++) {
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+        tws_conn_t *conn = (tws_conn_t *) events[i].udata;
+#else
+        tws_conn_t *conn = (tws_conn_t *) events[i].data.ptr;
+#endif
+        DBG(fprintf(stderr, "KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
+        conn->latest_millis = current_time_in_millis();
+        tws_HandleConn(conn);
+    }
+
+}
+
+int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, Tcl_Obj *portPtr) {
+
+    int port;
+    if (Tcl_GetIntFromObj(interp, portPtr, &port) != TCL_OK) {
+        SetResult("port must be an integer");
+        return TCL_ERROR;
+    }
 
     if (server->num_threads == 0) {
         server->conn_thread_ids = NULL;
@@ -1217,6 +1222,8 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, Tcl_Ob
             ctrl.condWait = NULL;
             ctrl.server = server;
             ctrl.thread_index = i;
+            ctrl.port = port;
+            ctrl.option_http = option_http;
             if (TCL_OK !=
                 Tcl_CreateThread(&id, tws_HandleConnThread, &ctrl, server->thread_stacksize, TCL_THREAD_NOFLAGS)) {
                 Tcl_MutexUnlock(&tws_Thread_Mutex);
@@ -1232,8 +1239,6 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, Tcl_Ob
             DBG(fprintf(stderr, "Listen - created thread: %p\n", id));
         }
     }
-
-    Tcl_CreateFileHandler(epoll_fd, TCL_READABLE, tws_AcceptConn, accept_ctx);
 
     if (server->num_threads == 0) {
         tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));

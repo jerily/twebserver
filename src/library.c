@@ -44,20 +44,6 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
         Tcl_DecrRefCount(server->rootdirPtr);
     }
 
-    // iterate listeners_HT hash table and free each listener
-    Tcl_HashSearch search;
-    Tcl_HashEntry *entry;
-    for (entry = Tcl_FirstHashEntry(&server->listeners_HT, &search);
-         entry != NULL; entry = Tcl_NextHashEntry(&search)) {
-        tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_GetHashValue(entry);
-        Tcl_DeleteFileHandler(accept_ctx->server_fd);
-        if (!accept_ctx->option_http) {
-            SSL_CTX_free(accept_ctx->sslCtx);
-        }
-        Tcl_Free((char *) accept_ctx);
-    }
-    Tcl_DeleteHashTable(&server->listeners_HT);
-
     Tcl_DeleteCommand(interp, handle);
     Tcl_Free((char *) server);
     return TCL_OK;
@@ -443,7 +429,6 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int ob
     } else {
         server_ptr->scriptPtr = NULL;
     }
-    Tcl_InitHashTable(&server_ptr->listeners_HT, TCL_ONE_WORD_KEYS);
     server_ptr->threadId = Tcl_GetCurrentThread();
     server_ptr->rootdirPtr = NULL;
 

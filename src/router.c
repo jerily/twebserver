@@ -537,7 +537,7 @@ static void tws_ThreadQueueRecvEvent(tws_router_t *router_ptr, tws_conn_t *conn)
     routerEvPtr->nextPtr = NULL;
     routerEvPtr->routerClientData = (ClientData *) router_ptr;
     routerEvPtr->connClientData = (ClientData *) conn;
-    Tcl_QueueEvent((Tcl_Event *) routerEvPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) routerEvPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(conn->threadId);
     DBG(fprintf(stderr, "ThreadQueueRecvEvent done - threadId: %p\n", conn->threadId));
 }

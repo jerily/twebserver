@@ -69,7 +69,6 @@ typedef struct {
     Tcl_Obj *rootdirPtr;
     Tcl_ThreadId threadId;
     char handle[30];
-    Tcl_HashTable listeners_HT;
     Tcl_ThreadId *conn_thread_ids;
     Tcl_Size max_request_read_bytes;
     Tcl_Size max_read_buffer_size;
@@ -168,6 +167,8 @@ typedef struct {
     Tcl_Condition condWait;
     tws_server_t *server;
     int thread_index;
+    int port;
+    int option_http;
 } tws_thread_ctrl_t;
 
 typedef struct tws_route_s {

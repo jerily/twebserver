@@ -139,14 +139,13 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
             }
         } else {
             int err = SSL_get_error(conn->ssl, rc);
-            if (err == SSL_ERROR_NONE) {
-                goto done;
-            } else if (err == SSL_ERROR_WANT_READ) {
+            if (err == SSL_ERROR_WANT_READ) {
                 DBG(fprintf(stderr, "SSL_ERROR_WANT_READ\n"));
                 Tcl_Free(buf);
                 return TWS_AGAIN;
 
             } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
+                // peer closed connection
                 goto done;
             }
 

@@ -120,6 +120,7 @@ set init_script {
 # use threads and gzip compression
 set config_dict [dict create \
     num_threads 10 \
+    max_read_buffer_size 32768 \
     rootdir [file dirname [info script]] \
     gzip on \
     gzip_types [list text/plain application/json] \
