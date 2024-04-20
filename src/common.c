@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT.
  */
 
+#include <sys/time.h>
 #include "common.h"
 
 static Tcl_HashTable tws_ServerNameToInternal_HT;
@@ -299,4 +300,14 @@ int tws_IsBinaryType(const char *content_type, int content_type_length) {
         is_binary_type = 1;
     }
     return is_binary_type;
+}
+
+
+long long current_time_in_millis() {
+    // get current tv
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    // convert tv to milliseconds
+    long long milliseconds = (tv.tv_sec * 1000LL) + (tv.tv_usec / 1000LL);
+    return milliseconds;
 }

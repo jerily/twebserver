@@ -418,17 +418,17 @@ static int tws_ParseBottomPart(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *re
 
 static int tws_FoundBlankLine(tws_conn_t *conn) {
     const char *s = Tcl_DStringValue(&conn->ds);
-    const char *p = s; // + conn->blank_line_offset;
+    const char *p = s + conn->blank_line_offset;
     const char *end = s + Tcl_DStringLength(&conn->ds);
     while (p < end) {
         if ((p < end - 3 && *p == '\r' && *(p + 1) == '\n' && *(p + 2) == '\r' && *(p + 3) == '\n') || (p < end - 1 && *p == '\n' && *(p + 1) == '\n')) {
-//            conn->blank_line_offset = p - s - 1;
+            conn->blank_line_offset = p - s - 1;
             return 1;
         }
         p++;
     }
 
-//    conn->blank_line_offset = p - s - 1;
+    conn->blank_line_offset = p - s - 1;
     return 0;
 }
 
@@ -464,6 +464,16 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
                     Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
             return 1;
         }
+    }
+
+    // if 5 seconds have elapsed since we started reading and we haven't received the headers yet, return 400
+    long long elapsed = current_time_in_millis() - conn->start_read_millis;
+    if (elapsed > 5000 && conn->requestDictPtr == NULL) {
+        Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
+        if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
+            tws_CloseConn(conn, 1);
+        }
+        return 1;
     }
 
     Tcl_Size remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
@@ -552,6 +562,9 @@ static int tws_HandleRecvEventInThread(Tcl_Event *evPtr, int flags) {
 
 static void tws_ThreadQueueRecvEvent(tws_router_t *router_ptr, tws_conn_t *conn) {
     DBG(fprintf(stderr, "ThreadQueueRecvEvent - threadId: %p\n", conn->threadId));
+
+    conn->start_read_millis = current_time_in_millis();
+
     tws_router_event_t *routerEvPtr = (tws_router_event_t *) Tcl_Alloc(sizeof(tws_router_event_t));
     routerEvPtr->proc = tws_HandleRecvEventInThread;
     routerEvPtr->nextPtr = NULL;

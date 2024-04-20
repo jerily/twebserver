@@ -9,7 +9,6 @@
 #include <arpa/inet.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
-#include <sys/time.h>
 #include <fcntl.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -37,15 +36,6 @@
 
 static Tcl_Mutex tws_Thread_Mutex;
 static Tcl_ThreadDataKey dataKey;
-
-long long current_time_in_millis() {
-    // get current tv
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    // convert tv to milliseconds
-    long long milliseconds = (tv.tv_sec * 1000LL) + (tv.tv_usec / 1000LL);
-    return milliseconds;
-}
 
 
 enum {
@@ -306,6 +296,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
         conn->threadId = accept_ctx->server->threadId;
     }
 
+    conn->start_read_millis = 0;
     conn->latest_millis = current_time_in_millis();
 
     return conn;

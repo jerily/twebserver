@@ -114,6 +114,7 @@ typedef struct tws_conn_t_ {
     int client;
     Tcl_ThreadId threadId;
     long long latest_millis;
+    long long start_read_millis;
     // refactor the following into a flags field
     tws_compression_method_t compression;
     int keepalive;
@@ -234,6 +235,7 @@ int tws_UnregisterRouterName(const char *name);
 tws_router_t *tws_GetInternalFromRouterName(const char *name);
 char *tws_strndup(const char *s, size_t n);
 int tws_IsBinaryType(const char *content_type, int content_type_length);
+long long current_time_in_millis();
 
 /*
  * Macros used to cast between pointers and integers (e.g. when storing an int
