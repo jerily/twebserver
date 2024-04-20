@@ -75,8 +75,14 @@ static int tws_SetBlockingMode(
 static int bind_socket(Tcl_Interp *interp, int server_fd, const char *host, int port_num) {
     if (host != NULL) {
         // use gethostbyname to convert the host to an address
-        struct hostent *hostent = gethostbyname(host);
-        if (hostent == NULL) {
+        // rewrite this line to use gethostbyname_r: struct hostent *hostent = gethostbyname(host);
+        // it should be:
+        struct hostent *hostent;
+        struct hostent hostent_data;
+        char buffer[1024];
+        int herrno;
+        int ret = gethostbyname_r(host, &hostent_data, buffer, sizeof(buffer), &hostent, &herrno);
+        if (ret != 0) {
             SetResult("Unable to get host by name");
             return TCL_ERROR;
         }
