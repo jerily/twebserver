@@ -26,6 +26,7 @@
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <signal.h>
+#include <netdb.h>
 
 #endif
 
@@ -71,9 +72,83 @@ static int tws_SetBlockingMode(
     return fcntl(fd, F_SETFL, flags);
 }
 
-static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int *server_sock, int *epoll_sock) {
+static int bind_socket(Tcl_Interp *interp, int server_fd, const char *host, int port_num) {
+    if (host != NULL) {
+        // use gethostbyname to convert the host to an address
+        struct hostent *hostent = gethostbyname(host);
+        if (hostent == NULL) {
+            SetResult("Unable to get host by name");
+            return TCL_ERROR;
+        }
+
+        // Iterate over the list of IP addresses returned by gethostbyname
+        for (int i = 0; hostent->h_addr_list[i] != NULL; i++) {
+            struct sockaddr_in6 ipv6_addr;
+            struct sockaddr_in ipv4_addr;
+
+            if (hostent->h_addrtype == AF_INET6) {
+                fprintf(stderr, "ipv6\n");
+                memset(&ipv6_addr, 0, sizeof(ipv6_addr));
+                ipv6_addr.sin6_family = AF_INET6;
+                ipv6_addr.sin6_port = htons(port_num);
+
+                memcpy(&ipv6_addr.sin6_addr, hostent->h_addr_list[i], sizeof(struct in6_addr));
+
+            } else if (hostent->h_addrtype == AF_INET) {
+                memset(&ipv4_addr, 0, sizeof(ipv4_addr));
+                ipv4_addr.sin_family = AF_INET;
+                ipv4_addr.sin_port = htons(port_num);
+
+                memcpy(&ipv4_addr.sin_addr.s_addr, hostent->h_addr_list[i], sizeof(struct in_addr));
+
+                //convert it to an ipv6 mapped ipv4 address
+                struct in6_addr v4addr = IN6ADDR_ANY_INIT;
+                v4addr.s6_addr[10] = 0xff;
+                v4addr.s6_addr[11] = 0xff;
+                v4addr.s6_addr[12] = ipv4_addr.sin_addr.s_addr & 0xff;
+                v4addr.s6_addr[13] = (ipv4_addr.sin_addr.s_addr >> 8) & 0xff;
+                v4addr.s6_addr[14] = (ipv4_addr.sin_addr.s_addr >> 16) & 0xff;
+                v4addr.s6_addr[15] = (ipv4_addr.sin_addr.s_addr >> 24) & 0xff;
+
+                memset(&ipv6_addr, 0, sizeof(ipv6_addr));
+                ipv6_addr.sin6_family = AF_INET6;
+                ipv6_addr.sin6_port = htons(port_num);
+                memcpy(&ipv6_addr.sin6_addr, &v4addr, sizeof(struct in6_addr));
+
+            } else {
+                SetResult("Unknown address family");
+                return TCL_ERROR;
+            }
+
+            if (bind(server_fd, (struct sockaddr *) &ipv6_addr, sizeof(ipv6_addr)) < 0) {
+                SetResult("Unable to bind ipv6 addr");
+                return TCL_ERROR;
+            }
+
+            // print address
+            char straddr[INET6_ADDRSTRLEN];
+            inet_ntop(AF_INET6, &ipv6_addr.sin6_addr, straddr, INET6_ADDRSTRLEN);
+            fprintf(stderr, "bind successful on ipv6 addr: %s\n", straddr);
+
+        }
+    } else {
+        // bind the socket to the wildcard address and the specified port
+        struct sockaddr_in6 server_addr;
+        memset(&server_addr, 0, sizeof(server_addr));
+        server_addr.sin6_family = AF_INET6;
+        server_addr.sin6_addr = in6addr_any;
+        server_addr.sin6_port = htons(port_num);
+
+        if (bind(server_fd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
+            SetResult("Unable to bind ipv4 addr");
+            return TCL_ERROR;
+        }
+    }
+    return TCL_OK;
+}
+
+static int create_socket(Tcl_Interp *interp, tws_server_t *server, const char *host, const char *port, int *server_sock, int *epoll_sock) {
     int server_fd;
-    struct sockaddr_in6 server_addr;
 
     // create an IPv6 TCP socket
     server_fd = socket(AF_INET6, SOCK_STREAM, 0);
@@ -126,14 +201,8 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, int port, int
 #endif
     }
 
-    // bind the socket to the wildcard address and port 3005
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin6_family = AF_INET6;
-    server_addr.sin6_addr = in6addr_any;
-    server_addr.sin6_port = htons(port);
-
-    if (bind(server_fd, (struct sockaddr *) &server_addr, sizeof(server_addr)) < 0) {
-        SetResult("Unable to bind");
+    int port_num = atoi(port);
+    if (TCL_OK != bind_socket(interp, server_fd, host, port_num)) {
         return TCL_ERROR;
     }
 
@@ -1085,14 +1154,14 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 
     int server_fd;
     int epoll_fd;
-    if (TCL_OK != create_socket(dataPtr->interp, ctrl->server, ctrl->port, &server_fd, &epoll_fd) || server_fd < 0 || epoll_fd < 0) {
-        fprintf(stderr, "failed to create socket on thread\n");
+    if (TCL_OK != create_socket(dataPtr->interp, ctrl->server, ctrl->host, ctrl->port, &server_fd, &epoll_fd) || server_fd < 0 || epoll_fd < 0) {
+//        fprintf(stderr, "failed to create socket on thread\n");
         Tcl_FinalizeThread();
         Tcl_ExitThread(TCL_ERROR);
         TCL_THREAD_CREATE_RETURN;
     }
 
-    fprintf(stderr, "port: %d - created listening socket on thread: %d\n", ctrl->port, ctrl->thread_index);
+    fprintf(stderr, "port: %s - created listening socket on thread: %d\n", ctrl->port, ctrl->thread_index);
 
     tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_Alloc(sizeof(tws_accept_ctx_t));
 
@@ -1117,7 +1186,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     accept_ctx->option_http = ctrl->option_http;
     accept_ctx->server_fd = server_fd;
     accept_ctx->epoll_fd = epoll_fd;
-    accept_ctx->port = ctrl->port;
+    accept_ctx->port = atoi(ctrl->port);
     accept_ctx->interp = dataPtr->interp;
     accept_ctx->server = ctrl->server;
 
@@ -1189,13 +1258,7 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
 
 }
 
-int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int option_num_threads, Tcl_Obj *portPtr) {
-
-    int port;
-    if (Tcl_GetIntFromObj(interp, portPtr, &port) != TCL_OK) {
-        SetResult("port must be an integer");
-        return TCL_ERROR;
-    }
+int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int option_num_threads, const char *host, const char *port) {
 
     for (int i = 0; i < option_num_threads; i++) {
         Tcl_MutexLock(&tws_Thread_Mutex);
@@ -1204,6 +1267,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
         ctrl.condWait = NULL;
         ctrl.server = server;
         ctrl.thread_index = i;
+        ctrl.host = host;
         ctrl.port = port;
         ctrl.option_http = option_http;
         if (TCL_OK !=

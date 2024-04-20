@@ -167,7 +167,8 @@ typedef struct {
     Tcl_Condition condWait;
     tws_server_t *server;
     int thread_index;
-    int port;
+    const char *host;
+    const char *port;
     int option_http;
 } tws_thread_ctrl_t;
 

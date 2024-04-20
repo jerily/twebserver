@@ -14,12 +14,14 @@
   ::twebserver::add_context $server_handle localhost "../certs/host1/key.pem" "../certs/host1/cert.pem"
   ::twebserver::add_context $server_handle www.example.com "../certs/host2/key.pem" "../certs/host2/cert.pem"
   ```
-* **::twebserver::listen_server** *?-http?* *?-num_threads n?* *handle* *port*
+* **::twebserver::listen_server** *?-http?* *?-num_threads n?* *?-host hostname?* *handle* *port*
     - starts listening for HTTPS on a port. if the flag ```-http``` is specified, then the server will listen for HTTP on the port.
         The option ```-num_threads``` can be used to specify the number of threads to use for the listener.
+          The option ```-host``` can be used to specify the hostname to listen on.
   ```tcl
   ::twebserver::listen_server $server_handle 4433
   ::twebserver::listen_server -http -num_threads 4 $server_handle 8080
+  ::twebserver::listen_server -host www.example.com $server_handle 443
   ```
 * **::twebserver::destroy_server** *handle*
     - destroys a server

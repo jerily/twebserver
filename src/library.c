@@ -474,9 +474,11 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int incoming
 
     int option_http = 0;
     int option_num_threads = 0;
+    const char *host = NULL;
     Tcl_ArgvInfo ArgTable[] = {
             {TCL_ARGV_CONSTANT, "-http", INT2PTR(1), &option_http, "http (not https) listener"},
             {TCL_ARGV_INT, "-num_threads", NULL, &option_num_threads, "num threads for listener"},
+            {TCL_ARGV_STRING, "-host", NULL, &host, "host for listener"},
             {TCL_ARGV_END, NULL,         NULL, NULL, NULL}
     };
     Tcl_Obj **remObjv;
@@ -501,7 +503,20 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int incoming
         option_num_threads = server->num_threads;
     }
 
-    int result = tws_Listen(interp, server, option_http, option_num_threads, remObjv[2]);
+    int port_num;
+    if (Tcl_GetIntFromObj(interp, remObjv[2], &port_num) != TCL_OK) {
+        SetResult("port must be an integer");
+        return TCL_ERROR;
+    }
+
+    if (port_num < 0 || port_num > 65535) {
+        SetResult("port must be between 0 and 65535");
+        return TCL_ERROR;
+    }
+
+    const char *port = Tcl_GetString(remObjv[2]);
+
+    int result = tws_Listen(interp, server, option_http, option_num_threads, host, port);
     ckfree(remObjv);
     return result;
 

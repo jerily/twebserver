@@ -142,7 +142,6 @@ puts "server is running. go to https://localhost:4433/ or http://localhost:8080/
 
 # wait forever
 ::twebserver::wait
-#vwait -nowindowevents -notimerevents -noidleevents forever
 #vwait forever
 
 # destroy the server
