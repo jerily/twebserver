@@ -143,6 +143,23 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         }
     }
 
+
+    Tcl_Obj *readTimeoutMillisPtr;
+    Tcl_Obj *readTimeoutMillisKeyPtr = Tcl_NewStringObj("read_timeout_millis", -1);
+    Tcl_IncrRefCount(readTimeoutMillisKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, readTimeoutMillisKeyPtr, &readTimeoutMillisPtr)) {
+        Tcl_DecrRefCount(readTimeoutMillisKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(readTimeoutMillisKeyPtr);
+    if (readTimeoutMillisPtr) {
+        if (TCL_OK != Tcl_GetIntFromObj(interp, readTimeoutMillisPtr, &server_ctx->read_timeout_millis)) {
+            SetResult("max_conn_lifetime_millis must be an integer");
+            return TCL_ERROR;
+        }
+    }
+
     // check that max_conn_lifetime_millis is between 1 and 1 hour
     if (server_ctx->conn_timeout_millis < 1 || server_ctx->conn_timeout_millis > 60 * 60 * 1000) {
         SetResult("conn_timeout_millis must be between 1 millisecond and 1 hour");
@@ -427,6 +444,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int ob
     server_ptr->max_read_buffer_size = 1024 * 1024;
     server_ptr->backlog = SOMAXCONN;
     server_ptr->conn_timeout_millis = 2 * 60 * 1000;  // 2 minutes
+    server_ptr->read_timeout_millis = 30 * 1000;  // 30 seconds
     server_ptr->garbage_collection_cleanup_threshold = 10 * 1000;  // attempt cleanup every 10000 requests
     server_ptr->garbage_collection_interval_millis = 10 * 1000;  // 10 seconds
     server_ptr->keepalive = 1;

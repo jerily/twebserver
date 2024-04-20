@@ -466,9 +466,9 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
         }
     }
 
-    // if 5 seconds have elapsed since we started reading and we haven't received the headers yet, return 400
+    // return 400 if we exceeded read timeout
     long long elapsed = current_time_in_millis() - conn->start_read_millis;
-    if (elapsed > 5000 && conn->requestDictPtr == NULL) {
+    if (elapsed > conn->accept_ctx->server->read_timeout_millis) {
         Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
         if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
             tws_CloseConn(conn, 1);
@@ -481,7 +481,7 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
     int ret = conn->accept_ctx->read_fn(conn, &conn->ds, bytes_to_read);
 
     if (TWS_AGAIN == ret) {
-        if (tws_ShouldReadMore(conn)) {
+        if (tws_ShouldParseTopPart(conn) || tws_ShouldReadMore(conn)) {
             DBG(fprintf(stderr, "retry dslen=%zd offset=%zd reqdictptr=%p\n", Tcl_DStringLength(&conn->ds), conn->offset, conn->requestDictPtr));
             return 0;
         }
@@ -499,8 +499,8 @@ static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
         return 1;
     }
 
-    DBG(fprintf(stderr, "rubicon conn->requestDictPtr=%p ret=%d dslen=%d\n", conn->requestDictPtr, ret,
-                Tcl_DStringLength(&conn->ds)));
+    DBG(fprintf(stderr, "rubicon conn->requestDictPtr=%p ret=%d dslen=%d content_length=%ld\n", conn->requestDictPtr, ret,
+                Tcl_DStringLength(&conn->ds), conn->content_length));
 
     if (tws_ShouldParseTopPart(conn)) {
         // case when we have read as much as we could without deferring

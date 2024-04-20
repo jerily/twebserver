@@ -531,7 +531,7 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
 
         // mark the end of the token and remember as "key"
         curr++;
-        size_t keylen = curr - p - 1;
+        Tcl_Size keylen = curr - p - 1;
         char *key = tws_strndup(p, keylen);
         // lowercase "key"
         for (int i = 0; i < keylen; i++) {
@@ -622,7 +622,7 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
 
             // mark the end of the string and remember as "continuation_value"
             curr++;
-            size_t continuation_valuelen = curr - p - 1;
+            Tcl_Size continuation_valuelen = curr - p - 1;
             char *continuation_value = tws_strndup(p, continuation_valuelen);
             Tcl_Obj *continuation_valuePtr = Tcl_NewStringObj(continuation_value, continuation_valuelen);
             Tcl_IncrRefCount(continuation_valuePtr);

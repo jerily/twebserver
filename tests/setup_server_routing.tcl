@@ -76,13 +76,13 @@ set init_script {
 }
 
 set config_dict [dict create \
-    num_threads 10 \
+    read_timeout_millis 5000 \
     gzip on \
     gzip_types [list text/plain application/json] \
     gzip_min_length 20]
 set server_handle [::twebserver::create_server $config_dict process_conn $init_script]
 ::twebserver::add_context $server_handle localhost "../certs/host1/key.pem" "../certs/host1/cert.pem"
-::twebserver::listen_server $server_handle $server_port
+::twebserver::listen_server -num_threads 4 $server_handle $server_port
 vwait forever
 ::twebserver::destroy_server $server_handle
 

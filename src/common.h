@@ -73,6 +73,7 @@ typedef struct {
     Tcl_Size max_read_buffer_size;
     Tcl_Size backlog;
     int conn_timeout_millis;
+    int read_timeout_millis;
     int garbage_collection_cleanup_threshold;
     int garbage_collection_interval_millis;
     int keepalive;  // whether keepalive is on or off
