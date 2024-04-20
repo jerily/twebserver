@@ -65,9 +65,18 @@ test basic-3 {whatever request} -setup setup -cleanup cleanup -body {
 
 sleep 100
 
+test read-timeout-4 {whatever request} -setup setup -cleanup cleanup -body {
+    set request "POST /example HTTP/1.1\nContent-Length: 10000\n\n"
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_2 << $request 2> /dev/null]
+    escape $response
+} -result {HTTP/1.1 400\nContent-Length: 11\n\nBad Request}
+
+sleep 100
+
 # Reconnects to the same server 5 times using the same session ID, this can be used as a test that session caching is working.
 test session-resumption-tls1_2 {reconnect with tls1.2} -setup setup -cleanup cleanup -body {
-    set request "whatever"
+    set request "GET /addr HTTP/1.1\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -tls1_2 -reconnect"
     set msg [exec -ignorestderr -keepnewline -- {*}${cmd} << $request 2> /dev/null]
     set index [string first "Reused, TLSv1.2" $msg]
@@ -77,7 +86,7 @@ test session-resumption-tls1_2 {reconnect with tls1.2} -setup setup -cleanup cle
 sleep 100
 
 test session-resumption-tls1_3 {session resumption with tls1.3} -setup setup -cleanup cleanup -body {
-    set request "whatever"
+    set request "GET /addr HTTP/1.1\n\n"
 
     file delete -force /tmp/sess.pem
 
