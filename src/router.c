@@ -418,17 +418,17 @@ static int tws_ParseBottomPart(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *re
 
 static int tws_FoundBlankLine(tws_conn_t *conn) {
     const char *s = Tcl_DStringValue(&conn->ds);
-    const char *p = s + conn->blank_line_offset;
-    const char *end = s + Tcl_DStringLength(&conn->ds) - 3;
+    const char *p = s; // + conn->blank_line_offset;
+    const char *end = s + Tcl_DStringLength(&conn->ds);
     while (p < end) {
-        if ((*p == '\r' && *(p + 1) == '\n' && *(p + 2) == '\r' && *(p + 3) == '\n') || (*p == '\n' && *(p + 1) == '\n')) {
-            conn->blank_line_offset = p - s;
+        if ((p < end - 3 && *p == '\r' && *(p + 1) == '\n' && *(p + 2) == '\r' && *(p + 3) == '\n') || (p < end - 1 && *p == '\n' && *(p + 1) == '\n')) {
+//            conn->blank_line_offset = p - s - 1;
             return 1;
         }
         p++;
     }
 
-    conn->blank_line_offset = p - s;
+//    conn->blank_line_offset = p - s - 1;
     return 0;
 }
 
