@@ -1167,7 +1167,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         TCL_THREAD_CREATE_RETURN;
     }
 
-    fprintf(stderr, "port: %s - created listening socket on thread: %d\n", ctrl->port, ctrl->thread_index);
+    DBG(fprintf(stderr, "port: %s - created listening socket on thread: %d\n", ctrl->port, ctrl->thread_index));
 
     tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_Alloc(sizeof(tws_accept_ctx_t));
 
