@@ -64,9 +64,13 @@ static int tws_SetBlockingMode(
 
 static int bind_socket(Tcl_Interp *interp, int server_fd, const char *host, int port_num) {
     if (host != NULL) {
-        // use gethostbyname to convert the host to an address
-        // rewrite this line to use gethostbyname_r: struct hostent *hostent = gethostbyname(host);
-        // it should be:
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+        struct hostent *hostent = gethostbyname(host);
+        if (hostent == NULL) {
+            SetResult("Unable to get host by name");
+            return TCL_ERROR;
+        }
+#else
         struct hostent *hostent;
         struct hostent hostent_data;
         char buffer[1024];
@@ -76,6 +80,7 @@ static int bind_socket(Tcl_Interp *interp, int server_fd, const char *host, int 
             SetResult("Unable to get host by name");
             return TCL_ERROR;
         }
+#endif
 
         // Iterate over the list of IP addresses returned by gethostbyname
         for (int i = 0; hostent->h_addr_list[i] != NULL; i++) {
