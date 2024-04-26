@@ -101,6 +101,7 @@ typedef struct {
     SSL_CTX *sslCtx;
     int (*read_fn)(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size);
     int (*write_fn)(tws_conn_t *conn, const char *buf, Tcl_Size len);
+    int (*handle_conn_fn)(tws_conn_t *conn);
 } tws_accept_ctx_t;
 
 typedef enum tws_CompressionMethod {

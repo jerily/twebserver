@@ -448,102 +448,17 @@ static int tws_ShouldReadMore(tws_conn_t *conn) {
     return !tws_FoundBlankLine(conn);
 }
 
-static int tws_HandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
-    DBG(fprintf(stderr, "HandleRecv: %s\n", conn->conn_handle));
+static int tws_OldHandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
+    DBG(fprintf(stderr, "OldHandleRecv: %s\n", conn->conn_handle));
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(conn->dataKeyPtr, sizeof(tws_thread_data_t));
 
-    if (tws_ShouldParseTopPart(conn)) {
-        DBG(fprintf(stderr, "parse top part after deferring reqdictptr=%p\n", conn->requestDictPtr));
-        // case when we have read as much as we could with deferring
-        if (TCL_OK != tws_ParseTopPart(dataPtr->interp, conn)) {
-            Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
-            if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
-                tws_CloseConn(conn, 1);
-            }
-            fprintf(stderr, "ParseTopPart failed (before rubicon): %s\n",
-                    Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
-            return 1;
-        }
-    }
-
-    // return 400 if we exceeded read timeout
-    long long elapsed = current_time_in_millis() - conn->start_read_millis;
-    if (elapsed > conn->accept_ctx->server->read_timeout_millis) {
-        Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
-        if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
-            tws_CloseConn(conn, 1);
-        }
-        return 1;
-    }
-
-    Tcl_Size remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
-    Tcl_Size bytes_to_read = conn->content_length == 0 ? 0 : conn->content_length - remaining_unprocessed;
-    int ret = conn->accept_ctx->read_fn(conn, &conn->ds, bytes_to_read);
-
-    if (TWS_AGAIN == ret) {
-        if (tws_ShouldParseTopPart(conn) || tws_ShouldReadMore(conn)) {
-            DBG(fprintf(stderr, "retry dslen=%zd offset=%zd reqdictptr=%p\n", Tcl_DStringLength(&conn->ds), conn->offset, conn->requestDictPtr));
-            return 0;
-        }
-    } else if (TWS_ERROR == ret) {
-        fprintf(stderr, "err\n");
-        if (conn->requestDictPtr != NULL) {
-            Tcl_DecrRefCount(conn->requestDictPtr);
-            conn->requestDictPtr = NULL;
-        }
-        conn->error = 1;
-        tws_CloseConn(conn, 2);
-        return 1;
-    } else if (TWS_DONE == ret && Tcl_DStringLength(&conn->ds) == 0) {
-        tws_CloseConn(conn, 0);
-        return 1;
-    }
-
-    DBG(fprintf(stderr, "rubicon conn->requestDictPtr=%p ret=%d dslen=%d content_length=%ld\n", conn->requestDictPtr, ret,
-                Tcl_DStringLength(&conn->ds), conn->content_length));
-
-    if (tws_ShouldParseTopPart(conn)) {
-        // case when we have read as much as we could without deferring
-        if (TCL_OK != tws_ParseTopPart(dataPtr->interp, conn)) {
-            Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
-            if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
-                tws_CloseConn(conn, 1);
-            }
-            fprintf(stderr, "ParseTopPart failed (after rubicon): %s\n",
-                    Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
-            return 1;
-        }
-    }
-
-    Tcl_Obj *req_dict_ptr = conn->requestDictPtr;
-    conn->requestDictPtr = NULL;
-
-    if (tws_ShouldParseBottomPart(conn)) {
-        if (TCL_OK != tws_ParseBottomPart(dataPtr->interp, conn, req_dict_ptr)) {
-            fprintf(stderr, "ParseBottomPart failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
-            Tcl_DecrRefCount(req_dict_ptr);
-            return 1;
-        }
-    } else {
-        if (TCL_OK !=
-            Tcl_DictObjPut(dataPtr->interp, req_dict_ptr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(0))) {
-            fprintf(stderr, "failed to write to dict");
-            return 1;
-        }
-        if (TCL_OK !=
-            Tcl_DictObjPut(dataPtr->interp, req_dict_ptr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj("", -1))) {
-            fprintf(stderr, "failed to write to dict");
-            return 1;
-        }
-    }
-
     // no need to decr ref count of req_dict_ptr because it is already decr ref counted in DoRouting
-    if (TCL_OK != tws_DoRouting(dataPtr->interp, router_ptr, conn, req_dict_ptr)) {
+    if (TCL_OK != tws_DoRouting(dataPtr->interp, router_ptr, conn, conn->requestDictPtr)) {
         fprintf(stderr, "DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
         fprintf(stderr, "errorInfo: %s\n", Tcl_GetVar(dataPtr->interp, "errorInfo", TCL_GLOBAL_ONLY));
         return 1;
     }
-
+    conn->requestDictPtr = NULL;
     DBG(fprintf(stderr, "DoRouting done\n"));
     return 1;
 }
@@ -553,11 +468,11 @@ static int tws_HandleRecvEventInThread(Tcl_Event *evPtr, int flags) {
     tws_router_t *router = (tws_router_t *) routerEvPtr->routerClientData;
     tws_conn_t *conn = (tws_conn_t *) routerEvPtr->connClientData;
     DBG(fprintf(stderr, "HandleRecvEventInThread: %s\n", conn->conn_handle));
-    int result = tws_HandleRecv(router, conn);
+    int result = tws_OldHandleRecv(router, conn);
     if (!result) {
         Tcl_ThreadAlert(conn->threadId);
     }
-    return result;
+    return 1;
 }
 
 static void tws_ThreadQueueRecvEvent(tws_router_t *router_ptr, tws_conn_t *conn) {
@@ -570,7 +485,7 @@ static void tws_ThreadQueueRecvEvent(tws_router_t *router_ptr, tws_conn_t *conn)
     routerEvPtr->nextPtr = NULL;
     routerEvPtr->routerClientData = (ClientData *) router_ptr;
     routerEvPtr->connClientData = (ClientData *) conn;
-    Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) routerEvPtr, TCL_QUEUE_TAIL);
+    Tcl_QueueEvent((Tcl_Event *) routerEvPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(conn->threadId);
     DBG(fprintf(stderr, "ThreadQueueRecvEvent done - threadId: %p\n", conn->threadId));
 }
