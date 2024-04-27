@@ -900,8 +900,8 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d\n", conn->ready));
     if (conn->ready) {
         tws_HandleProcessing(conn);
-    } else {
-        Tcl_ThreadAlert(conn->threadId);
+//    } else {
+//        Tcl_ThreadAlert(conn->threadId);
     }
     return conn->ready;
 }
@@ -1279,8 +1279,12 @@ void tws_AcceptConn(void *data, int mask) {
     tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) data;
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    struct timespec timeout;
+    timeout.tv_sec = 0;  // 5 seconds
+    timeout.tv_nsec = 1000; // 0 nanoseconds
+
     struct kevent events[MAX_EVENTS];
-    int nfds = kevent(accept_ctx->epoll_fd, NULL, 0, events, MAX_EVENTS, NULL);
+    int nfds = kevent(accept_ctx->epoll_fd, NULL, 0, events, MAX_EVENTS, &timeout);
     if (nfds == -1) {
         DBG(fprintf(stderr, "kevent failed"));
         return;
@@ -1445,8 +1449,8 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 //    Tcl_SetMaxBlockTime(&block_time);
     while (1) {
 //        fprintf(stderr, "HandleConnThread: in conn loop\n");
-        Tcl_DoOneEvent(TCL_ALL_EVENTS);
-//        Tcl_DoOneEvent(TCL_DONT_WAIT);
+//        Tcl_DoOneEvent(TCL_ALL_EVENTS);
+        Tcl_DoOneEvent(TCL_DONT_WAIT);
 //        Tcl_WaitForEvent(&block_time);
     }
     Tcl_Free(accept_ctx);
@@ -1463,12 +1467,12 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-//    struct timespec timeout;
-//    timeout.tv_sec = 0;  // 5 seconds
-//    timeout.tv_nsec = 1000; // 0 nanoseconds
+    struct timespec timeout;
+    timeout.tv_sec = 0;  // 5 seconds
+    timeout.tv_nsec = 1000; // 0 nanoseconds
 
     struct kevent events[MAX_EVENTS];
-    int nfds = kevent(dataPtr->epoll_fd, NULL, 0, events, MAX_EVENTS, NULL);
+    int nfds = kevent(dataPtr->epoll_fd, NULL, 0, events, MAX_EVENTS, &timeout);
     if (nfds == -1) {
         DBG(fprintf(stderr, "KeepaliveConnHandler: kevent failed"));
         return;
