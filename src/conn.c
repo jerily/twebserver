@@ -412,14 +412,14 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
 
     if (conn->created_file_handler_p == 1) {
         DBG(fprintf(stderr, "schedule deletion of file handler client: %d\n", conn->client));
-        tws_DeleteFileHandler(conn->client);
+//        tws_DeleteFileHandler(conn->client);
 
         // notify the event loop to delete the file handler for keepalive
-//        tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-//        evPtr->proc = tws_DeleteFileHandlerForKeepaliveConn;
-//        evPtr->nextPtr = NULL;
-//        evPtr->clientData = (ClientData *) conn;
-//        Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+        tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+        evPtr->proc = tws_DeleteFileHandlerForKeepaliveConn;
+        evPtr->nextPtr = NULL;
+        evPtr->clientData = (ClientData *) conn;
+        Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
         // Tcl_ThreadAlert(conn->threadId);
     }
     DBG(fprintf(stderr, "done shutdown\n"));
