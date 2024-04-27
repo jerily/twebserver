@@ -387,6 +387,13 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
         DBG(fprintf(stderr, "ShutdownConn - already marked for deletion\n"));
         return;
     }
+
+
+    if (conn->created_file_handler_p == 1) {
+        tws_DeleteFileHandler(conn->client);
+        conn->created_file_handler_p = 0;
+    }
+
     conn->shutdown = 1;
     int shutdown_client = 1;
     if (!conn->accept_ctx->option_http) {
@@ -413,25 +420,10 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
         }
     }
 
-    if (conn->created_file_handler_p == 1) {
-        tws_DeleteFileHandler(conn->client);
-    }
-
     if (close(conn->client)) {
         DBG(fprintf(stderr, "close failed\n"));
     }
 
-//    if (conn->created_file_handler_p == 1) {
-//        DBG(fprintf(stderr, "schedule deletion of file handler client: %d\n", conn->client));
-
-//         notify the event loop to delete the file handler for keepalive
-//        tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-//        evPtr->proc = tws_DeleteFileHandlerForKeepaliveConn;
-//        evPtr->nextPtr = NULL;
-//        evPtr->clientData = (ClientData *) conn;
-//        Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-//         Tcl_ThreadAlert(conn->threadId);
-//    }
     DBG(fprintf(stderr, "done shutdown\n"));
 }
 
@@ -548,6 +540,10 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     conn->content_length = 0;
     conn->requestDictPtr = NULL;
     conn->accept_ctx->handle_conn_fn = tws_HandleRecv;
+    conn->shutdown = 0;
+    conn->ready = 0;
+    conn->processed = 0;
+//    conn->handshaked = 0;
 
     if (force) {
         if (tws_UnregisterConnName(conn->conn_handle)) {
@@ -585,11 +581,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
 }
 
 static int tws_HandleProcessing(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "HandleProcessingEventInThread: %s\n", conn->conn_handle));
-
-    if (conn->processed) {
-        return 1;
-    }
+    DBG(fprintf(stderr, "HandleProcessing: %s\n", conn->conn_handle));
 
     tws_accept_ctx_t *accept_ctx = conn->accept_ctx;
 
@@ -619,14 +611,12 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
         Tcl_DecrRefCount(connPtr);
         Tcl_DecrRefCount(addrPtr);
         Tcl_DecrRefCount(portPtr);
-        conn->processed = 1;
         return 1;
     }
     Tcl_DecrRefCount(connPtr);
     Tcl_DecrRefCount(addrPtr);
     Tcl_DecrRefCount(portPtr);
 
-    conn->processed = 1;
     return 1;
 }
 
@@ -822,7 +812,8 @@ static int tws_HandleRecv(tws_conn_t *conn) {
         tws_CloseConn(conn, 2);
         return 1;
     } else if (TWS_DONE == ret && Tcl_DStringLength(&conn->ds) == 0) {
-        tws_CloseConn(conn, 0);
+        // peer closed connection?
+        tws_CloseConn(conn, 1);
         return 1;
     }
 
@@ -869,7 +860,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
     DBG(fprintf(stderr, "HandleRecv done\n"));
 
     conn->ready = 1;
-    conn->accept_ctx->handle_conn_fn = tws_HandleProcessing;
+//    conn->accept_ctx->handle_conn_fn = tws_HandleProcessing;
     return 1;
 }
 
@@ -910,8 +901,8 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
 static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
-    if (conn->ready) {
-        DBG(fprintf(stderr, "HandleProcessEventInThread: already ready\n"));
+    if (conn->ready || conn->shutdown) {
+        DBG(fprintf(stderr, "HandleProcessEventInThread: ready: %d shutdown: %d\n", conn->ready, conn->shutdown));
         return 1;
     }
 
@@ -919,12 +910,13 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
     conn->accept_ctx->handle_conn_fn(conn);
     DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d\n", conn->ready));
 
-    if (conn->ready) {
+    int ready = conn->ready;
+    if (ready) {
         tws_HandleProcessing(conn);
     } else {
         Tcl_ThreadAlert(conn->threadId);
     }
-    return conn->ready || conn->shutdown;
+    return ready;
 }
 
 static void tws_ThreadQueueProcessEvent(tws_conn_t *conn) {
@@ -1532,10 +1524,6 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
         DBG(fprintf(stderr, "KeepaliveConnHandler - calling handle_conn_fn: %p\n", conn->accept_ctx->handle_conn_fn));
 
         tws_ThreadQueueProcessEvent(conn);
-
-//        conn->accept_ctx->handle_conn_fn(conn);
-//        tws_HandleConn(conn);
-//        tws_ThreadQueueConnEvent(conn);
     }
 
 }
