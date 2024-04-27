@@ -498,7 +498,7 @@ static void tws_CreateFileHandler(int fd, ClientData clientData) {
     ev.data.fd = fd;
     ev.data.ptr = clientData;
     if (epoll_ctl(dataPtr->epoll_fd, EPOLL_CTL_ADD, fd, &ev) == -1) {
-        DBG(fprintf(stderr, "CreateFileHandler: epoll_ctl failed, fd: %d\n", fd));
+        fprintf(stderr, "CreateFileHandler: epoll_ctl failed, fd: %d\n", fd);
     }
 #endif
 }
@@ -542,14 +542,13 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
         } else {
             if (!conn->created_file_handler_p) {
                 conn->created_file_handler_p = 1;
-                conn->accept_ctx->handle_conn_fn = tws_HandleConn;
                 // notify the event loop to keep the connection alive
-//                tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-//                evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
-//                evPtr->nextPtr = NULL;
-//                evPtr->clientData = (ClientData *) conn;
-//                Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-//                // Tcl_ThreadAlert(conn->threadId);
+                tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+                evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
+                evPtr->nextPtr = NULL;
+                evPtr->clientData = (ClientData *) conn;
+                Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+                Tcl_ThreadAlert(conn->threadId);
             }
         }
     }
@@ -922,6 +921,23 @@ static void tws_ThreadQueueProcessEvent(tws_conn_t *conn) {
     DBG(fprintf(stderr, "ThreadQueueProcessEvent done - threadId: %p\n", conn->threadId));
 }
 
+static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
+    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
+    return tws_HandleConn(conn);
+}
+
+static void tws_ThreadQueueConnEvent(tws_conn_t *conn) {
+    DBG(fprintf(stderr, "ThreadQueueConnEvent - threadId: %p\n", conn->threadId));
+    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    connEvPtr->proc = tws_HandleConnEventInThread;
+    connEvPtr->nextPtr = NULL;
+    connEvPtr->clientData = (ClientData *) conn;
+    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(conn->threadId);
+    DBG(fprintf(stderr, "ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
+}
+
 int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr, Tcl_Encoding encoding) {
 
     if (!conn->accept_ctx) {
@@ -1268,11 +1284,13 @@ static int tws_HandleConn(tws_conn_t *conn) {
 
     Tcl_MutexUnlock(dataPtr->mutex);
 
-
+    conn->ready = 0;
+    conn->processed = 0;
     if (conn->accept_ctx->option_http) {
         conn->accept_ctx->handle_conn_fn = tws_HandleRecv;
         conn->handshaked = 1;
     } else {
+        conn->handshaked = 0;
         conn->accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
     }
 
@@ -1338,14 +1356,8 @@ void tws_AcceptConn(void *data, int mask) {
             CMD_CONN_NAME(conn->conn_handle, conn);
             tws_RegisterConnName(conn->conn_handle, conn);
 
-            if (!conn->created_file_handler_p) {
-                DBG(fprintf(stderr, "AcceptConn - create file handler\n"));
-                conn->created_file_handler_p = 1;
-                tws_CreateFileHandler(conn->client, conn);
-            }
-
-            tws_HandleConn(conn);
-
+//            tws_HandleConn(conn);
+            tws_ThreadQueueConnEvent(conn);
         } else {
             // data available on an existing connection
             // we do not have any as each thread has its own epoll instance
@@ -1500,12 +1512,15 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
         tws_conn_t *conn = (tws_conn_t *) events[i].data.ptr;
 #endif
         DBG(fprintf(stderr, "KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
-        conn->latest_millis = current_time_in_millis();
+        conn->start_read_millis = current_time_in_millis();
+        conn->latest_millis = conn->start_read_millis;
 
         DBG(fprintf(stderr, "%p %p %p\n", tws_HandleConn, tws_HandleRecv, tws_HandleSslHandshake));
         DBG(fprintf(stderr, "KeepaliveConnHandler - calling handle_conn_fn: %p\n", conn->accept_ctx->handle_conn_fn));
-        conn->accept_ctx->handle_conn_fn(conn);
+//        conn->accept_ctx->handle_conn_fn(conn);
 //        tws_HandleConn(conn);
+
+        tws_ThreadQueueConnEvent(conn);
     }
 
 }
