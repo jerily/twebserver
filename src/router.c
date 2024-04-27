@@ -353,7 +353,7 @@ static int tws_HandleRecvEventInThread(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "HandleRecvEventInThread: %s\n", conn->conn_handle));
     int result = tws_OldHandleRecv(router, conn);
     if (!result) {
-        Tcl_ThreadAlert(conn->threadId);
+        // Tcl_ThreadAlert(conn->threadId);
     }
     return 1;
 }
@@ -369,7 +369,7 @@ static void tws_OldThreadQueueRecvEvent(tws_router_t *router_ptr, tws_conn_t *co
     routerEvPtr->routerClientData = (ClientData *) router_ptr;
     routerEvPtr->connClientData = (ClientData *) conn;
     Tcl_QueueEvent((Tcl_Event *) routerEvPtr, TCL_QUEUE_TAIL);
-    Tcl_ThreadAlert(conn->threadId);
+    // Tcl_ThreadAlert(conn->threadId);
     DBG(fprintf(stderr, "ThreadQueueRecvEvent done - threadId: %p\n", conn->threadId));
 }
 

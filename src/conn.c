@@ -44,7 +44,7 @@ enum {
     TWS_MODE_NONBLOCKING
 };
 
-static int tws_HandleConn(tws_conn_t *conn);
+static int tws_HandleConnEventInThreadHelper(tws_conn_t *conn);
 
 tws_server_t *tws_GetCurrentServer() {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
@@ -411,14 +411,15 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
 
     if (conn->created_file_handler_p == 1) {
         DBG(fprintf(stderr, "schedule deletion of file handler client: %d\n", conn->client));
+        tws_DeleteFileHandler(conn->client);
 
         // notify the event loop to delete the file handler for keepalive
-        tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-        evPtr->proc = tws_DeleteFileHandlerForKeepaliveConn;
-        evPtr->nextPtr = NULL;
-        evPtr->clientData = (ClientData *) conn;
-        Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-        Tcl_ThreadAlert(conn->threadId);
+//        tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+//        evPtr->proc = tws_DeleteFileHandlerForKeepaliveConn;
+//        evPtr->nextPtr = NULL;
+//        evPtr->clientData = (ClientData *) conn;
+//        Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+        // Tcl_ThreadAlert(conn->threadId);
     }
     DBG(fprintf(stderr, "done shutdown\n"));
 }
@@ -516,7 +517,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     conn->blank_line_offset = 0;
     conn->content_length = 0;
     conn->requestDictPtr = NULL;
-    conn->accept_ctx->handle_conn_fn = tws_HandleConn;
+    conn->accept_ctx->handle_conn_fn = tws_HandleConnEventInThreadHelper;
 
     if (force) {
         if (tws_UnregisterConnName(conn->conn_handle)) {
@@ -536,14 +537,14 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
         } else {
             if (!conn->created_file_handler_p) {
                 conn->created_file_handler_p = 1;
-                conn->accept_ctx->handle_conn_fn = tws_HandleConn;
+                conn->accept_ctx->handle_conn_fn = tws_HandleConnEventInThreadHelper;
                 // notify the event loop to keep the connection alive
 //                tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
 //                evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
 //                evPtr->nextPtr = NULL;
 //                evPtr->clientData = (ClientData *) conn;
 //                Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-//                Tcl_ThreadAlert(conn->threadId);
+//                // Tcl_ThreadAlert(conn->threadId);
             }
         }
     }
@@ -558,7 +559,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
         evPtr->proc = tws_CleanupConnections;
         evPtr->nextPtr = NULL;
         Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-        Tcl_ThreadAlert(conn->threadId);
+        // Tcl_ThreadAlert(conn->threadId);
     }
 
     return TCL_OK;
@@ -617,7 +618,7 @@ static void tws_ThreadQueueProcessingEvent(tws_conn_t *conn) {
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
     Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
-    Tcl_ThreadAlert(conn->threadId);
+    // Tcl_ThreadAlert(conn->threadId);
     DBG(fprintf(stderr, "ThreadQueueProcessingEvent done - threadId: %p\n", conn->threadId));
 }
 
@@ -833,24 +834,26 @@ static int tws_HandleRecv(tws_conn_t *conn) {
         }
     }
 
-    Tcl_Obj *req_dict_ptr = conn->requestDictPtr;
+//    Tcl_Obj *req_dict_ptr = conn->requestDictPtr;
 //    conn->requestDictPtr = NULL;
 
     if (tws_ShouldParseBottomPart(conn)) {
-        if (TCL_OK != tws_ParseBottomPart(dataPtr->interp, conn, req_dict_ptr)) {
+        if (TCL_OK != tws_ParseBottomPart(dataPtr->interp, conn, conn->requestDictPtr)) {
             fprintf(stderr, "ParseBottomPart failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
-            Tcl_DecrRefCount(req_dict_ptr);
+            Tcl_DecrRefCount(conn->requestDictPtr);
             return 1;
         }
     } else {
         if (TCL_OK !=
-            Tcl_DictObjPut(dataPtr->interp, req_dict_ptr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(0))) {
+            Tcl_DictObjPut(dataPtr->interp, conn->requestDictPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(0))) {
             fprintf(stderr, "failed to write to dict");
+            Tcl_DecrRefCount(conn->requestDictPtr);
             return 1;
         }
         if (TCL_OK !=
-            Tcl_DictObjPut(dataPtr->interp, req_dict_ptr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj("", -1))) {
+            Tcl_DictObjPut(dataPtr->interp, conn->requestDictPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj("", -1))) {
             fprintf(stderr, "failed to write to dict");
+            Tcl_DecrRefCount(conn->requestDictPtr);
             return 1;
         }
     }
@@ -866,29 +869,6 @@ static int tws_HandleRecv(tws_conn_t *conn) {
     return 1;
 }
 
-
-static int tws_HandleRecvEventInThread(Tcl_Event *evPtr, int flags) {
-    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
-    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
-    DBG(fprintf(stderr, "HandleRecvEventInThread: %s\n", conn->conn_handle));
-    int result = tws_HandleRecv(conn);
-    Tcl_ThreadAlert(conn->threadId);
-    return result;
-}
-
-static void tws_ThreadQueueRecvEvent(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "ThreadQueueRecvEvent - threadId: %p\n", conn->threadId));
-
-    tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-    evPtr->proc = tws_HandleRecvEventInThread;
-    evPtr->nextPtr = NULL;
-    evPtr->clientData = (ClientData *) conn;
-    Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-    Tcl_ThreadAlert(conn->threadId);
-    DBG(fprintf(stderr, "ThreadQueueRecvEvent done - threadId: %p\n", conn->threadId));
-}
-
-
 int tws_HandleSslHandshake(tws_conn_t *conn) {
     if (conn->handshaked) {
         DBG(fprintf(stderr, "HandleSslHandshake: already handshaked\n"));
@@ -900,10 +880,6 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
         DBG(fprintf(stderr, "HandleHandshake: success\n"));
         conn->handshaked = 1;
         conn->accept_ctx->handle_conn_fn = tws_HandleRecv;
-        int ret = tws_HandleRecv(conn);
-        if (!ret) {
-            tws_ThreadQueueRecvEvent(conn);
-        }
         return 1;
     }
 
@@ -927,41 +903,29 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
     return 1;
 }
 
-static int tws_HandleHandshakeEventInThread(Tcl_Event *evPtr, int flags) {
+static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
-    DBG(fprintf(stderr, "HandleHandshakeEventInThread: %s\n", conn->conn_handle));
-    conn->accept_ctx->handle_conn_fn = conn->accept_ctx->option_http ? tws_HandleRecv : tws_HandleSslHandshake;
-    int result = conn->accept_ctx->handle_conn_fn(conn);
-//    if (!result) {
-//    }
-//    Tcl_ThreadAlert(conn->threadId);
-//    conn->accept_ctx->handle_conn_fn = tws_ThreadQueueProcessingEvent;
-    return result;
+    DBG(fprintf(stderr, "HandleProcessEventInThread: %s\n", conn->conn_handle));
+    conn->accept_ctx->handle_conn_fn(conn);
+    DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d\n", conn->ready));
+    if (conn->ready) {
+        tws_HandleProcessing(conn);
+    } else {
+        Tcl_ThreadAlert(conn->threadId);
+    }
+    return conn->ready;
 }
 
-static void tws_ThreadQueueHandshakeEvent(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "ThreadQueueHandshakeEvent - threadId: %p\n", conn->threadId));
+static void tws_ThreadQueueProcessEvent(tws_conn_t *conn) {
+    DBG(fprintf(stderr, "ThreadQueueProcessEvent - threadId: %p\n", conn->threadId));
     tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-    connEvPtr->proc = tws_HandleHandshakeEventInThread;
+    connEvPtr->proc = tws_HandleProcessEventInThread;
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
     Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
-    Tcl_ThreadAlert(conn->threadId);
-    DBG(fprintf(stderr, "ThreadQueueHandshakeEvent done - threadId: %p\n", conn->threadId));
-}
-
-static int tws_HandleConn(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "HandleConn client: %d\n", conn->client));
-
-    conn->accept_ctx->handle_conn_fn = conn->accept_ctx->option_http ? tws_HandleRecv : tws_HandleSslHandshake;
-
-    int ret = conn->accept_ctx->handle_conn_fn(conn);
-    if (!ret) {
-        tws_ThreadQueueHandshakeEvent(conn);
-    }
-    Tcl_ThreadAlert(conn->threadId);
-    return ret;
+    // Tcl_ThreadAlert(conn->threadId);
+    DBG(fprintf(stderr, "ThreadQueueProcessEvent done - threadId: %p\n", conn->threadId));
 }
 
 int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr, Tcl_Encoding encoding) {
@@ -1310,28 +1274,16 @@ static int tws_HandleConnEventInThreadHelper(tws_conn_t *conn) {
 
     Tcl_MutexUnlock(dataPtr->mutex);
 
-    tws_HandleConn(conn);
 
-}
+    if (conn->accept_ctx->option_http) {
+        conn->accept_ctx->handle_conn_fn = tws_HandleRecv;
+//        tws_ThreadQueueRecvEvent(conn);
+    } else {
+        conn->accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
+//        tws_ThreadQueueHandshakeEvent(conn);
+    }
 
-static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
-    DBG(fprintf(stderr, "HandleConnEventInThread\n"));
-    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
-    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
-
-    tws_HandleConnEventInThreadHelper(conn);
-    return 1;
-}
-
-static void tws_ThreadQueueConnEvent(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "ThreadQueueConnEvent - threadId: %p\n", conn->threadId));
-    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-    connEvPtr->proc = tws_HandleConnEventInThread;
-    connEvPtr->nextPtr = NULL;
-    connEvPtr->clientData = (ClientData *) conn;
-    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
-    Tcl_ThreadAlert(conn->threadId);
-    DBG(fprintf(stderr, "ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
+    tws_ThreadQueueProcessEvent(conn);
 }
 
 void tws_AcceptConn(void *data, int mask) {
@@ -1458,12 +1410,12 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     if (ctrl->option_http) {
         accept_ctx->read_fn = tws_ReadHttpConnAsync;
         accept_ctx->write_fn = tws_WriteHttpConnAsync;
-        accept_ctx->handle_conn_fn = tws_HandleConn;
+        accept_ctx->handle_conn_fn = tws_HandleConnEventInThreadHelper;
     } else {
 
         accept_ctx->read_fn = tws_ReadSslConnAsync;
         accept_ctx->write_fn = tws_WriteSslConnAsync;
-        accept_ctx->handle_conn_fn = tws_HandleConn;
+        accept_ctx->handle_conn_fn = tws_HandleConnEventInThreadHelper;
 
         // it is an https server, so we need to create an SSL_CTX
         if (TCL_OK != tws_CreateSslContext(dataPtr->interp, &accept_ctx->sslCtx)) {
@@ -1548,7 +1500,7 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
         DBG(fprintf(stderr, "KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
         conn->latest_millis = current_time_in_millis();
 
-        fprintf(stderr, "%p %p %p\n", tws_HandleConn, tws_HandleRecv, tws_HandleSslHandshake);
+        fprintf(stderr, "%p %p %p\n", tws_HandleConnEventInThreadHelper, tws_HandleRecv, tws_HandleSslHandshake);
         fprintf(stderr, "KeepaliveConnHandler - calling handle_conn_fn: %p\n", conn->accept_ctx->handle_conn_fn);
         conn->accept_ctx->handle_conn_fn(conn);
 //        tws_HandleConn(conn);
