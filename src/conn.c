@@ -910,6 +910,8 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
     conn->accept_ctx->handle_conn_fn(conn);
     DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d\n", conn->ready));
 
+    // DoRouting closes the connection when done processing
+    // so, we keep the state of the ready flag to avoid processing it again
     int ready = conn->ready;
     if (ready) {
         tws_HandleProcessing(conn);
