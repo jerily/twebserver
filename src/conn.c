@@ -795,6 +795,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
 
     Tcl_Size remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
     Tcl_Size bytes_to_read = conn->content_length == 0 ? 0 : conn->content_length - remaining_unprocessed;
+    // todo: here
     int ret = conn->accept_ctx->read_fn(conn, &conn->ds, bytes_to_read);
 
     if (TWS_AGAIN == ret) {
@@ -899,10 +900,10 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
         DBG(fprintf(stderr, "HandleHandshake: success\n"));
         conn->handshaked = 1;
         conn->accept_ctx->handle_conn_fn = tws_HandleRecv;
-//        int ret = tws_HandleRecv(conn);
-//        if (!ret) {
-//            tws_ThreadQueueRecvEvent(conn);
-//        }
+        int ret = tws_HandleRecv(conn);
+        if (!ret) {
+            tws_ThreadQueueRecvEvent(conn);
+        }
         return 1;
     }
 

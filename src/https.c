@@ -122,6 +122,8 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
      * until SSL_read() would return no data
      */
 
+    fprintf(stderr, "max_buffer_size = %ld\n", max_buffer_size);
+
     for (;;) {
         rc = SSL_read(conn->ssl, buf, max_buffer_size);
         if (rc > 0) {
