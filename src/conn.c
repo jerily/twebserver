@@ -44,7 +44,6 @@ enum {
     TWS_MODE_NONBLOCKING
 };
 
-static int tws_HandleConn(tws_conn_t *conn);
 static int tws_HandleRecv(tws_conn_t *conn);
 static void tws_KeepaliveConnHandler(void *data, int mask);
 
@@ -1237,24 +1236,6 @@ int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
     return TCL_OK;
 }
 
-static int tws_HandleConn(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "HandleConn: %s\n", conn->conn_handle));
-
-    conn->shutdown = 0;
-    conn->ready = 0;
-    conn->processed = 0;
-    if (conn->accept_ctx->option_http) {
-        conn->accept_ctx->handle_conn_fn = tws_HandleRecv;
-        conn->handshaked = 1;
-    } else {
-        conn->handshaked = 0;
-        conn->accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
-    }
-
-    tws_ThreadQueueProcessEvent(conn);
-    return 1;
-}
-
 static int tws_AddConnToThreadList(tws_conn_t *conn) {
 
     if (Tcl_GetCurrentThread() != conn->threadId) {
@@ -1352,8 +1333,7 @@ void tws_AcceptConn(void *data, int mask) {
             CMD_CONN_NAME(conn->conn_handle, conn);
             tws_RegisterConnName(conn->conn_handle, conn);
             tws_AddConnToThreadList(conn);
-            tws_HandleConn(conn);
-//            tws_ThreadQueueConnEvent(conn);
+            tws_ThreadQueueProcessEvent(conn);
         } else {
             // data available on an existing connection
             // we do not have any as each thread has its own epoll instance
