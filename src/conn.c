@@ -1492,9 +1492,6 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
         conn->start_read_millis = current_time_in_millis();
         conn->latest_millis = conn->start_read_millis;
 
-        DBG(fprintf(stderr, "%p %p %p\n", tws_HandleConn, tws_HandleRecv, tws_HandleSslHandshake));
-        DBG(fprintf(stderr, "KeepaliveConnHandler - calling handle_conn_fn: %p\n", conn->accept_ctx->handle_conn_fn));
-
         tws_ThreadQueueProcessEvent(conn);
     }
 
