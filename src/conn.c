@@ -1417,12 +1417,12 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     if (ctrl->option_http) {
         accept_ctx->read_fn = tws_ReadHttpConnAsync;
         accept_ctx->write_fn = tws_WriteHttpConnAsync;
-        accept_ctx->handle_conn_fn = tws_HandleConn;
+        accept_ctx->handle_conn_fn = tws_HandleRecv;
     } else {
 
         accept_ctx->read_fn = tws_ReadSslConnAsync;
         accept_ctx->write_fn = tws_WriteSslConnAsync;
-        accept_ctx->handle_conn_fn = tws_HandleConn;
+        accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
 
         // it is an https server, so we need to create an SSL_CTX
         if (TCL_OK != tws_CreateSslContext(dataPtr->interp, &accept_ctx->sslCtx)) {
