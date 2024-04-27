@@ -40,7 +40,7 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
             if (rc == 0) {
                 DBG(fprintf(stderr, "peer closed connection %d\n", conn->client));
                 Tcl_Free(buf);
-                conn->shutdown = 1;
+//                conn->shutdown = 1;
                 return TWS_DONE;
             } else {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {

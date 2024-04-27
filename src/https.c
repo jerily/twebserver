@@ -148,6 +148,7 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
 
             } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
                 // peer closed connection
+//                conn->shutdown = 1;
                 goto done;
             }
 
