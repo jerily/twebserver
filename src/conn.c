@@ -1459,7 +1459,8 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 //    Tcl_SetMaxBlockTime(&block_time);
     while (1) {
 //        fprintf(stderr, "HandleConnThread: in conn loop\n");
-        Tcl_DoOneEvent(TCL_ALL_EVENTS);
+//        Tcl_DoOneEvent(TCL_ALL_EVENTS);
+        Tcl_DoOneEvent(TCL_DONT_WAIT);
 //        Tcl_WaitForEvent(&block_time);
     }
     Tcl_Free(accept_ctx);
