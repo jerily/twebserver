@@ -475,7 +475,7 @@ static int tws_HandleRecvEventInThread(Tcl_Event *evPtr, int flags) {
     return 1;
 }
 
-static void tws_ThreadQueueRecvEvent(tws_router_t *router_ptr, tws_conn_t *conn) {
+static void tws_OldThreadQueueRecvEvent(tws_router_t *router_ptr, tws_conn_t *conn) {
     DBG(fprintf(stderr, "ThreadQueueRecvEvent - threadId: %p\n", conn->threadId));
 
     conn->start_read_millis = current_time_in_millis();
@@ -503,8 +503,8 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
         return TCL_ERROR;
     }
 
-    tws_ThreadQueueRecvEvent(router_ptr, conn);
-
+//    tws_OldThreadQueueRecvEvent(router_ptr, conn);
+    tws_OldHandleRecv(router_ptr, conn);
     return TCL_OK;
 }
 

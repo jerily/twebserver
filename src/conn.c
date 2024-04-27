@@ -518,6 +518,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     conn->blank_line_offset = 0;
     conn->content_length = 0;
     conn->requestDictPtr = NULL;
+    conn->accept_ctx->handle_conn_fn = tws_HandleConn;
 
     if (force) {
         if (tws_UnregisterConnName(conn->conn_handle)) {
@@ -612,14 +613,14 @@ static int tws_HandleProcessingEventInThread(Tcl_Event *evPtr, int flags) {
 }
 
 static void tws_ThreadQueueProcessingEvent(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "ThreadQueueConnEvent - threadId: %p\n", conn->threadId));
+    DBG(fprintf(stderr, "ThreadQueueProcessingEvent - threadId: %p\n", conn->threadId));
     tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleProcessingEventInThread;
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
-    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
+    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_MARK);
     Tcl_ThreadAlert(conn->threadId);
-    DBG(fprintf(stderr, "ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
+    DBG(fprintf(stderr, "ThreadQueueProcessingEvent done - threadId: %p\n", conn->threadId));
 }
 
 int tws_HandleHttpHandshake(tws_conn_t *conn) {
@@ -853,6 +854,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
 
     conn->accept_ctx->handle_conn_fn = tws_HandleProcessing;
     tws_ThreadQueueProcessingEvent(conn);
+//    tws_HandleProcessing(conn);
     DBG(fprintf(stderr, "HandleRecv done\n"));
     return 1;
 }
@@ -893,12 +895,13 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
 
         conn->start_read_millis = current_time_in_millis();
         conn->accept_ctx->handle_conn_fn = tws_HandleRecv;
-        if (!conn->created_file_handler_p) {
-            DBG(fprintf(stderr, "HandleHandshakeEventInThread - create file handler\n"));
-            conn->created_file_handler_p = 1;
-            tws_CreateFileHandler(conn->client, conn);
-        }
+//        if (!conn->created_file_handler_p) {
+//            DBG(fprintf(stderr, "HandleHandshakeEventInThread - create file handler\n"));
+//            conn->created_file_handler_p = 1;
+//            tws_CreateFileHandler(conn->client, conn);
+//        }
         tws_ThreadQueueRecvEvent(conn);
+        tws_HandleRecv(conn);
         return 1;
     }
 
@@ -926,15 +929,15 @@ static int tws_HandleHandshakeEventInThread(Tcl_Event *evPtr, int flags) {
     int result = conn->accept_ctx->option_http ? tws_HandleHttpHandshake(conn) : tws_HandleSslHandshake(conn);
     if (!result) {
         conn->accept_ctx->handle_conn_fn = conn->accept_ctx->option_http ? tws_HandleHttpHandshake : tws_HandleSslHandshake;
-        if (!conn->created_file_handler_p) {
-            DBG(fprintf(stderr, "HandleHandshakeEventInThread - create file handler\n"));
-            conn->created_file_handler_p = 1;
-            tws_CreateFileHandler(conn->client, conn);
-        }
-//        Tcl_ThreadAlert(conn->threadId);
+//        if (!conn->created_file_handler_p) {
+//            DBG(fprintf(stderr, "HandleHandshakeEventInThread - create file handler\n"));
+//            conn->created_file_handler_p = 1;
+//            tws_CreateFileHandler(conn->client, conn);
+//        }
+        Tcl_ThreadAlert(conn->threadId);
     }
 //    conn->accept_ctx->handle_conn_fn = tws_ThreadQueueProcessingEvent;
-    return 1;
+    return result;
 }
 
 static void tws_ThreadQueueHandshakeEvent(tws_conn_t *conn) {
@@ -950,6 +953,14 @@ static void tws_ThreadQueueHandshakeEvent(tws_conn_t *conn) {
 
 static int tws_HandleConn(tws_conn_t *conn) {
     DBG(fprintf(stderr, "HandleConn client: %d\n", conn->client));
+
+    conn->accept_ctx->handle_conn_fn = conn->accept_ctx->option_http ? tws_HandleHttpHandshake : tws_HandleSslHandshake;
+    if (!conn->created_file_handler_p) {
+        DBG(fprintf(stderr, "HandleHandshakeEventInThread - create file handler\n"));
+        conn->created_file_handler_p = 1;
+        tws_CreateFileHandler(conn->client, conn);
+    }
+
     tws_ThreadQueueHandshakeEvent(conn);
     return 1;
 }
@@ -1452,6 +1463,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 
         accept_ctx->read_fn = tws_ReadSslConnAsync;
         accept_ctx->write_fn = tws_WriteSslConnAsync;
+        accept_ctx->handle_conn_fn = tws_HandleConn;
 
         // it is an https server, so we need to create an SSL_CTX
         if (TCL_OK != tws_CreateSslContext(dataPtr->interp, &accept_ctx->sslCtx)) {
@@ -1495,8 +1507,11 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     Tcl_ConditionNotify(&ctrl->condWait);
 
     DBG(fprintf(stderr, "HandleConnThread: in (%p)\n", threadId));
+    Tcl_Time block_time = {0, 10000};
+//    Tcl_SetMaxBlockTime(&block_time);
     while (1) {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
+//        Tcl_WaitForEvent(&block_time);
     }
     Tcl_Free(accept_ctx);
     Tcl_FinalizeThread();
