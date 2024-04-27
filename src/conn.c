@@ -340,9 +340,9 @@ static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *data
 
 static void tws_FreeConn(tws_conn_t *conn) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
-    Tcl_MutexLock(dataPtr->mutex);
+    Tcl_MutexLock(&tws_Thread_Mutex);
     tws_FreeConnWithThreadData(conn, dataPtr);
-    Tcl_MutexUnlock(dataPtr->mutex);
+    Tcl_MutexUnlock(&tws_Thread_Mutex);
 }
 
 static void tws_DeleteFileHandler(int fd) {
@@ -373,7 +373,8 @@ static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
     DBG(fprintf(stderr, "DeleteFileHandlerForKeepaliveConn client=%d\n", conn->client));
     tws_DeleteFileHandler(conn->client);
-//    tws_FreeConn(conn);
+// todo: check if we need to free the connection here
+    //    tws_FreeConn(conn);
     return 1;
 }
 
@@ -441,14 +442,14 @@ static int tws_CleanupConnections(Tcl_Event *evPtr, int flags) {
     int count_mark_for_deletion = 0;
 
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
-    Tcl_MutexLock(dataPtr->mutex);
+    Tcl_MutexLock(&tws_Thread_Mutex);
     tws_conn_t *curr_conn = dataPtr->firstConnPtr;
     while (curr_conn != NULL) {
         // shouldn't be the case but we check anyway
         if (curr_conn->threadId != currentThreadId) {
             fprintf(stderr, "wrong thread cleanup conn->threadId=%p currentThreadId=%p\n", curr_conn->threadId,
                     currentThreadId);
-            continue;
+            exit(1);
         }
 
         if (curr_conn->todelete) {
@@ -476,7 +477,7 @@ static int tws_CleanupConnections(Tcl_Event *evPtr, int flags) {
 
         curr_conn = curr_conn->nextPtr;
     }
-    Tcl_MutexUnlock(dataPtr->mutex);
+    Tcl_MutexUnlock(&tws_Thread_Mutex);
 
     DBG(fprintf(stderr, "reviewed count: %d marked_for_deletion: %d\n", count, count_mark_for_deletion));
 
@@ -515,6 +516,15 @@ static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
     return 1;
 }
 
+void tws_ThreadQueueCleanupEvent() {
+    Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
+    DBG(fprintf(stderr, "ThreadQueueCleanupEvent: %p\n", currentThreadId));
+    Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
+    evPtr->proc = tws_CleanupConnections;
+    evPtr->nextPtr = NULL;
+    Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(currentThreadId);
+}
 int tws_CloseConn(tws_conn_t *conn, int force) {
     DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force,
                 conn->keepalive, conn->created_file_handler_p));
@@ -559,13 +569,8 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     dataPtr->numRequests = (dataPtr->numRequests + 1) % INT_MAX;
     tws_server_t *server = conn->accept_ctx->server;
     // make sure that garbage collection does not start the same time on all threads
-    int thread_pivot = dataPtr->thread_index * (server->garbage_collection_cleanup_threshold / server->num_threads);
-    if (0 && dataPtr->numRequests % server->garbage_collection_cleanup_threshold == thread_pivot) {
-        Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
-        evPtr->proc = tws_CleanupConnections;
-        evPtr->nextPtr = NULL;
-        Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-         Tcl_ThreadAlert(conn->threadId);
+    if (dataPtr->numRequests % server->garbage_collection_cleanup_threshold == dataPtr->thread_pivot) {
+        tws_ThreadQueueCleanupEvent();
     }
 
     return TCL_OK;
@@ -1256,9 +1261,31 @@ int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
 }
 
 static int tws_HandleConn(tws_conn_t *conn) {
+    DBG(fprintf(stderr, "HandleConn: %s\n", conn->conn_handle));
+
+    conn->ready = 0;
+    conn->processed = 0;
+    if (conn->accept_ctx->option_http) {
+        conn->accept_ctx->handle_conn_fn = tws_HandleRecv;
+        conn->handshaked = 1;
+    } else {
+        conn->handshaked = 0;
+        conn->accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
+    }
+
+    tws_ThreadQueueProcessEvent(conn);
+    return 1;
+}
+
+static int tws_AddConnToThreadList(tws_conn_t *conn) {
+
+    if (Tcl_GetCurrentThread() != conn->threadId) {
+        fprintf(stderr, "HandleConn called from wrong thread\n");
+        exit(1);
+    }
 
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
-    Tcl_MutexLock(dataPtr->mutex);
+    Tcl_MutexLock(&tws_Thread_Mutex);
 
     // prefer to refuse connection if we are over the limit
     // this is to cap memory usage
@@ -1268,7 +1295,7 @@ static int tws_HandleConn(tws_conn_t *conn) {
         close(conn->client);
         SSL_free(conn->ssl);
         Tcl_Free((char *) conn);
-        Tcl_MutexUnlock(dataPtr->mutex);
+        Tcl_MutexUnlock(&tws_Thread_Mutex);
         return 1;
     }
 
@@ -1284,19 +1311,8 @@ static int tws_HandleConn(tws_conn_t *conn) {
 
     DBG(fprintf(stderr, "HandleConn - numConns: %d FD_SETSIZE: %d thread_limit: %d\n", dataPtr->numConns, FD_SETSIZE, thread_limit));
 
-    Tcl_MutexUnlock(dataPtr->mutex);
+    Tcl_MutexUnlock(&tws_Thread_Mutex);
 
-    conn->ready = 0;
-    conn->processed = 0;
-    if (conn->accept_ctx->option_http) {
-        conn->accept_ctx->handle_conn_fn = tws_HandleRecv;
-        conn->handshaked = 1;
-    } else {
-        conn->handshaked = 0;
-        conn->accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
-    }
-
-    tws_ThreadQueueProcessEvent(conn);
     return 1;
 }
 
@@ -1357,7 +1373,7 @@ void tws_AcceptConn(void *data, int mask) {
 
             CMD_CONN_NAME(conn->conn_handle, conn);
             tws_RegisterConnName(conn->conn_handle, conn);
-
+            tws_AddConnToThreadList(conn);
             tws_HandleConn(conn);
 //            tws_ThreadQueueConnEvent(conn);
         } else {
@@ -1373,16 +1389,17 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     tws_thread_ctrl_t *ctrl = (tws_thread_ctrl_t *) clientData;
 
     DBG(Tcl_ThreadId threadId = Tcl_GetCurrentThread());
-    static Tcl_Mutex mutex;
+//    static Tcl_Mutex mutex;
     // Get a pointer to the thread data for the current thread
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
     // Create a new interp for this thread and store it in the thread data
     dataPtr->interp = Tcl_CreateInterp();
     dataPtr->cmdPtr = Tcl_DuplicateObj(ctrl->server->cmdPtr);
-    dataPtr->mutex = &mutex;
+//    &tws_Thread_Mutex = &mutex;
     dataPtr->server = ctrl->server;
     dataPtr->thread_index = ctrl->thread_index;
     dataPtr->numRequests = 0;
+    dataPtr->thread_pivot = dataPtr->thread_index * (ctrl->server->garbage_collection_cleanup_threshold / ctrl->server->num_threads);
     dataPtr->numConns = 0;
     dataPtr->firstConnPtr = NULL;
     dataPtr->lastConnPtr = NULL;

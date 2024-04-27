@@ -159,13 +159,13 @@ typedef struct {
 typedef struct {
     Tcl_Interp *interp;
     Tcl_Obj *cmdPtr;
-    Tcl_Mutex *mutex;
     tws_server_t *server;
     tws_conn_t *firstConnPtr;
     tws_conn_t *lastConnPtr;
     int thread_index;
     int numConns;
     int numRequests;
+    int thread_pivot;
     int epoll_fd;
 } tws_thread_data_t;
 
