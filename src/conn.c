@@ -353,7 +353,7 @@ static void tws_DeleteFileHandler(int fd) {
     struct kevent ev;
     EV_SET(&ev, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
     if (kevent(dataPtr->epoll_fd, &ev, 1, NULL, 0, NULL) == -1) {
-        DBG(fprintf(stderr, "DeleteFileHandler: kevent failed, fd: %d\n", fd));
+        fprintf(stderr, "DeleteFileHandler: kevent failed, fd: %d\n", fd);
     }
 #else
     // Remove the server socket from the epoll set
@@ -361,7 +361,7 @@ static void tws_DeleteFileHandler(int fd) {
     ev.events = EPOLLIN;
     ev.data.fd = fd;
     if (epoll_ctl(dataPtr->epoll_fd, EPOLL_CTL_DEL, fd, &ev) == -1) {
-        DBG(fprintf(stderr, "DeleteFileHandler: epoll_ctl failed, fd: %d\n", fd));
+        fprintf(stderr, "DeleteFileHandler: epoll_ctl failed, fd: %d\n", fd);
     }
 #endif
 }
@@ -406,21 +406,26 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
             );
         }
     }
+
+    if (conn->created_file_handler_p == 1) {
+        tws_DeleteFileHandler(conn->client);
+    }
+
     if (close(conn->client)) {
         DBG(fprintf(stderr, "close failed\n"));
     }
 
-    if (conn->created_file_handler_p == 1) {
-        DBG(fprintf(stderr, "schedule deletion of file handler client: %d\n", conn->client));
+//    if (conn->created_file_handler_p == 1) {
+//        DBG(fprintf(stderr, "schedule deletion of file handler client: %d\n", conn->client));
 
-        // notify the event loop to delete the file handler for keepalive
-        tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-        evPtr->proc = tws_DeleteFileHandlerForKeepaliveConn;
-        evPtr->nextPtr = NULL;
-        evPtr->clientData = (ClientData *) conn;
-        Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-        // Tcl_ThreadAlert(conn->threadId);
-    }
+//         notify the event loop to delete the file handler for keepalive
+//        tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+//        evPtr->proc = tws_DeleteFileHandlerForKeepaliveConn;
+//        evPtr->nextPtr = NULL;
+//        evPtr->clientData = (ClientData *) conn;
+//        Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+//         Tcl_ThreadAlert(conn->threadId);
+//    }
     DBG(fprintf(stderr, "done shutdown\n"));
 }
 
@@ -484,7 +489,7 @@ static void tws_CreateFileHandler(int fd, ClientData clientData) {
     struct kevent ev;
     EV_SET(&ev, fd, EVFILT_READ, EV_ADD, 0, 0, clientData);
     if (kevent(dataPtr->epoll_fd, &ev, 1, NULL, 0, NULL) == -1) {
-        DBG(fprintf(stderr, "CreateFileHandler: kevent failed, fd: %d\n", fd));
+        fprintf(stderr, "CreateFileHandler: kevent failed, fd: %d\n", fd);
     }
 #else
     // Add the server socket to the epoll set
@@ -559,7 +564,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
         evPtr->proc = tws_CleanupConnections;
         evPtr->nextPtr = NULL;
         Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-        // Tcl_ThreadAlert(conn->threadId);
+         Tcl_ThreadAlert(conn->threadId);
     }
 
     return TCL_OK;
@@ -913,7 +918,7 @@ static void tws_ThreadQueueProcessEvent(tws_conn_t *conn) {
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
     Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
-    // Tcl_ThreadAlert(conn->threadId);
+     Tcl_ThreadAlert(conn->threadId);
     DBG(fprintf(stderr, "ThreadQueueProcessEvent done - threadId: %p\n", conn->threadId));
 }
 
@@ -1286,14 +1291,14 @@ void tws_AcceptConn(void *data, int mask) {
     struct kevent events[MAX_EVENTS];
     int nfds = kevent(accept_ctx->epoll_fd, NULL, 0, events, MAX_EVENTS, &timeout);
     if (nfds == -1) {
-        DBG(fprintf(stderr, "kevent failed"));
+        fprintf(stderr, "kevent failed");
         return;
     }
 #else
     struct epoll_event events[MAX_EVENTS];
     int nfds = epoll_wait(accept_ctx->epoll_fd, events, MAX_EVENTS, 0);
     if (nfds == -1) {
-        DBG(fprintf(stderr, "epoll_wait failed"));
+        fprintf(stderr, "epoll_wait failed");
         return;
     }
 #endif
@@ -1474,14 +1479,14 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     struct kevent events[MAX_EVENTS];
     int nfds = kevent(dataPtr->epoll_fd, NULL, 0, events, MAX_EVENTS, &timeout);
     if (nfds == -1) {
-        DBG(fprintf(stderr, "KeepaliveConnHandler: kevent failed"));
+        fprintf(stderr, "KeepaliveConnHandler: kevent failed");
         return;
     }
 #else
     struct epoll_event events[MAX_EVENTS];
     int nfds = epoll_wait(dataPtr->epoll_fd, events, MAX_EVENTS, 0);
     if (nfds == -1) {
-        DBG(fprintf(stderr, "KeepaliveConnHandler: epoll_wait failed"));
+        fprintf(stderr, "KeepaliveConnHandler: epoll_wait failed");
         return;
     }
 #endif
