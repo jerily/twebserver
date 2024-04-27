@@ -412,7 +412,6 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
 
     if (conn->created_file_handler_p == 1) {
         DBG(fprintf(stderr, "schedule deletion of file handler client: %d\n", conn->client));
-//        tws_DeleteFileHandler(conn->client);
 
         // notify the event loop to delete the file handler for keepalive
         tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
@@ -610,23 +609,6 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
 
     conn->processed = 1;
     return 1;
-}
-
-static int tws_HandleProcessingEventInThread(Tcl_Event *evPtr, int flags) {
-    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
-    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
-    return tws_HandleProcessing(conn);
-}
-
-static void tws_ThreadQueueProcessingEvent(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "ThreadQueueProcessingEvent - threadId: %p\n", conn->threadId));
-    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-    connEvPtr->proc = tws_HandleProcessingEventInThread;
-    connEvPtr->nextPtr = NULL;
-    connEvPtr->clientData = (ClientData *) conn;
-    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
-    // Tcl_ThreadAlert(conn->threadId);
-    DBG(fprintf(stderr, "ThreadQueueProcessingEvent done - threadId: %p\n", conn->threadId));
 }
 
 static int tws_HandleRecv(tws_conn_t *conn);
@@ -869,10 +851,6 @@ static int tws_HandleRecv(tws_conn_t *conn) {
 
     conn->ready = 1;
     conn->accept_ctx->handle_conn_fn = tws_HandleProcessing;
-    int processed = tws_HandleProcessing(conn);
-    if (!processed) {
-        tws_ThreadQueueProcessingEvent(conn);
-    }
     return 1;
 }
 
@@ -922,8 +900,8 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d\n", conn->ready));
     if (conn->ready) {
         tws_HandleProcessing(conn);
-//    } else {
-//        Tcl_ThreadAlert(conn->threadId);
+    } else {
+        Tcl_ThreadAlert(conn->threadId);
     }
     return conn->ready;
 }
