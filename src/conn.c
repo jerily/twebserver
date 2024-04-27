@@ -1280,8 +1280,8 @@ void tws_AcceptConn(void *data, int mask) {
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     struct timespec timeout;
-    timeout.tv_sec = 0;  // 5 seconds
-    timeout.tv_nsec = 1000; // 0 nanoseconds
+    timeout.tv_sec = 0;  // 0 seconds
+    timeout.tv_nsec = 1000; // 1000 nanoseconds
 
     struct kevent events[MAX_EVENTS];
     int nfds = kevent(accept_ctx->epoll_fd, NULL, 0, events, MAX_EVENTS, &timeout);
@@ -1462,8 +1462,8 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     struct timespec timeout;
-    timeout.tv_sec = 0;  // 5 seconds
-    timeout.tv_nsec = 1000; // 0 nanoseconds
+    timeout.tv_sec = 0;  // 0 seconds
+    timeout.tv_nsec = 1000; // 1000 nanoseconds
 
     struct kevent events[MAX_EVENTS];
     int nfds = kevent(dataPtr->epoll_fd, NULL, 0, events, MAX_EVENTS, &timeout);
