@@ -286,6 +286,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->created_file_handler_p = 0;
     conn->ready = 0;
     conn->handshaked = 0;
+    conn->processed = 0;
     conn->todelete = 0;
     conn->prevPtr = NULL;
     conn->nextPtr = NULL;
@@ -567,6 +568,11 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
 
 static int tws_HandleProcessing(tws_conn_t *conn) {
     DBG(fprintf(stderr, "HandleProcessingEventInThread: %s\n", conn->conn_handle));
+
+    if (conn->processed) {
+        return 1;
+    }
+
     tws_accept_ctx_t *accept_ctx = conn->accept_ctx;
 
     tws_thread_data_t *dataPtr;
@@ -595,13 +601,14 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
         Tcl_DecrRefCount(connPtr);
         Tcl_DecrRefCount(addrPtr);
         Tcl_DecrRefCount(portPtr);
-
+        conn->processed = 1;
         return 1;
     }
     Tcl_DecrRefCount(connPtr);
     Tcl_DecrRefCount(addrPtr);
     Tcl_DecrRefCount(portPtr);
 
+    conn->processed = 1;
     return 1;
 }
 
@@ -1493,7 +1500,7 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     }
 #endif
 
-    fprintf(stderr, "KeepaliveConnHandler - nfds: %d\n", nfds);
+    DBG(fprintf(stderr, "KeepaliveConnHandler - nfds: %d\n", nfds));
 
     for (int i = 0; i < nfds; i++) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -1504,8 +1511,8 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
         DBG(fprintf(stderr, "KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
         conn->latest_millis = current_time_in_millis();
 
-        fprintf(stderr, "%p %p %p\n", tws_HandleConn, tws_HandleRecv, tws_HandleSslHandshake);
-        fprintf(stderr, "KeepaliveConnHandler - calling handle_conn_fn: %p\n", conn->accept_ctx->handle_conn_fn);
+        DBG(fprintf(stderr, "%p %p %p\n", tws_HandleConn, tws_HandleRecv, tws_HandleSslHandshake));
+        DBG(fprintf(stderr, "KeepaliveConnHandler - calling handle_conn_fn: %p\n", conn->accept_ctx->handle_conn_fn));
         conn->accept_ctx->handle_conn_fn(conn);
 //        tws_HandleConn(conn);
     }
