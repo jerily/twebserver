@@ -464,7 +464,7 @@ static int tws_CleanupConnections(Tcl_Event *evPtr, int flags) {
     }
     Tcl_MutexUnlock(&tws_Thread_Mutex);
 
-    fprintf(stderr, "reviewed count: %d marked_for_deletion: %d\n", count, count_mark_for_deletion);
+    DBG(fprintf(stderr, "reviewed count: %d marked_for_deletion: %d\n", count, count_mark_for_deletion));
 
     return 1;
 }
