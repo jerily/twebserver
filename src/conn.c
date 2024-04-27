@@ -464,7 +464,7 @@ static int tws_CleanupConnections(Tcl_Event *evPtr, int flags) {
     }
     Tcl_MutexUnlock(&tws_Thread_Mutex);
 
-    DBG(fprintf(stderr, "reviewed count: %d marked_for_deletion: %d\n", count, count_mark_for_deletion));
+    fprintf(stderr, "reviewed count: %d marked_for_deletion: %d\n", count, count_mark_for_deletion);
 
     return 1;
 }
@@ -564,7 +564,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     tws_server_t *server = conn->accept_ctx->server;
     // make sure that garbage collection does not start the same time on all threads
     if (dataPtr->numRequests % server->garbage_collection_cleanup_threshold == dataPtr->thread_pivot) {
-// todo:       tws_ThreadQueueCleanupEvent();
+        tws_ThreadQueueCleanupEvent();
     }
 
     return TCL_OK;
