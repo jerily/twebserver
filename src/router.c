@@ -331,12 +331,13 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
     return TCL_OK;
 }
 
-static int tws_OldHandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
-    DBG(fprintf(stderr, "OldHandleRecv: %s\n", conn->conn_handle));
+static int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) {
+
+    DBG(fprintf(stderr, "HandleRouteEventInThread: %s\n", conn->conn_handle));
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(conn->dataKeyPtr, sizeof(tws_thread_data_t));
 
     // no need to decr ref count of req_dict_ptr because it is already decr ref counted in DoRouting
-    if (TCL_OK != tws_DoRouting(dataPtr->interp, router_ptr, conn, conn->requestDictPtr)) {
+    if (TCL_OK != tws_DoRouting(dataPtr->interp, router, conn, conn->requestDictPtr)) {
         fprintf(stderr, "DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
         fprintf(stderr, "errorInfo: %s\n", Tcl_GetVar(dataPtr->interp, "errorInfo", TCL_GLOBAL_ONLY));
         return 1;
@@ -344,33 +345,6 @@ static int tws_OldHandleRecv(tws_router_t *router_ptr, tws_conn_t *conn) {
     conn->requestDictPtr = NULL;
     DBG(fprintf(stderr, "DoRouting done\n"));
     return 1;
-}
-
-static int tws_HandleRecvEventInThread(Tcl_Event *evPtr, int flags) {
-    tws_router_event_t *routerEvPtr = (tws_router_event_t *) evPtr;
-    tws_router_t *router = (tws_router_t *) routerEvPtr->routerClientData;
-    tws_conn_t *conn = (tws_conn_t *) routerEvPtr->connClientData;
-    DBG(fprintf(stderr, "HandleRecvEventInThread: %s\n", conn->conn_handle));
-    int result = tws_OldHandleRecv(router, conn);
-    if (!result) {
-        // Tcl_ThreadAlert(conn->threadId);
-    }
-    return 1;
-}
-
-static void tws_OldThreadQueueRecvEvent(tws_router_t *router_ptr, tws_conn_t *conn) {
-    DBG(fprintf(stderr, "ThreadQueueRecvEvent - threadId: %p\n", conn->threadId));
-
-    conn->start_read_millis = current_time_in_millis();
-
-    tws_router_event_t *routerEvPtr = (tws_router_event_t *) Tcl_Alloc(sizeof(tws_router_event_t));
-    routerEvPtr->proc = tws_HandleRecvEventInThread;
-    routerEvPtr->nextPtr = NULL;
-    routerEvPtr->routerClientData = (ClientData *) router_ptr;
-    routerEvPtr->connClientData = (ClientData *) conn;
-    Tcl_QueueEvent((Tcl_Event *) routerEvPtr, TCL_QUEUE_TAIL);
-    // Tcl_ThreadAlert(conn->threadId);
-    DBG(fprintf(stderr, "ThreadQueueRecvEvent done - threadId: %p\n", conn->threadId));
 }
 
 static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
@@ -386,8 +360,7 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
         return TCL_ERROR;
     }
 
-//    tws_OldThreadQueueRecvEvent(router_ptr, conn);
-    tws_OldHandleRecv(router_ptr, conn);
+    tws_HandleRouteEventInThread(router_ptr, conn);
     return TCL_OK;
 }
 
