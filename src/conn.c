@@ -1288,6 +1288,7 @@ static int tws_HandleConn(tws_conn_t *conn) {
 
     if (conn->accept_ctx->option_http) {
         conn->accept_ctx->handle_conn_fn = tws_HandleRecv;
+        conn->handshaked = 1;
     } else {
         conn->accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
     }
