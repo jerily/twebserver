@@ -441,7 +441,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int ob
 
     // configuration
     server_ptr->max_request_read_bytes = 10 * 1024 * 1024;
-    server_ptr->max_read_buffer_size = 1024 * 1024;
+    server_ptr->max_read_buffer_size = 32 * 1024;
     server_ptr->backlog = SOMAXCONN;
     server_ptr->conn_timeout_millis = 2 * 60 * 1000;  // 2 minutes
     server_ptr->read_timeout_millis = 30 * 1000;  // 30 seconds
