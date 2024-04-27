@@ -46,6 +46,7 @@ enum {
 
 static int tws_HandleConn(tws_conn_t *conn);
 static int tws_HandleRecv(tws_conn_t *conn);
+static void tws_KeepaliveConnHandler(void *data, int mask);
 
 tws_server_t *tws_GetCurrentServer() {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
@@ -370,17 +371,6 @@ static void tws_DeleteFileHandler(int fd) {
 #endif
 }
 
-static int tws_DeleteFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
-    tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
-    tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
-    DBG(fprintf(stderr, "DeleteFileHandlerForKeepaliveConn client=%d\n", conn->client));
-    tws_DeleteFileHandler(conn->client);
-// todo: check if we need to free the connection here
-    //    tws_FreeConn(conn);
-    return 1;
-}
-
-static void tws_KeepaliveConnHandler(void *data, int mask);
 
 static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     if (conn->todelete) {
