@@ -900,8 +900,8 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d\n", conn->ready));
     if (conn->ready) {
         tws_HandleProcessing(conn);
-//    } else {
-//        Tcl_ThreadAlert(conn->threadId);
+    } else {
+        Tcl_ThreadAlert(conn->threadId);
     }
     return conn->ready;
 }
@@ -1449,8 +1449,8 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 //    Tcl_SetMaxBlockTime(&block_time);
     while (1) {
 //        fprintf(stderr, "HandleConnThread: in conn loop\n");
-//        Tcl_DoOneEvent(TCL_ALL_EVENTS);
-        Tcl_DoOneEvent(TCL_DONT_WAIT);
+        Tcl_DoOneEvent(TCL_ALL_EVENTS);
+//        Tcl_DoOneEvent(TCL_DONT_WAIT);
 //        Tcl_WaitForEvent(&block_time);
     }
     Tcl_Free(accept_ctx);
