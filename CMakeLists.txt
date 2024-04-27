@@ -8,6 +8,7 @@ set(CMAKE_C_STANDARD_REQUIRED true)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(OpenSSL 3.0.2 REQUIRED)     # OPENSSL_INCLUDE_DIR OPENSSL_LIBRARIES
 find_package(TCL 8.6.13 REQUIRED)  # TCL_INCLUDE_PATH TCL_LIBRARY
+find_package(Threads REQUIRED)
 
 message(STATUS "TCL_INCLUDE_PATH: ${TCL_INCLUDE_PATH}")
 message(STATUS "TCL_LIBRARY: ${TCL_LIBRARY}")
@@ -30,7 +31,7 @@ add_library(twebserver SHARED src/library.c src/base64.c src/base64/cencode.c sr
 set_target_properties(twebserver PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 include_directories(${TCL_INCLUDE_PATH} ${OPENSSL_INCLUDE_DIR})
-target_link_libraries(twebserver PRIVATE ${OPENSSL_LIBRARIES} ${TCL_LIBRARY})
+target_link_libraries(twebserver PRIVATE ${OPENSSL_LIBRARIES} ${TCL_LIBRARY} Threads::Threads)
 get_filename_component(TCL_LIBRARY_PATH "${TCL_LIBRARY}" PATH)
 
 install(TARGETS ${TARGET}
