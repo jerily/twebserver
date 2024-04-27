@@ -437,7 +437,7 @@ static int tws_CleanupConnections(Tcl_Event *evPtr, int flags) {
             exit(1);
         }
 
-        if (curr_conn->todelete) {
+        if (curr_conn->todelete || curr_conn->shutdown) {
             DBG(fprintf(stderr, "CleanupConnections - deleting conn - client: %d\n", curr_conn->client));
 
             tws_FreeConnWithThreadData(curr_conn, dataPtr);
