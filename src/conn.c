@@ -45,6 +45,7 @@ enum {
 };
 
 static int tws_HandleConn(tws_conn_t *conn);
+static int tws_HandleRecv(tws_conn_t *conn);
 
 tws_server_t *tws_GetCurrentServer() {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
@@ -546,7 +547,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     conn->blank_line_offset = 0;
     conn->content_length = 0;
     conn->requestDictPtr = NULL;
-    conn->accept_ctx->handle_conn_fn = tws_HandleConn;
+    conn->accept_ctx->handle_conn_fn = tws_HandleRecv;
 
     if (force) {
         if (tws_UnregisterConnName(conn->conn_handle)) {
@@ -937,23 +938,6 @@ static void tws_ThreadQueueProcessEvent(tws_conn_t *conn) {
     DBG(fprintf(stderr, "ThreadQueueProcessEvent done - threadId: %p\n", conn->threadId));
 }
 
-static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
-    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
-    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
-    return tws_HandleConn(conn);
-}
-
-static void tws_ThreadQueueConnEvent(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "ThreadQueueConnEvent - threadId: %p\n", conn->threadId));
-    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-    connEvPtr->proc = tws_HandleConnEventInThread;
-    connEvPtr->nextPtr = NULL;
-    connEvPtr->clientData = (ClientData *) conn;
-    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
-    Tcl_ThreadAlert(conn->threadId);
-    DBG(fprintf(stderr, "ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
-}
-
 int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr, Tcl_Encoding encoding) {
 
     if (!conn->accept_ctx) {
@@ -1290,7 +1274,7 @@ static int tws_HandleConn(tws_conn_t *conn) {
 static int tws_AddConnToThreadList(tws_conn_t *conn) {
 
     if (Tcl_GetCurrentThread() != conn->threadId) {
-        fprintf(stderr, "HandleConn called from wrong thread\n");
+        fprintf(stderr, "AddConnToThreadList called from wrong thread\n");
         exit(1);
     }
 
@@ -1319,7 +1303,7 @@ static int tws_AddConnToThreadList(tws_conn_t *conn) {
     }
     dataPtr->numConns++;
 
-    DBG(fprintf(stderr, "HandleConn - numConns: %d FD_SETSIZE: %d thread_limit: %d\n", dataPtr->numConns, FD_SETSIZE, thread_limit));
+    DBG(fprintf(stderr, "AddConnToThreatList - numConns: %d FD_SETSIZE: %d thread_limit: %d\n", dataPtr->numConns, FD_SETSIZE, thread_limit));
 
     Tcl_MutexUnlock(&tws_Thread_Mutex);
 
@@ -1546,8 +1530,11 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
 
         DBG(fprintf(stderr, "%p %p %p\n", tws_HandleConn, tws_HandleRecv, tws_HandleSslHandshake));
         DBG(fprintf(stderr, "KeepaliveConnHandler - calling handle_conn_fn: %p\n", conn->accept_ctx->handle_conn_fn));
+
+        tws_ThreadQueueProcessEvent(conn);
+
 //        conn->accept_ctx->handle_conn_fn(conn);
-        tws_HandleConn(conn);
+//        tws_HandleConn(conn);
 //        tws_ThreadQueueConnEvent(conn);
     }
 
