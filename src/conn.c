@@ -853,8 +853,8 @@ static int tws_HandleRecv(tws_conn_t *conn) {
     }
 
     conn->accept_ctx->handle_conn_fn = tws_HandleProcessing;
-    tws_ThreadQueueProcessingEvent(conn);
-//    tws_HandleProcessing(conn);
+//    tws_ThreadQueueProcessingEvent(conn);
+    tws_HandleProcessing(conn);
     DBG(fprintf(stderr, "HandleRecv done\n"));
     return 1;
 }
