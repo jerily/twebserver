@@ -125,6 +125,7 @@ typedef struct tws_conn_t_ {
     int ready;
     int handshaked;
     int processed;
+    int shutdown;
     struct tws_conn_t_ *prevPtr;
     struct tws_conn_t_ *nextPtr;
     // On a 64-bit system, a pointer address can be up to 16 hexadecimal digits long

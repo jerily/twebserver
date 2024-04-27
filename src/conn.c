@@ -288,6 +288,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->handshaked = 0;
     conn->processed = 0;
     conn->todelete = 0;
+    conn->shutdown = 0;
     conn->prevPtr = NULL;
     conn->nextPtr = NULL;
     memcpy(conn->client_ip, client_ip, INET6_ADDRSTRLEN);
@@ -385,6 +386,7 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
         DBG(fprintf(stderr, "ShutdownConn - already marked for deletion\n"));
         return;
     }
+    conn->shutdown = 1;
     int shutdown_client = 1;
     if (!conn->accept_ctx->option_http) {
         if (!conn->error && SSL_is_init_finished(conn->ssl)) {
@@ -525,6 +527,16 @@ void tws_ThreadQueueCleanupEvent() {
     Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(currentThreadId);
 }
+
+void tws_ThreadQueueKeepaliveEvent(tws_conn_t *conn) {
+    tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
+    evPtr->nextPtr = NULL;
+    evPtr->clientData = (ClientData *) conn;
+    Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(conn->threadId);
+}
+
 int tws_CloseConn(tws_conn_t *conn, int force) {
     DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force,
                 conn->keepalive, conn->created_file_handler_p));
@@ -555,12 +567,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
             if (!conn->created_file_handler_p) {
                 conn->created_file_handler_p = 1;
                 // notify the event loop to keep the connection alive
-                tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-                evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
-                evPtr->nextPtr = NULL;
-                evPtr->clientData = (ClientData *) conn;
-                Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-                Tcl_ThreadAlert(conn->threadId);
+                tws_ThreadQueueKeepaliveEvent(conn);
             }
         }
     }
@@ -570,7 +577,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     tws_server_t *server = conn->accept_ctx->server;
     // make sure that garbage collection does not start the same time on all threads
     if (dataPtr->numRequests % server->garbage_collection_cleanup_threshold == dataPtr->thread_pivot) {
-        tws_ThreadQueueCleanupEvent();
+// todo:       tws_ThreadQueueCleanupEvent();
     }
 
     return TCL_OK;
@@ -906,15 +913,17 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
         DBG(fprintf(stderr, "HandleProcessEventInThread: already ready\n"));
         return 1;
     }
+
     DBG(fprintf(stderr, "HandleProcessEventInThread: %s\n", conn->conn_handle));
     conn->accept_ctx->handle_conn_fn(conn);
     DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d\n", conn->ready));
+
     if (conn->ready) {
         tws_HandleProcessing(conn);
     } else {
         Tcl_ThreadAlert(conn->threadId);
     }
-    return conn->ready;
+    return conn->ready || conn->shutdown;
 }
 
 static void tws_ThreadQueueProcessEvent(tws_conn_t *conn) {
@@ -1263,6 +1272,7 @@ int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
 static int tws_HandleConn(tws_conn_t *conn) {
     DBG(fprintf(stderr, "HandleConn: %s\n", conn->conn_handle));
 
+    conn->shutdown = 0;
     conn->ready = 0;
     conn->processed = 0;
     if (conn->accept_ctx->option_http) {
