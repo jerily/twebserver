@@ -346,6 +346,8 @@ static void tws_FreeConn(tws_conn_t *conn) {
 }
 
 static void tws_DeleteFileHandler(int fd) {
+    DBG(fprintf(stderr, "DeleteFileHandler client: %d\n", fd));
+
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -558,7 +560,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     tws_server_t *server = conn->accept_ctx->server;
     // make sure that garbage collection does not start the same time on all threads
     int thread_pivot = dataPtr->thread_index * (server->garbage_collection_cleanup_threshold / server->num_threads);
-    if (dataPtr->numRequests % server->garbage_collection_cleanup_threshold == thread_pivot) {
+    if (0 && dataPtr->numRequests % server->garbage_collection_cleanup_threshold == thread_pivot) {
         Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
         evPtr->proc = tws_CleanupConnections;
         evPtr->nextPtr = NULL;
@@ -1356,8 +1358,8 @@ void tws_AcceptConn(void *data, int mask) {
             CMD_CONN_NAME(conn->conn_handle, conn);
             tws_RegisterConnName(conn->conn_handle, conn);
 
-//            tws_HandleConn(conn);
-            tws_ThreadQueueConnEvent(conn);
+            tws_HandleConn(conn);
+//            tws_ThreadQueueConnEvent(conn);
         } else {
             // data available on an existing connection
             // we do not have any as each thread has its own epoll instance
@@ -1518,9 +1520,8 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
         DBG(fprintf(stderr, "%p %p %p\n", tws_HandleConn, tws_HandleRecv, tws_HandleSslHandshake));
         DBG(fprintf(stderr, "KeepaliveConnHandler - calling handle_conn_fn: %p\n", conn->accept_ctx->handle_conn_fn));
 //        conn->accept_ctx->handle_conn_fn(conn);
-//        tws_HandleConn(conn);
-
-        tws_ThreadQueueConnEvent(conn);
+        tws_HandleConn(conn);
+//        tws_ThreadQueueConnEvent(conn);
     }
 
 }
