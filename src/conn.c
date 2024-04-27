@@ -1457,7 +1457,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     }
 
     // create a file handler for the epoll fd for this thread
-    Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE | TCL_WRITABLE, tws_KeepaliveConnHandler, NULL);
+    Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
 
     // notify the main thread that we are done initializing
     Tcl_ConditionNotify(&ctrl->condWait);
@@ -1467,8 +1467,8 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 //    Tcl_SetMaxBlockTime(&block_time);
     while (1) {
 //        fprintf(stderr, "HandleConnThread: in conn loop\n");
-//        Tcl_DoOneEvent(TCL_ALL_EVENTS);
-        Tcl_DoOneEvent(TCL_DONT_WAIT);
+        Tcl_DoOneEvent(TCL_ALL_EVENTS);
+//        Tcl_DoOneEvent(TCL_DONT_WAIT);
 //        Tcl_WaitForEvent(&block_time);
     }
     Tcl_Free(accept_ctx);
@@ -1478,6 +1478,9 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 }
 
 static void tws_KeepaliveConnHandler(void *data, int mask) {
+
+        DBG(fprintf(stderr, "KeepaliveConnHandler\n"));
+
 
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
 
