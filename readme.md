@@ -106,6 +106,8 @@ HTML Transfer rate:     5577.73 [Kbytes/sec] received
 
 HTTP (4 threads) - Without keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM:
 ```
+gohttpbench -v 10 -n 100000 -c 10 -t 1000 "http://localhost:8080/blog/12345/sayhi"
+
 Concurrency Level:      10
 Time taken for tests:   2.77 seconds
 Complete requests:      100000
