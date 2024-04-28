@@ -281,6 +281,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     }
 
     conn->accept_ctx = accept_ctx;
+    conn->handle_conn_fn = accept_ctx->handle_conn_fn;
     conn->client = client;
     conn->compression = NO_COMPRESSION;
     conn->keepalive = 0;
@@ -522,7 +523,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     conn->blank_line_offset = 0;
     conn->content_length = 0;
     conn->requestDictPtr = NULL;
-    conn->accept_ctx->handle_conn_fn = tws_HandleRecv;
+    conn->handle_conn_fn = tws_HandleRecv;
     conn->shutdown = 0;
     conn->ready = 0;
     conn->processed = 0;
@@ -859,7 +860,7 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
     if (rc == 1) {
         DBG(fprintf(stderr, "HandleHandshake: success\n"));
         conn->handshaked = 1;
-        conn->accept_ctx->handle_conn_fn = tws_HandleRecv;
+        conn->handle_conn_fn = tws_HandleRecv;
         return 1;
     }
 
@@ -892,7 +893,7 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
     }
 
     DBG(fprintf(stderr, "HandleProcessEventInThread: %s\n", conn->conn_handle));
-    conn->accept_ctx->handle_conn_fn(conn);
+    conn->handle_conn_fn(conn);
     DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d\n", conn->ready));
 
     // DoRouting closes the connection when done processing
