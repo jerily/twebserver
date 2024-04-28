@@ -950,6 +950,30 @@ static void tws_ThreadQueueConnEvent(tws_conn_t *conn) {
     Tcl_ThreadAlert(conn->threadId);
     DBG(fprintf(stderr, "ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
 }
+
+static int tws_HandleKeepaliveEventInThread(Tcl_Event *evPtr, int flags) {
+    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
+
+    fprintf(stderr, "current thread: %p conn->threadId: %p\n", Tcl_GetCurrentThread(), conn->threadId);
+    conn->start_read_millis = current_time_in_millis();
+    conn->latest_millis = conn->start_read_millis;
+
+    tws_ThreadQueueProcessEvent(conn);
+
+    return 1;
+}
+
+static void tws_ThreadQueueKeepaliveEvent(tws_conn_t *conn) {
+    DBG(fprintf(stderr, "ThreadQueueKeepaliveEvent - threadId: %p\n", conn->threadId));
+    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    connEvPtr->proc = tws_HandleKeepaliveEventInThread;
+    connEvPtr->nextPtr = NULL;
+    connEvPtr->clientData = (ClientData *) conn;
+    Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(conn->threadId);
+    DBG(fprintf(stderr, "ThreadQueueKeepaliveEvent done - threadId: %p\n", conn->threadId));
+}
 #endif
 
 int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr, Tcl_Encoding encoding) {
@@ -1472,9 +1496,10 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     accept_ctx->epoll_fd = epoll_fd;
     Tcl_CreateFileHandler(epoll_fd, TCL_READABLE, tws_AcceptConn, accept_ctx);
 
+#endif
+
     // create a file handler for the epoll fd for this thread
     Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
-#endif
 
     if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->server->scriptPtr)) {
         fprintf(stderr, "error evaluating init script\n");
@@ -1535,14 +1560,15 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     for (int i = 0; i < nfds; i++) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
         tws_conn_t *conn = (tws_conn_t *) events[i].udata;
+        tws_ThreadQueueKeepaliveEvent(conn);
 #else
         tws_conn_t *conn = (tws_conn_t *) events[i].data.ptr;
-#endif
         DBG(fprintf(stderr, "KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
         conn->start_read_millis = current_time_in_millis();
         conn->latest_millis = conn->start_read_millis;
 
         tws_ThreadQueueProcessEvent(conn);
+#endif
     }
 
 }
@@ -1585,6 +1611,12 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
     accept_ctx->server_fd = server_fd;
     accept_ctx->epoll_fd = epoll_fd;
 
+    if (TCL_OK != tws_CreateSslContext(interp, &accept_ctx->sslCtx)) {
+        Tcl_Free((char *) accept_ctx);
+        SetResult("Failed to create SSL context");
+        return TCL_ERROR;
+    }
+
     Tcl_CreateFileHandler(epoll_fd, TCL_READABLE, tws_AcceptConn, accept_ctx);
 
     DBG(fprintf(stderr, "port: %s - created listening socket on main thread\n", port));
@@ -1606,6 +1638,9 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
         if (TCL_OK !=
             Tcl_CreateThread(&id, tws_HandleConnThread, &ctrl, server->thread_stacksize, TCL_THREAD_NOFLAGS)) {
             Tcl_MutexUnlock(&tws_Thread_Mutex);
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+            Tcl_Free((char *) accept_ctx);
+#endif
             SetResult("Unable to create thread");
             return TCL_ERROR;
         }
