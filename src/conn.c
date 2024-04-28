@@ -1426,7 +1426,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         TCL_THREAD_CREATE_RETURN;
     }
 
-    if (TCL_OK != create_epoll_fd(dataPtr->interp, &epoll_fd) || epoll_fd < 0) {
+    if (TCL_OK != create_epoll_fd(dataPtr->interp, server_fd, &epoll_fd) || epoll_fd < 0) {
         fprintf(stderr, "failed to create epoll fd on thread\n");
         Tcl_FinalizeThread();
         Tcl_ExitThread(TCL_ERROR);
