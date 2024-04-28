@@ -59,7 +59,7 @@ go install github.com/parkghost/gohttpbench@latest
 export PATH="$PATH:$(go env GOPATH)/bin"
 ```
 
-HTTPS - With keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM: 
+HTTPS (8 threads) - With keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM: 
 ```
 gohttpbench -v 10 -n 100000 -c 10 -t 1000 -k "https://localhost:4433/blog/12345/sayhi"
 
@@ -74,7 +74,7 @@ Time per request:       0.013 [ms] (mean, across all concurrent requests)
 HTML Transfer rate:     5133.60 [Kbytes/sec] received```
 ```
 
-HTTPS - Without keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM:
+HTTPS (8 threads) - Without keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM:
 ```
 gohttpbench -v 10 -n 100000 -c 10 -t 1000 "https://localhost:4433/blog/12345/sayhi"
 
@@ -89,7 +89,7 @@ Time per request:       0.232 [ms] (mean, across all concurrent requests)
 HTML Transfer rate:     286.73 [Kbytes/sec] received
 ```
 
-HTTP - With keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM:
+HTTP (4 threads) - With keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM:
 ```
 gohttpbench -v 10 -n 100000 -c 10 -t 1000 -k "http://localhost:8080/blog/12345/sayhi"
 
@@ -104,7 +104,7 @@ Time per request:       0.012 [ms] (mean, across all concurrent requests)
 HTML Transfer rate:     5577.73 [Kbytes/sec] received
 ```
 
-HTTP - Without keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM:
+HTTP (4 threads) - Without keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM:
 ```
 Concurrency Level:      10
 Time taken for tests:   2.77 seconds
