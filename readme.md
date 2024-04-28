@@ -48,7 +48,7 @@ TCL Web Server Extension
 
 Start the server:
 ```
-tclsh8.6 examples/example-best-with-router.tcl
+tclsh9.0 examples/example-best-with-router.tcl
 ```
 
 Install go and gohttpbench:
