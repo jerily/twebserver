@@ -241,7 +241,7 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, const char *h
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     // Add the server socket to the kqueue set
     struct kevent ev;
-    EV_SET(&ev, server_fd, EVFILT_READ, EV_ADD, 0, 0, server_fd);
+    EV_SET(&ev, server_fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, server_fd);
     if (kevent(epoll_fd, &ev, 1, NULL, 0, NULL) == -1) {
         SetResult("Unable to add server socket to kqueue set");
         return TCL_ERROR;
@@ -468,7 +468,7 @@ static void tws_CreateFileHandler(int fd, ClientData clientData) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     // Add the server socket to the kqueue set
     struct kevent ev;
-    EV_SET(&ev, fd, EVFILT_READ, EV_ADD, 0, 0, clientData);
+    EV_SET(&ev, fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, clientData);
     if (kevent(dataPtr->epoll_fd, &ev, 1, NULL, 0, NULL) == -1) {
         fprintf(stderr, "CreateFileHandler: kevent failed, fd: %d\n", fd);
     }
