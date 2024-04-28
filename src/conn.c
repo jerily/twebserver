@@ -311,7 +311,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
 //        fprintf(stderr, "tws_NewConn - num_threads: %d\n", accept_ctx->server->num_threads);
 //        fprintf(stderr, "tws_NewConn - client: %d\n", client);
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    conn->threadId = accept_ctx->server->conn_thread_ids[client % accept_ctx->num_threads];
+    conn->threadId = accept_ctx->conn_thread_ids[client % accept_ctx->num_threads];
 #else
     conn->threadId = Tcl_GetCurrentThread();
 #endif
@@ -932,7 +932,7 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
 
-    fprintf(stderr, "current thread: %p conn->threadId: %p\n", Tcl_GetCurrentThread(), conn->threadId);
+    DBG(fprintf(stderr, "current thread: %p conn->threadId: %p\n", Tcl_GetCurrentThread(), conn->threadId));
 
     tws_AddConnToThreadList(conn);
     tws_QueueProcessEvent(conn);
@@ -1366,7 +1366,7 @@ void tws_AcceptConn(void *data, int mask) {
             struct sockaddr_in6 client_addr;
             unsigned int len = sizeof(client_addr);
             int client = accept(accept_ctx->server_fd, (struct sockaddr *) &client_addr, &len);
-            fprintf(stderr, "client: %d\n", client);
+            DBG(fprintf(stderr, "client: %d\n", client));
             if (client < 0) {
                 DBG(fprintf(stderr, "Unable to accept\n"));
                 return;
@@ -1515,7 +1515,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     // notify the main thread that we are done initializing
     Tcl_ConditionNotify(&ctrl->condWait);
 
-    DBG(fprintf(stderr, "HandleConnThread: in (%p)\n", threadId));
+    DBG(fprintf(stderr, "HandleConnThread: in (%p)\n", Tcl_GetCurrentThread()));
     Tcl_Time block_time = {0, 10000};
 //    Tcl_SetMaxBlockTime(&block_time);
     while (1) {
@@ -1602,6 +1602,14 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
         accept_ctx->read_fn = tws_ReadSslConnAsync;
         accept_ctx->write_fn = tws_WriteSslConnAsync;
         accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
+
+        if (TCL_OK != tws_CreateSslContext(interp, &accept_ctx->sslCtx)) {
+            Tcl_Free((char *) accept_ctx);
+            SetResult("Failed to create SSL context");
+            return TCL_ERROR;
+        }
+        SSL_CTX_set_client_hello_cb(accept_ctx->sslCtx, tws_ClientHelloCallback, NULL);
+
     }
 
     accept_ctx->option_http = option_http;
@@ -1613,17 +1621,11 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
     accept_ctx->server_fd = server_fd;
     accept_ctx->epoll_fd = epoll_fd;
 
-    if (TCL_OK != tws_CreateSslContext(interp, &accept_ctx->sslCtx)) {
-        Tcl_Free((char *) accept_ctx);
-        SetResult("Failed to create SSL context");
-        return TCL_ERROR;
-    }
-
     Tcl_CreateFileHandler(server_fd, TCL_READABLE, tws_AcceptConn, accept_ctx);
 
-    DBG(fprintf(stderr, "port: %s - created listening socket on main thread\n", port));
+    DBG(fprintf(stderr, "port: %s - created listening socket (%d) on main thread\n", port, server_fd));
 
-    server->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(option_num_threads * sizeof(Tcl_ThreadId));
+    accept_ctx->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(option_num_threads * sizeof(Tcl_ThreadId));
 #else
 #endif
 
@@ -1647,7 +1649,9 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
             return TCL_ERROR;
         }
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-        server->conn_thread_ids[i] = id;
+        DBG(fprintf(stderr, "Listen - created thread: %p\n", id));
+        accept_ctx->conn_thread_ids[i] = id;
+        DBG(fprintf(stderr, "Listen - created thread: %p (check)\n", accept_ctx->conn_thread_ids[i]));
 #endif
 
         // Wait for the thread to start because it is using something on our stack!

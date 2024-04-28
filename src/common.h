@@ -69,9 +69,6 @@ typedef struct {
     Tcl_Obj *rootdirPtr;
     Tcl_ThreadId threadId;
     char handle[30];
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    Tcl_ThreadId *conn_thread_ids;
-#endif
     Tcl_Size max_request_read_bytes;
     Tcl_Size max_read_buffer_size;
     Tcl_Size backlog;
@@ -106,6 +103,10 @@ typedef struct {
     int (*read_fn)(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size);
     int (*write_fn)(tws_conn_t *conn, const char *buf, Tcl_Size len);
     int (*handle_conn_fn)(tws_conn_t *conn);
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    Tcl_ThreadId *conn_thread_ids;
+#endif
+
 } tws_accept_ctx_t;
 
 typedef enum tws_CompressionMethod {
