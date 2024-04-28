@@ -71,7 +71,7 @@ HTML transferred:       6800000 bytes
 Requests per second:    77313.19 [#/sec] (mean)
 Time per request:       0.129 [ms] (mean)
 Time per request:       0.013 [ms] (mean, across all concurrent requests)
-HTML Transfer rate:     5133.60 [Kbytes/sec] received```
+HTML Transfer rate:     5133.60 [Kbytes/sec] received
 ```
 
 HTTPS (8 threads) - Without keepalive - Linux - Intel i9 CPU @ 3.60GHz with 64GB RAM:
