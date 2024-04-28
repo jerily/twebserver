@@ -956,7 +956,7 @@ static int tws_HandleKeepaliveEventInThread(Tcl_Event *evPtr, int flags) {
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
 
-    fprintf(stderr, "current thread: %p conn->threadId: %p\n", Tcl_GetCurrentThread(), conn->threadId);
+    DBG(fprintf(stderr, "current thread: %p conn->threadId: %p\n", Tcl_GetCurrentThread(), conn->threadId));
     conn->start_read_millis = current_time_in_millis();
     conn->latest_millis = conn->start_read_millis;
 
