@@ -493,7 +493,7 @@ static void tws_CreateFileHandler(int fd, ClientData clientData) {
 #endif
 }
 
-static int tws_CreateFileHandlerForKeepaliveConn(Tcl_Event *evPtr, int flags) {
+static int tws_HandleCreateFileHandlerEventInThread(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "CreateFileHandlerForKeepaliveConn\n"));
     tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
@@ -513,9 +513,9 @@ void tws_ThreadQueueCleanupEvent() {
     Tcl_ThreadAlert(currentThreadId);
 }
 
-void tws_ThreadQueueKeepaliveEvent(tws_conn_t *conn) {
+void tws_ThreadQueueCreateFileHandlerEvent(tws_conn_t *conn) {
     tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-    evPtr->proc = tws_CreateFileHandlerForKeepaliveConn;
+    evPtr->proc = tws_HandleCreateFileHandlerEventInThread;
     evPtr->nextPtr = NULL;
     evPtr->clientData = (ClientData *) conn;
     Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
@@ -556,7 +556,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
             if (!conn->created_file_handler_p) {
                 conn->created_file_handler_p = 1;
                 // notify the event loop to keep the connection alive
-                tws_ThreadQueueKeepaliveEvent(conn);
+                tws_ThreadQueueCreateFileHandlerEvent(conn);
             }
         }
     }

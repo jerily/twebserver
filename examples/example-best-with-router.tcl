@@ -57,7 +57,8 @@ set init_script {
                     <h1>hello world</h1>
                     <ul>
                         <li><a href=/blog/123/sayhi>click here to see how path parameters work</a></li>
-                        <a href=/addr>click here to see your IP address</a>
+                        <li><a href=/addr>click here to see your IP address</a></li>
+                        <li><form method=post enctype="multipart/form-data" action=/example><input type=text name=field1><input type=file name=field2><input type=submit></form></li>
                     </ul>
                 </body>
             </html>
