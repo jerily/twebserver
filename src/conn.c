@@ -46,6 +46,7 @@ enum {
 
 static int tws_HandleRecv(tws_conn_t *conn);
 static void tws_KeepaliveConnHandler(void *data, int mask);
+static int tws_AddConnToThreadList(tws_conn_t *conn);
 
 tws_server_t *tws_GetCurrentServer() {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
@@ -152,7 +153,7 @@ static int bind_socket(Tcl_Interp *interp, int server_fd, const char *host, int 
     return TCL_OK;
 }
 
-static int create_socket(Tcl_Interp *interp, tws_server_t *server, const char *host, const char *port, int *server_sock, int *epoll_sock) {
+static int create_socket(Tcl_Interp *interp, tws_server_t *server, const char *host, const char *port, int *server_sock) {
     int server_fd;
 
     // create an IPv6 TCP socket
@@ -219,6 +220,13 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, const char *h
         return TCL_ERROR;
     }
 
+    tws_SetBlockingMode(server_fd, TWS_MODE_NONBLOCKING);
+
+    *server_sock = server_fd;
+    return TCL_OK;
+}
+
+static int create_epoll_fd(Tcl_Interp *interp, int server_fd, int *epoll_sock) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     // Create a kqueue instance
     int epoll_fd = kqueue();
@@ -235,7 +243,6 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, const char *h
     }
 #endif
 
-    tws_SetBlockingMode(server_fd, TWS_MODE_NONBLOCKING);
 
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -257,7 +264,6 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, const char *h
     }
 #endif
 
-    *server_sock = server_fd;
     *epoll_sock = epoll_fd;
     return TCL_OK;
 }
@@ -303,8 +309,11 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
 
 //        fprintf(stderr, "tws_NewConn - num_threads: %d\n", accept_ctx->server->num_threads);
 //        fprintf(stderr, "tws_NewConn - client: %d\n", client);
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    conn->threadId = accept_ctx->server->conn_thread_ids[client % accept_ctx->server->num_threads];
+#else
     conn->threadId = Tcl_GetCurrentThread();
-
+#endif
     conn->start_read_millis = current_time_in_millis();
     conn->latest_millis = conn->start_read_millis;
 
@@ -917,6 +926,32 @@ static void tws_ThreadQueueProcessEvent(tws_conn_t *conn) {
     DBG(fprintf(stderr, "ThreadQueueProcessEvent done - threadId: %p\n", conn->threadId));
 }
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
+    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
+
+    fprintf(stderr, "current thread: %p conn->threadId: %p\n", Tcl_GetCurrentThread(), conn->threadId);
+
+    tws_AddConnToThreadList(conn);
+    tws_ThreadQueueProcessEvent(conn);
+    return 1;
+}
+
+// this is called from the main thread
+// to queue the event in the thread that the connection will be processed
+static void tws_ThreadQueueConnEvent(tws_conn_t *conn) {
+    DBG(fprintf(stderr, "ThreadQueueConnEvent - threadId: %p\n", conn->threadId));
+    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    connEvPtr->proc = tws_HandleConnEventInThread;
+    connEvPtr->nextPtr = NULL;
+    connEvPtr->clientData = (ClientData *) conn;
+    Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(conn->threadId);
+    DBG(fprintf(stderr, "ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
+}
+#endif
+
 int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr, Tcl_Encoding encoding) {
 
     if (!conn->accept_ctx) {
@@ -1267,6 +1302,8 @@ static int tws_AddConnToThreadList(tws_conn_t *conn) {
 }
 
 void tws_AcceptConn(void *data, int mask) {
+    DBG(fprintf(stderr, "-------------------tws_AcceptConn\n"));
+
     tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) data;
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -1288,7 +1325,10 @@ void tws_AcceptConn(void *data, int mask) {
         return;
     }
 #endif
-    DBG(fprintf(stderr, "-------------------tws_AcceptConn, nfds: %d\n", nfds));
+
+    if (nfds==0) {
+        fprintf(stderr, "-------------------tws_AcceptConn, nfds: %d\n", nfds);
+    }
 
     for (int i = 0; i < nfds; i++) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -1323,8 +1363,12 @@ void tws_AcceptConn(void *data, int mask) {
 
             CMD_CONN_NAME(conn->conn_handle, conn);
             tws_RegisterConnName(conn->conn_handle, conn);
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+            tws_ThreadQueueConnEvent(conn);
+#else
             tws_AddConnToThreadList(conn);
             tws_ThreadQueueProcessEvent(conn);
+#endif
         } else {
             // data available on an existing connection
             // we do not have any as each thread has its own epoll instance
@@ -1371,17 +1415,26 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         TCL_THREAD_CREATE_RETURN;
     }
 
-
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#else
     int server_fd;
     int epoll_fd;
-    if (TCL_OK != create_socket(dataPtr->interp, ctrl->server, ctrl->host, ctrl->port, &server_fd, &epoll_fd) || server_fd < 0 || epoll_fd < 0) {
-//        fprintf(stderr, "failed to create socket on thread\n");
+    if (TCL_OK != create_socket(dataPtr->interp, ctrl->server, ctrl->host, ctrl->port, &server_fd) || server_fd < 0) {
+        fprintf(stderr, "failed to create socket on thread\n");
+        Tcl_FinalizeThread();
+        Tcl_ExitThread(TCL_ERROR);
+        TCL_THREAD_CREATE_RETURN;
+    }
+
+    if (TCL_OK != create_epoll_fd(dataPtr->interp, &epoll_fd) || epoll_fd < 0) {
+        fprintf(stderr, "failed to create epoll fd on thread\n");
         Tcl_FinalizeThread();
         Tcl_ExitThread(TCL_ERROR);
         TCL_THREAD_CREATE_RETURN;
     }
 
     DBG(fprintf(stderr, "port: %s - created listening socket on thread: %d\n", ctrl->port, ctrl->thread_index));
+#endif
 
     tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_Alloc(sizeof(tws_accept_ctx_t));
 
@@ -1395,6 +1448,8 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         accept_ctx->write_fn = tws_WriteSslConnAsync;
         accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#else
         // it is an https server, so we need to create an SSL_CTX
         if (TCL_OK != tws_CreateSslContext(dataPtr->interp, &accept_ctx->sslCtx)) {
             Tcl_Free((char *) accept_ctx);
@@ -1403,16 +1458,23 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
             TCL_THREAD_CREATE_RETURN;
         }
         SSL_CTX_set_client_hello_cb(accept_ctx->sslCtx, tws_ClientHelloCallback, NULL);
+#endif
     }
 
     accept_ctx->option_http = ctrl->option_http;
-    accept_ctx->server_fd = server_fd;
-    accept_ctx->epoll_fd = epoll_fd;
     accept_ctx->port = atoi(ctrl->port);
     accept_ctx->interp = dataPtr->interp;
     accept_ctx->server = ctrl->server;
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#else
+    accept_ctx->server_fd = server_fd;
+    accept_ctx->epoll_fd = epoll_fd;
     Tcl_CreateFileHandler(epoll_fd, TCL_READABLE, tws_AcceptConn, accept_ctx);
+
+    // create a file handler for the epoll fd for this thread
+    Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
+#endif
 
     if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->server->scriptPtr)) {
         fprintf(stderr, "error evaluating init script\n");
@@ -1422,9 +1484,6 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         Tcl_ExitThread(TCL_ERROR);
         TCL_THREAD_CREATE_RETURN;
     }
-
-    // create a file handler for the epoll fd for this thread
-    Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
 
     // notify the main thread that we are done initializing
     Tcl_ConditionNotify(&ctrl->condWait);
@@ -1490,6 +1549,49 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
 
 int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int option_num_threads, const char *host, const char *port) {
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    int server_fd;
+    if (TCL_OK != create_socket(interp, server, host, port, &server_fd) || server_fd < 0) {
+        fprintf(stderr, "failed to create socket on main thread\n");
+        SetResult("Failed to create server socket");
+        return TCL_ERROR;
+    }
+
+    int epoll_fd;
+    if (TCL_OK != create_epoll_fd(interp, server_fd, &epoll_fd) || epoll_fd < 0) {
+        fprintf(stderr, "failed to create epoll fd on main thread\n");
+        SetResult("Failed to create epoll fd");
+        return TCL_ERROR;
+    }
+
+    tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_Alloc(sizeof(tws_accept_ctx_t));
+
+    if (option_http) {
+        accept_ctx->read_fn = tws_ReadHttpConnAsync;
+        accept_ctx->write_fn = tws_WriteHttpConnAsync;
+        accept_ctx->handle_conn_fn = tws_HandleRecv;
+    } else {
+        accept_ctx->read_fn = tws_ReadSslConnAsync;
+        accept_ctx->write_fn = tws_WriteSslConnAsync;
+        accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
+    }
+
+    accept_ctx->option_http = option_http;
+    accept_ctx->port = atoi(port);
+    accept_ctx->interp = interp;
+    accept_ctx->server = server;
+
+    accept_ctx->server_fd = server_fd;
+    accept_ctx->epoll_fd = epoll_fd;
+
+    Tcl_CreateFileHandler(epoll_fd, TCL_READABLE, tws_AcceptConn, accept_ctx);
+
+    DBG(fprintf(stderr, "port: %s - created listening socket on main thread\n", port));
+
+    server->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(option_num_threads * sizeof(Tcl_ThreadId));
+#else
+#endif
+
     for (int i = 0; i < option_num_threads; i++) {
         Tcl_MutexLock(&tws_Thread_Mutex);
         Tcl_ThreadId id;
@@ -1506,6 +1608,9 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
             SetResult("Unable to create thread");
             return TCL_ERROR;
         }
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+        server->conn_thread_ids[i] = id;
+#endif
 
         // Wait for the thread to start because it is using something on our stack!
         Tcl_ConditionWait(&ctrl.condWait, &tws_Thread_Mutex, NULL);

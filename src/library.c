@@ -33,6 +33,10 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
         return TCL_ERROR;
     }
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    Tcl_Free((char *) server->conn_thread_ids);
+#endif
+
     Tcl_DecrRefCount(server->cmdPtr);
     if (server->scriptPtr != NULL) {
         Tcl_DecrRefCount(server->scriptPtr);
