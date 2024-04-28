@@ -99,6 +99,7 @@ typedef struct {
     int server_fd;
     int epoll_fd;
     int port;
+    int num_threads;
     Tcl_Interp *interp;
     tws_server_t *server;
     SSL_CTX *sslCtx;

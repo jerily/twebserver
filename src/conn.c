@@ -310,7 +310,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
 //        fprintf(stderr, "tws_NewConn - num_threads: %d\n", accept_ctx->server->num_threads);
 //        fprintf(stderr, "tws_NewConn - client: %d\n", client);
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    conn->threadId = accept_ctx->server->conn_thread_ids[client % accept_ctx->server->num_threads];
+    conn->threadId = accept_ctx->server->conn_thread_ids[client % accept_ctx->num_threads];
 #else
     conn->threadId = Tcl_GetCurrentThread();
 #endif
@@ -1580,6 +1580,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
     accept_ctx->port = atoi(port);
     accept_ctx->interp = interp;
     accept_ctx->server = server;
+    accept_ctx->num_threads = option_num_threads;
 
     accept_ctx->server_fd = server_fd;
     accept_ctx->epoll_fd = epoll_fd;
