@@ -429,12 +429,6 @@ static int tws_CleanupConnections(Tcl_Event *evPtr, int flags) {
     Tcl_MutexLock(&tws_Thread_Mutex);
     tws_conn_t *curr_conn = dataPtr->firstConnPtr;
     while (curr_conn != NULL) {
-        // shouldn't be the case but we check anyway
-        if (curr_conn->threadId != currentThreadId) {
-            fprintf(stderr, "wrong thread cleanup conn->threadId=%p currentThreadId=%p\n", curr_conn->threadId,
-                    currentThreadId);
-            exit(1);
-        }
 
         if (curr_conn->todelete || curr_conn->shutdown) {
             DBG(fprintf(stderr, "CleanupConnections - deleting conn - client: %d\n", curr_conn->client));
