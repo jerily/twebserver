@@ -781,10 +781,12 @@ static int tws_HandleRecv(tws_conn_t *conn) {
         return 1;
     }
 
-    Tcl_Size remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
-    Tcl_Size bytes_to_read = conn->content_length == 0 ? 0 : conn->content_length - remaining_unprocessed;
-    // todo: here
-    int ret = conn->accept_ctx->read_fn(conn, &conn->ds, bytes_to_read);
+    int ret = TWS_DONE;
+    if (tws_ShouldReadMore(conn)) {
+        Tcl_Size remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
+        Tcl_Size bytes_to_read = conn->content_length == 0 ? 0 : conn->content_length - remaining_unprocessed;
+        ret = conn->accept_ctx->read_fn(conn, &conn->ds, bytes_to_read);
+    }
 
     if (TWS_AGAIN == ret) {
         if (tws_ShouldParseTopPart(conn) || tws_ShouldReadMore(conn)) {
