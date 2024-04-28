@@ -121,5 +121,4 @@ HTML Transfer rate:     2395.12 [Kbytes/sec] received
 
 # macOS
 
-There is an issue with macOS as only one thread is utilized.
-We are working to resolve the issue. It is still fast but not as fast as on Linux.
+As of 2024-04-28, there is still an issue pending with HTTP on macOS. HTTPS seems to work fine.
