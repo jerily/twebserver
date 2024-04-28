@@ -146,6 +146,7 @@ typedef struct tws_conn_t_ {
     Tcl_Size blank_line_offset;
 
     int error;
+    int (*handle_conn_fn)(tws_conn_t *conn);
 } tws_conn_t;
 
 typedef struct {
