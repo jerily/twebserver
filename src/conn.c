@@ -1240,11 +1240,6 @@ int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
 
 static int tws_AddConnToThreadList(tws_conn_t *conn) {
 
-    if (Tcl_GetCurrentThread() != conn->threadId) {
-        fprintf(stderr, "AddConnToThreadList called from wrong thread\n");
-        exit(1);
-    }
-
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
     Tcl_MutexLock(&tws_Thread_Mutex);
 
