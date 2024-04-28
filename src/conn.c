@@ -1368,7 +1368,7 @@ void tws_AcceptConn(void *data, int mask) {
             int client = accept(accept_ctx->server_fd, (struct sockaddr *) &client_addr, &len);
             DBG(fprintf(stderr, "client: %d\n", client));
             if (client < 0) {
-                DBG(fprintf(stderr, "Unable to accept\n"));
+                fprintf(stderr, "Unable to accept\n");
                 return;
             }
 
