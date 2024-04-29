@@ -47,3 +47,7 @@ cmake .. \
 make
 make install
 ```
+
+### Or you can try your luck with docker
+
+See [Docker directory](../docker/) for building and running twebserver on an Alpine Linux image.
