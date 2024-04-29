@@ -613,18 +613,23 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
 static int tws_HandleRecv(tws_conn_t *conn);
 
 static int tws_FoundBlankLine(tws_conn_t *conn) {
+    if (conn->blank_line_offset == -1) {
+        return 1;
+    }
+
     const char *s = Tcl_DStringValue(&conn->ds);
     const char *p = s + conn->blank_line_offset;
     const char *end = s + Tcl_DStringLength(&conn->ds);
     while (p < end) {
         if ((p < end - 3 && *p == '\r' && *(p + 1) == '\n' && *(p + 2) == '\r' && *(p + 3) == '\n') || (p < end - 1 && *p == '\n' && *(p + 1) == '\n')) {
-            conn->blank_line_offset = p - s - 1;
+            DBG(fprintf(stderr, "FoundBlankLine\n"));
+            conn->blank_line_offset = -1;
             return 1;
         }
         p++;
     }
 
-    conn->blank_line_offset = p - s - 1;
+    conn->blank_line_offset = p - s;
     return 0;
 }
 
@@ -728,6 +733,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
                 Tcl_DStringLength(&conn->ds), conn->content_length));
 
     if (tws_ShouldParseTopPart(conn)) {
+        DBG(fprintf(stderr, "parse top part after without defer reqdictptr=%p\n", conn->requestDictPtr));
         // case when we have read as much as we could without deferring
         if (TCL_OK != tws_ParseTopPart(dataPtr->interp, conn)) {
             Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
@@ -747,6 +753,18 @@ static int tws_HandleRecv(tws_conn_t *conn) {
             return 1;
         }
     } else {
+        fprintf(stderr, "conn->requestDictPtr: %p\n", conn->requestDictPtr);
+
+        if (conn->requestDictPtr == NULL) {
+            fprintf(stderr, "ds: %s\n", Tcl_DStringValue(&conn->ds));
+            // return error
+            Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
+            if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
+                tws_CloseConn(conn, 1);
+            }
+            return 1;
+        }
+
         if (TCL_OK !=
             Tcl_DictObjPut(dataPtr->interp, conn->requestDictPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(0))) {
             fprintf(stderr, "failed to write to dict");
