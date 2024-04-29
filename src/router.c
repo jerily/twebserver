@@ -214,7 +214,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
 //                            SetResult("router_process_conn: return_error failed");
                             return TCL_ERROR;
                         }
-                        tws_CloseConn(conn, 1);
+//                        tws_CloseConn(conn, 1);
                         Tcl_DecrRefCount(ctx_dict_ptr);
                         Tcl_DecrRefCount(req_dict_ptr);
                         // SetResult("router_process_conn: enter proc eval failed");
@@ -240,7 +240,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
 //                    SetResult("router_process_conn: return_error failed");
                     return TCL_ERROR;
                 }
-                tws_CloseConn(conn, 1);
+//                tws_CloseConn(conn, 1);
                 Tcl_DecrRefCount(ctx_dict_ptr);
                 Tcl_DecrRefCount(req_dict_ptr);
 //                SetResult("router_process_conn: eval route failed");
@@ -265,7 +265,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
 //                            SetResult("router_process_conn: return_error failed");
                             return TCL_ERROR;
                         }
-                        tws_CloseConn(conn, 1);
+//                        tws_CloseConn(conn, 1);
                         Tcl_DecrRefCount(ctx_dict_ptr);
                         Tcl_DecrRefCount(req_dict_ptr);
                         Tcl_DecrRefCount(res_dict_ptr);
@@ -289,7 +289,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
                     SetResult("router_process_conn: return_error failed");
                     return TCL_ERROR;
                 }
-                tws_CloseConn(conn, 1);
+//                tws_CloseConn(conn, 1);
                 Tcl_DecrRefCount(ctx_dict_ptr);
                 Tcl_DecrRefCount(req_dict_ptr);
                 Tcl_DecrRefCount(res_dict_ptr);
