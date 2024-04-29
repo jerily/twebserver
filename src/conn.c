@@ -738,9 +738,6 @@ static int tws_HandleRecv(tws_conn_t *conn) {
         }
     }
 
-//    Tcl_Obj *req_dict_ptr = conn->requestDictPtr;
-//    conn->requestDictPtr = NULL;
-
     if (tws_ShouldParseBottomPart(conn)) {
         if (TCL_OK != tws_ParseBottomPart(dataPtr->interp, conn, conn->requestDictPtr)) {
             fprintf(stderr, "ParseBottomPart failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
@@ -1211,6 +1208,7 @@ static int tws_AddConnToThreadList(tws_conn_t *conn) {
     // this is to cap memory usage
     int thread_limit = conn->accept_ctx->server->thread_max_concurrent_conns;
     if (thread_limit > 0 && dataPtr->numConns >= thread_limit) {
+        fprintf(stderr, "thread limit reached, close client: %d\n", conn->client);
         shutdown(conn->client, SHUT_RDWR);
         close(conn->client);
         SSL_free(conn->ssl);
