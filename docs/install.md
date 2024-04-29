@@ -26,6 +26,7 @@ To install TCL with threads from source:
 # Download and extract the source
 # https://www.tcl.tk/software/tcltk/download.html
 wget http://prdownloads.sourceforge.net/tcl/tcl9.0b1-src.tar.gz
+tar -xzvf tcl9.0b1-src.tar.gz
 cd tcl9.0b1/unix
 ./configure --enable-threads
 make
