@@ -916,3 +916,88 @@ int tws_ParseAcceptEncoding(Tcl_Interp *interp, Tcl_Obj *headersPtr, tws_compres
     *compression = NO_COMPRESSION;
     return TCL_OK;
 }
+
+int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
+
+    Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
+    Tcl_Obj *req_dict_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(req_dict_ptr);
+    if (TCL_OK != tws_ParseRequest(interp, encoding, &conn->ds, req_dict_ptr, &conn->offset)) {
+        Tcl_DecrRefCount(req_dict_ptr);
+        return TCL_ERROR;
+    }
+
+    // get content-length from header
+
+    Tcl_Obj *headersPtr;
+    Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
+    Tcl_IncrRefCount(headersKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, req_dict_ptr, headersKeyPtr, &headersPtr)) {
+        Tcl_DecrRefCount(req_dict_ptr);
+        Tcl_DecrRefCount(headersKeyPtr);
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(headersKeyPtr);
+
+    if (headersPtr) {
+        // get "Content-Length" header
+        Tcl_Obj *contentLengthPtr;
+        Tcl_Obj *contentLengthKeyPtr = Tcl_NewStringObj("content-length", -1);
+        Tcl_IncrRefCount(contentLengthKeyPtr);
+        if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentLengthKeyPtr, &contentLengthPtr)) {
+            Tcl_DecrRefCount(req_dict_ptr);
+            Tcl_DecrRefCount(contentLengthKeyPtr);
+            return TCL_ERROR;
+        }
+        Tcl_DecrRefCount(contentLengthKeyPtr);
+
+        if (contentLengthPtr) {
+            if (TCL_OK != Tcl_GetSizeIntFromObj(interp, contentLengthPtr, &conn->content_length)) {
+                Tcl_DecrRefCount(req_dict_ptr);
+                return TCL_ERROR;
+            }
+        }
+
+        if (conn->accept_ctx->server->keepalive) {
+            if (TCL_OK != tws_ParseConnectionKeepalive(interp, headersPtr, &conn->keepalive)) {
+                Tcl_DecrRefCount(req_dict_ptr);
+                return TCL_ERROR;
+            }
+        }
+
+        if (conn->accept_ctx->server->gzip) {
+            if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
+                Tcl_DecrRefCount(req_dict_ptr);
+                return TCL_ERROR;
+            }
+        }
+
+    }
+    conn->requestDictPtr = req_dict_ptr;
+    return TCL_OK;
+}
+
+int tws_ParseBottomPart(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *req_dict_ptr) {
+    DBG(fprintf(stderr, "parse bottom part\n"));
+
+    Tcl_Obj *headersPtr;
+    Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
+    Tcl_IncrRefCount(headersKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, req_dict_ptr, headersKeyPtr, &headersPtr)) {
+        Tcl_DecrRefCount(headersKeyPtr);
+        goto handle_error;
+    }
+    Tcl_DecrRefCount(headersKeyPtr);
+
+    if (headersPtr) {
+        if (conn->content_length > 0) {
+            const char *remaining_unprocessed_ptr = Tcl_DStringValue(&conn->ds) + conn->offset;
+            const char *end = Tcl_DStringValue(&conn->ds) + Tcl_DStringLength(&conn->ds);
+            tws_ParseBody(interp, remaining_unprocessed_ptr, end, headersPtr, req_dict_ptr);
+        }
+    }
+
+    return TCL_OK;
+    handle_error:
+    return TCL_ERROR;
+}

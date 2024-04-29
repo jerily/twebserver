@@ -17,16 +17,15 @@
 #include "base64.h"
 #include "request.h"
 #include "https.h"
+#include <netdb.h>
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
 #include <sys/event.h>
-#include <netdb.h>
 #else
 
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <signal.h>
-#include <netdb.h>
 
 #endif
 
@@ -614,91 +613,6 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
 }
 
 static int tws_HandleRecv(tws_conn_t *conn);
-
-static int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
-
-    Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
-    Tcl_Obj *req_dict_ptr = Tcl_NewDictObj();
-    Tcl_IncrRefCount(req_dict_ptr);
-    if (TCL_OK != tws_ParseRequest(interp, encoding, &conn->ds, req_dict_ptr, &conn->offset)) {
-        Tcl_DecrRefCount(req_dict_ptr);
-        return TCL_ERROR;
-    }
-
-    // get content-length from header
-
-    Tcl_Obj *headersPtr;
-    Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
-    Tcl_IncrRefCount(headersKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, req_dict_ptr, headersKeyPtr, &headersPtr)) {
-        Tcl_DecrRefCount(req_dict_ptr);
-        Tcl_DecrRefCount(headersKeyPtr);
-        return TCL_ERROR;
-    }
-    Tcl_DecrRefCount(headersKeyPtr);
-
-    if (headersPtr) {
-        // get "Content-Length" header
-        Tcl_Obj *contentLengthPtr;
-        Tcl_Obj *contentLengthKeyPtr = Tcl_NewStringObj("content-length", -1);
-        Tcl_IncrRefCount(contentLengthKeyPtr);
-        if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentLengthKeyPtr, &contentLengthPtr)) {
-            Tcl_DecrRefCount(req_dict_ptr);
-            Tcl_DecrRefCount(contentLengthKeyPtr);
-            return TCL_ERROR;
-        }
-        Tcl_DecrRefCount(contentLengthKeyPtr);
-
-        if (contentLengthPtr) {
-            if (TCL_OK != Tcl_GetSizeIntFromObj(interp, contentLengthPtr, &conn->content_length)) {
-                Tcl_DecrRefCount(req_dict_ptr);
-                return TCL_ERROR;
-            }
-        }
-
-        if (conn->accept_ctx->server->keepalive) {
-            if (TCL_OK != tws_ParseConnectionKeepalive(interp, headersPtr, &conn->keepalive)) {
-                Tcl_DecrRefCount(req_dict_ptr);
-                return TCL_ERROR;
-            }
-        }
-
-        if (conn->accept_ctx->server->gzip) {
-            if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
-                Tcl_DecrRefCount(req_dict_ptr);
-                return TCL_ERROR;
-            }
-        }
-
-    }
-    conn->requestDictPtr = req_dict_ptr;
-    return TCL_OK;
-}
-
-static int tws_ParseBottomPart(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *req_dict_ptr) {
-    DBG(fprintf(stderr, "parse bottom part\n"));
-
-    Tcl_Obj *headersPtr;
-    Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
-    Tcl_IncrRefCount(headersKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, req_dict_ptr, headersKeyPtr, &headersPtr)) {
-        Tcl_DecrRefCount(headersKeyPtr);
-        goto handle_error;
-    }
-    Tcl_DecrRefCount(headersKeyPtr);
-
-    if (headersPtr) {
-        if (conn->content_length > 0) {
-            const char *remaining_unprocessed_ptr = Tcl_DStringValue(&conn->ds) + conn->offset;
-            const char *end = Tcl_DStringValue(&conn->ds) + Tcl_DStringLength(&conn->ds);
-            tws_ParseBody(interp, remaining_unprocessed_ptr, end, headersPtr, req_dict_ptr);
-        }
-    }
-
-    return TCL_OK;
-    handle_error:
-    return TCL_ERROR;
-}
 
 static int tws_FoundBlankLine(tws_conn_t *conn) {
     const char *s = Tcl_DStringValue(&conn->ds);
@@ -1331,75 +1245,40 @@ void tws_AcceptConn(void *data, int mask) {
 
     tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) data;
 
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    struct timespec timeout;
-    timeout.tv_sec = 1;  // 0 seconds
-    timeout.tv_nsec = 1000; // 1000 nanoseconds
+        // new incoming connection
 
-//    struct kevent events[MAX_EVENTS];
-//    int nfds = kevent(accept_ctx->epoll_fd, NULL, 0, events, MAX_EVENTS, &timeout);
-//    if (nfds == -1) {
-//        fprintf(stderr, "kevent failed");
-//        return;
-//    }
+        struct sockaddr_in6 client_addr;
+        unsigned int len = sizeof(client_addr);
+        int client = accept(accept_ctx->server_fd, (struct sockaddr *) &client_addr, &len);
+        DBG(fprintf(stderr, "client: %d\n", client));
+        if (client < 0) {
+            fprintf(stderr, "Unable to accept\n");
+            return;
+        }
+
+        // get the client IP address
+        char client_ip[INET6_ADDRSTRLEN];
+        inet_ntop(AF_INET6, &client_addr.sin6_addr, client_ip, sizeof(client_ip));
+        DBG(fprintf(stderr, "Client connected from %s\n", client_ip));
+
+        tws_conn_t *conn = tws_NewConn(accept_ctx, client, client_ip);
+        if (conn == NULL) {
+            shutdown(client, SHUT_WR);
+            shutdown(client, SHUT_RD);
+            close(client);
+            DBG(fprintf(stderr, "Unable to create SSL connection"));
+            return;
+        }
+
+        CMD_CONN_NAME(conn->conn_handle, conn);
+        tws_RegisterConnName(conn->conn_handle, conn);
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+        tws_ThreadQueueConnEvent(conn);
 #else
-    struct epoll_event events[MAX_EVENTS];
-    int nfds = epoll_wait(accept_ctx->epoll_fd, events, MAX_EVENTS, 0);
-    if (nfds == -1) {
-        fprintf(stderr, "epoll_wait failed");
-        return;
-    }
+        tws_AddConnToThreadList(conn);
+        tws_QueueProcessEvent(conn);
 #endif
 
-//    if (nfds==0) {
-//        fprintf(stderr, "-------------------tws_AcceptConn, nfds: %d\n", nfds);
-//    }
-
-//    for (int i = 0; i < nfds; i++) {
-//#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-//        if (events[i].ident == accept_ctx->server_fd) {
-//#else
-//        if (events[i].data.fd == accept_ctx->server_fd) {
-//#endif
-            // new incoming connection
-
-            struct sockaddr_in6 client_addr;
-            unsigned int len = sizeof(client_addr);
-            int client = accept(accept_ctx->server_fd, (struct sockaddr *) &client_addr, &len);
-            DBG(fprintf(stderr, "client: %d\n", client));
-            if (client < 0) {
-                fprintf(stderr, "Unable to accept\n");
-                return;
-            }
-
-            // get the client IP address
-            char client_ip[INET6_ADDRSTRLEN];
-            inet_ntop(AF_INET6, &client_addr.sin6_addr, client_ip, sizeof(client_ip));
-            DBG(fprintf(stderr, "Client connected from %s\n", client_ip));
-
-            tws_conn_t *conn = tws_NewConn(accept_ctx, client, client_ip);
-            if (conn == NULL) {
-                shutdown(client, SHUT_WR);
-                shutdown(client, SHUT_RD);
-                close(client);
-                DBG(fprintf(stderr, "Unable to create SSL connection"));
-                return;
-            }
-
-            CMD_CONN_NAME(conn->conn_handle, conn);
-            tws_RegisterConnName(conn->conn_handle, conn);
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-            tws_ThreadQueueConnEvent(conn);
-#else
-            tws_AddConnToThreadList(conn);
-            tws_QueueProcessEvent(conn);
-#endif
-//        } else {
-//             data available on an existing connection
-//             we do not have any as each thread has its own epoll instance
-//        }
-
-//    }
 }
 
 Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
@@ -1495,8 +1374,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
 #else
     accept_ctx->server_fd = server_fd;
-    accept_ctx->epoll_fd = epoll_fd;
-    Tcl_CreateFileHandler(epoll_fd, TCL_READABLE, tws_AcceptConn, accept_ctx);
+    Tcl_CreateFileHandler(server_fd, TCL_READABLE, tws_AcceptConn, accept_ctx);
 
 #endif
 

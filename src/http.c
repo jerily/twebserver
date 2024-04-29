@@ -22,12 +22,12 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
 
         if (rc > 0) {
             bytes_read = rc;
-            Tcl_DStringAppend(dsPtr, buf, bytes_read);
             total_read += bytes_read;
             if (total_read > max_request_read_bytes) {
                 Tcl_Free(buf);
                 return TWS_ERROR;
             }
+            Tcl_DStringAppend(dsPtr, buf, bytes_read);
             if (total_read < size) {
                 continue;
             }
