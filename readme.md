@@ -118,7 +118,3 @@ Time per request:       0.277 [ms] (mean)
 Time per request:       0.028 [ms] (mean, across all concurrent requests)
 HTML Transfer rate:     2395.12 [Kbytes/sec] received
 ```
-
-# macOS
-
-As of 2024-04-28, there is still an issue pending with HTTP on macOS. HTTPS seems to work fine.
