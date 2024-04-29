@@ -129,7 +129,8 @@ set config_dict [dict create \
 set server_handle [::twebserver::create_server $config_dict process_conn $init_script]
 
 # add SSL context to the server
-::twebserver::add_context $server_handle localhost "../certs/key.pem" "../certs/cert.pem"
+set dir [file dirname [info script]]
+::twebserver::add_context $server_handle localhost [file join $dir "../certs/key.pem"] [file join $dir "../certs/cert.pem"]
 
 # listen for an HTTPS connection on port 4433
 ::twebserver::listen_server -num_threads 8 $server_handle 4433
