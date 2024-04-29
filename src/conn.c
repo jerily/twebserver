@@ -410,16 +410,12 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     DBG(fprintf(stderr, "shutdown_client: %d\n", shutdown_client));
     if (shutdown_client) {
         if (shutdown(conn->client, SHUT_RDWR)) {
-            DBG(
-                    int error;
-                    getsockopt(conn->client, SOL_SOCKET, SO_ERROR, &error, &(socklen_t) {sizeof(error)});
-                    fprintf(stderr, "failed to shutdown client: %d error=%d\n", conn->client, error)
-            );
+            fprintf(stderr, "failed to shutdown client: %d error=%d\n", conn->client, errno);
         }
     }
 
     if (close(conn->client)) {
-        DBG(fprintf(stderr, "close failed\n"));
+        fprintf(stderr, "close failed\n");
     }
 
     DBG(fprintf(stderr, "done shutdown\n"));
