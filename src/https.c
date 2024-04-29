@@ -176,5 +176,27 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
 }
 
 int tws_WriteSslConnAsync(tws_conn_t *conn, const char *buf, Tcl_Size len) {
-    return SSL_write(conn->ssl, buf, len);
+    Tcl_Size total_written = 0;
+    int rc;
+    for (;;) {
+        rc = SSL_write(conn->ssl, buf + total_written, len - total_written);
+        if (rc > 0) {
+            // The write operation was successful, the return value is the number
+            // of bytes actually written to the TLS/SSL connection.
+            total_written += rc;
+            if (total_written == len) {
+                return TWS_DONE;
+            }
+        } else {
+            int err = SSL_get_error(conn->ssl, rc);
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                return TWS_AGAIN;
+            } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
+                // peer closed connection
+                return TWS_DONE;
+            }
+
+            return TWS_ERROR;
+        }
+    }
 }

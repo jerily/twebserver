@@ -1,6 +1,6 @@
 /**
  * Copyright Jerily LTD. All Rights Reserved.
- * SPDX-FileCopyrightText: 2023 Neofytos Dimitriou (neo@jerily.cy)
+ * SPDX-FileCopyrightText: 2024 Neofytos Dimitriou (neo@jerily.cy)
  * SPDX-License-Identifier: MIT.
  */
 
@@ -18,5 +18,6 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
 int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *responseDictPtr, Tcl_Encoding encoding);
 int tws_CloseConn(tws_conn_t *conn, int force);
 tws_server_t *tws_GetCurrentServer();
+int tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const char *error_text, Tcl_Encoding encoding);
 
 #endif //TWEBSERVER_CONN_H

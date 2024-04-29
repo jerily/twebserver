@@ -57,18 +57,23 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
 }
 
 int tws_WriteHttpConnAsync(tws_conn_t *conn, const char *buf, Tcl_Size len) {
-    ssize_t rc = write(conn->client, buf, len);
-    if (rc == len) {
-        return TWS_DONE;
-    } else {
-        if (rc == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                return TWS_AGAIN;
-            } else {
-                return TWS_ERROR;
+    Tcl_Size total_written = 0;
+    ssize_t rc;
+    for (;;) {
+        rc = write(conn->client, buf+total_written, len-total_written);
+        if (rc > 0) {
+            total_written += rc;
+            if (total_written == len) {
+                return TWS_DONE;
             }
         } else {
-            return TWS_AGAIN;
+            if (rc == -1) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    return TWS_AGAIN;
+                } else {
+                    return TWS_ERROR;
+                }
+            }
         }
     }
 }

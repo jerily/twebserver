@@ -1,6 +1,6 @@
 /**
  * Copyright Jerily LTD. All Rights Reserved.
- * SPDX-FileCopyrightText: 2023 Neofytos Dimitriou (neo@jerily.cy)
+ * SPDX-FileCopyrightText: 2024 Neofytos Dimitriou (neo@jerily.cy)
  * SPDX-License-Identifier: MIT.
  */
 #include "common.h"
@@ -174,24 +174,6 @@ static int tws_EvalRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *ct
     return TCL_OK;
 }
 
-static int
-tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const char *error_text, Tcl_Encoding encoding) {
-    if (conn->error) {
-        return TCL_OK;
-    }
-
-    Tcl_Obj *responseDictPtr = Tcl_NewDictObj();
-    Tcl_IncrRefCount(responseDictPtr);
-    Tcl_DictObjPut(interp, responseDictPtr, Tcl_NewStringObj("statusCode", -1), Tcl_NewIntObj(status_code));
-    Tcl_DictObjPut(interp, responseDictPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(error_text, -1));
-    if (TCL_OK != tws_ReturnConn(interp, conn, responseDictPtr, encoding)) {
-        Tcl_DecrRefCount(responseDictPtr);
-        return TCL_ERROR;
-    }
-    Tcl_DecrRefCount(responseDictPtr);
-    return TCL_OK;
-}
-
 static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_t *conn, Tcl_Obj *req_dict_ptr) {
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
 
@@ -322,11 +304,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
     Tcl_DecrRefCount(ctx_dict_ptr);
     Tcl_DecrRefCount(req_dict_ptr);
 
-    if (TCL_OK != tws_CloseConn(conn, 0)) {
-        SetResult("router_process_conn: close_conn failed");
-        return TCL_ERROR;
-    }
-    DBG(fprintf(stderr, "------------done\n"));
+    // HandleWriteEventInThread will close the connection
 
     return TCL_OK;
 }
