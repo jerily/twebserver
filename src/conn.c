@@ -753,10 +753,10 @@ static int tws_HandleRecv(tws_conn_t *conn) {
             return 1;
         }
     } else {
-        fprintf(stderr, "conn->requestDictPtr: %p\n", conn->requestDictPtr);
+        DBG(fprintf(stderr, "conn->requestDictPtr: %p\n", conn->requestDictPtr));
 
         if (conn->requestDictPtr == NULL) {
-            fprintf(stderr, "ds: %s\n", Tcl_DStringValue(&conn->ds));
+            DBG(fprintf(stderr, "requestDictPtr is null, ds: %s\n", Tcl_DStringValue(&conn->ds)));
             // return error
             Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
             if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
