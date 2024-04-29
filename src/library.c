@@ -19,6 +19,7 @@
 #include <ctype.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <stdlib.h>
 
 static int tws_ModuleInitialized;
 
@@ -1674,6 +1675,13 @@ static void tws_ExitHandler(ClientData unused) {
     tws_DeleteRouterNameHT();
 }
 
+void tws_SignalHandler(int signum) {
+    if (signum == SIGTERM || signum == SIGINT) {
+        fprintf(stderr, "Caught signal %d\n", signum);
+        exit(1);
+    }
+}
+
 void tws_InitModule() {
     if (!tws_ModuleInitialized) {
         sigset_t sigset;
@@ -1682,6 +1690,9 @@ void tws_InitModule() {
         if (pthread_sigmask(SIG_BLOCK, &sigset, NULL)) {
             fprintf(stderr, "pthread_sigmask failed\n");
         }
+
+        signal(SIGTERM, tws_SignalHandler);
+        signal(SIGINT, tws_SignalHandler);
 
         tws_InitServerNameHT();
         tws_InitConnNameHT();
