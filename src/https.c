@@ -143,7 +143,7 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
         } else {
             int err = SSL_get_error(conn->ssl, rc);
             if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-                DBG(fprintf(stderr, "SSL_ERROR_WANT_READ or SSL_ERROR_WANT_WRITE\n"));
+                DBG(fprintf(stderr, "AGAIN %s\n", ssl_errors[err]));
                 Tcl_Free(buf);
                 return TWS_AGAIN;
 

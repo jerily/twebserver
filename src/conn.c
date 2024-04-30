@@ -629,6 +629,7 @@ static int tws_FoundBlankLine(tws_conn_t *conn) {
         p++;
     }
 
+    DBG(fprintf(stderr, "NotFoundBlankLine\n"));
     conn->blank_line_offset = p - s;
     return 0;
 }
