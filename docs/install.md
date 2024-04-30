@@ -35,9 +35,9 @@ make install
 
 ### Build the twebserver extension
 ```
-wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.20.tar.gz
-tar -xzf v1.47.20.tar.gz
-cd twebserver-1.47.20
+wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.21.tar.gz
+tar -xzf v1.47.21.tar.gz
+cd twebserver-1.47.21
 mkdir build
 cd build
 # change "TCL_LIBRARY_DIR" and "TCL_INCLUDE_DIR" to the correct paths
