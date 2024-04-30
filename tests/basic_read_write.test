@@ -64,9 +64,12 @@ test basic-3 {non-blocking message} -setup setup -cleanup cleanup -body {
     puts -nonewline $sock "T /asdf HT"
     puts -nonewline $sock "TP/1.1\n\n"
     flush $sock
-    fconfigure $sock -blocking 1
-    set response [read $sock]
-    close $sock
+#    fconfigure $sock -blocking 1
+set response ""
+while {[eof $sock] == 0} {
+    append response [read $sock 1]
+}
+#    close $sock
 
     escape $response
 } -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 27\n\ntest message GET path=/asdf}
