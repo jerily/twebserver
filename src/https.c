@@ -111,6 +111,7 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
             size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size);
 
     char *buf = (char *) Tcl_Alloc(max_buffer_size);
+    Tcl_Size previously_read = Tcl_DStringLength(&conn->ds);
     long total_read = 0;
     int rc;
     int bytes_read;
@@ -129,7 +130,7 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
         if (rc > 0) {
             bytes_read = rc;
             total_read += bytes_read;
-            if (total_read > max_request_read_bytes) {
+            if (total_read + previously_read > max_request_read_bytes) {
                 goto failed_due_to_request_too_large;
             }
             Tcl_DStringAppend(dsPtr, buf, bytes_read);
@@ -190,6 +191,7 @@ int tws_WriteSslConnAsync(tws_conn_t *conn, const char *buf, Tcl_Size len) {
         } else {
             int err = SSL_get_error(conn->ssl, rc);
             if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                conn->write_offset += total_written;
                 return TWS_AGAIN;
             } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
                 // peer closed connection
