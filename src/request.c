@@ -671,7 +671,7 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
 
 }
 
-int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *headersPtr, Tcl_Obj *resultPtr) {
+int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *headersPtr, Tcl_Obj *result_ptr) {
 
     Tcl_Obj *content_type_ptr;
     Tcl_Obj *content_type_key_ptr = Tcl_NewStringObj("content-type", -1);
@@ -713,28 +713,40 @@ int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj
                 // check if we have a boundary
                 if (p < content_type_end) {
                     // remember the boundary
-                    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("multipartBoundary", -1), Tcl_NewStringObj(p, content_type_end - p));
+                    Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("multipartBoundary", -1), Tcl_NewStringObj(p, content_type_end - p));
                 }
             }
         }
     }
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(base64_encode_it));
+
+    if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(base64_encode_it))) {
+        SetResult("dict put error");
+        return TCL_ERROR;
+    }
 
     if (base64_encode_it) {
         // base64 encode the body and remember as "body"
         char *body = Tcl_Alloc(content_length * 2);
-        Tcl_Size bodyLength;
-        if (base64_encode(curr, content_length, body, &bodyLength)) {
+        Tcl_Size body_length;
+        if (base64_encode(curr, content_length, body, &body_length)) {
             Tcl_Free(body);
             SetResult("base64_encode failed");
             return TCL_ERROR;
         }
-        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(body, bodyLength));
+        if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(body, body_length))) {
+            Tcl_Free(body);
+            SetResult("dict put error");
+            return TCL_ERROR;
+        }
         Tcl_Free(body);
     } else {
         // mark the end of the token and remember as "body"
         char *body = tws_strndup(curr, content_length);
-        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(body, content_length));
+        if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(body, content_length))) {
+            Tcl_Free(body);
+            SetResult("dict put error");
+            return TCL_ERROR;
+        }
         Tcl_Free(body);
     }
 

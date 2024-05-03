@@ -8,12 +8,11 @@
 #include "http.h"
 
 int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
-    long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes;
+    long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes - Tcl_DStringLength(&conn->ds);
     Tcl_Size max_buffer_size =
             size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size);
 
     char *buf = (char *) Tcl_Alloc(max_buffer_size);
-    Tcl_Size previously_read = Tcl_DStringLength(&conn->ds);
     Tcl_Size total_read = 0;
     Tcl_Size bytes_read = 0;
 
@@ -24,7 +23,7 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
         if (rc > 0) {
             bytes_read = rc;
             total_read += bytes_read;
-            if (total_read + previously_read > max_request_read_bytes) {
+            if (total_read > max_request_read_bytes) {
                 Tcl_Free(buf);
                 return TWS_ERROR;
             }

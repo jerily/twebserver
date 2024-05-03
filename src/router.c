@@ -174,25 +174,6 @@ static int tws_EvalRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *ct
     return TCL_OK;
 }
 
-static void tws_DecrRefCountUntilZero(Tcl_Obj *obj) {
-    while (Tcl_IsShared(obj)) {
-        Tcl_DecrRefCount(obj);
-    }
-    Tcl_DecrRefCount(obj);
-}
-
-static void tws_IncrRefCountObjv(int objc, Tcl_Obj *const objv[]) {
-    for (int i = 0; i < objc; i++) {
-        Tcl_IncrRefCount(objv[i]);
-    }
-}
-
-static void tws_DecrRefCountObjv(int objc, Tcl_Obj *const objv[]) {
-    for (int i = 0; i < objc; i++) {
-        Tcl_DecrRefCount(objv[i]);
-    }
-}
-
 static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_t *conn, Tcl_Obj *req_dict_ptr) {
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
 

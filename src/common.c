@@ -311,3 +311,10 @@ long long current_time_in_millis() {
     long long milliseconds = (tv.tv_sec * 1000LL) + (tv.tv_usec / 1000LL);
     return milliseconds;
 }
+
+void tws_DecrRefCountUntilZero(Tcl_Obj *obj) {
+    while (Tcl_IsShared(obj)) {
+        Tcl_DecrRefCount(obj);
+    }
+    Tcl_DecrRefCount(obj);
+}

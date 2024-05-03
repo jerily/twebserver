@@ -249,6 +249,7 @@ tws_router_t *tws_GetInternalFromRouterName(const char *name);
 char *tws_strndup(const char *s, size_t n);
 int tws_IsBinaryType(const char *content_type, Tcl_Size content_type_length);
 long long current_time_in_millis();
+void tws_DecrRefCountUntilZero(Tcl_Obj *obj);
 
 /*
  * Macros used to cast between pointers and integers (e.g. when storing an int

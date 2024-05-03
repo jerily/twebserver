@@ -524,6 +524,8 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
                 conn->keepalive, conn->created_file_handler_p));
 
     Tcl_DStringSetLength(&conn->ds, 0);
+    Tcl_DStringFree(&conn->ds);
+    Tcl_DStringInit(&conn->ds);
     conn->read_offset = 0;
     conn->write_offset = 0;
     conn->blank_line_offset = 0;
@@ -619,8 +621,6 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
 
     return 1;
 }
-
-static int tws_HandleRecv(tws_conn_t *conn);
 
 static int tws_FoundBlankLine(tws_conn_t *conn) {
     if (conn->blank_line_offset == -1) {
@@ -1035,7 +1035,6 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_DecrRefCount(isBase64EncodedKeyPtr);
 
     Tcl_DStringSetLength(&conn->ds, 0);
-    Tcl_DStringInit(&conn->ds);
     Tcl_DStringAppend(&conn->ds, "HTTP/1.1 ", 9);
 
     Tcl_Size status_code_length;
