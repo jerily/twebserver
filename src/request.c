@@ -682,7 +682,7 @@ int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj
     }
     Tcl_DecrRefCount(content_type_key_ptr);
 
-    int content_length = end - curr;
+    Tcl_Size content_length = end - curr;
 
 
     int base64_encode_it = 0;
@@ -723,20 +723,18 @@ int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj
     if (base64_encode_it) {
         // base64 encode the body and remember as "body"
         char *body = Tcl_Alloc(content_length * 2);
-        size_t bodyLength;
+        Tcl_Size bodyLength;
         if (base64_encode(curr, content_length, body, &bodyLength)) {
             Tcl_Free(body);
             SetResult("base64_encode failed");
             return TCL_ERROR;
         }
-        Tcl_Obj *bodyPtr = Tcl_NewStringObj(body, bodyLength);
-        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), bodyPtr);
+        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(body, bodyLength));
         Tcl_Free(body);
     } else {
         // mark the end of the token and remember as "body"
         char *body = tws_strndup(curr, content_length);
-        Tcl_Obj *bodyPtr = Tcl_NewStringObj(body, content_length);
-        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), bodyPtr);
+        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(body, content_length));
         Tcl_Free(body);
     }
 
@@ -993,7 +991,9 @@ int tws_ParseBottomPart(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *req_dict_
         if (conn->content_length > 0) {
             const char *remaining_unprocessed_ptr = Tcl_DStringValue(&conn->ds) + conn->read_offset;
             const char *end = Tcl_DStringValue(&conn->ds) + Tcl_DStringLength(&conn->ds);
-            tws_ParseBody(interp, remaining_unprocessed_ptr, end, headersPtr, req_dict_ptr);
+            if (TCL_OK != tws_ParseBody(interp, remaining_unprocessed_ptr, end, headersPtr, req_dict_ptr)) {
+                return TCL_ERROR;
+            }
         }
     }
 

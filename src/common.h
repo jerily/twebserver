@@ -247,7 +247,7 @@ int tws_RegisterRouterName(const char *name, tws_router_t *internal);
 int tws_UnregisterRouterName(const char *name);
 tws_router_t *tws_GetInternalFromRouterName(const char *name);
 char *tws_strndup(const char *s, size_t n);
-int tws_IsBinaryType(const char *content_type, int content_type_length);
+int tws_IsBinaryType(const char *content_type, Tcl_Size content_type_length);
 long long current_time_in_millis();
 
 /*

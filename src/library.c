@@ -1,6 +1,6 @@
 /**
  * Copyright Jerily LTD. All Rights Reserved.
- * SPDX-FileCopyrightText: 2023 Neofytos Dimitriou (neo@jerily.cy)
+ * SPDX-FileCopyrightText: 2024 Neofytos Dimitriou (neo@jerily.cy)
  * SPDX-License-Identifier: MIT.
  */
 #include "common.h"
@@ -1693,13 +1693,16 @@ void tws_InitModule() {
     }
 }
 
+#if TCL_MAJOR_VERSION > 8
+#define MIN_VERSION "9.0"
+#else
+#define MIN_VERSION "8.6"
+#endif
+
 int Twebserver_Init(Tcl_Interp *interp) {
 
-    int major, minor, patchLevel, type;
-    Tcl_GetVersion(&major, &minor, &patchLevel, &type);
-
-    const char *version = major == 9 ? "9.0" : "8.6";
-    if (Tcl_InitStubs(interp, version, 0) == NULL) {
+    if (Tcl_InitStubs(interp, MIN_VERSION, 0) == NULL) {
+        SetResult("Unable to initialize Tcl stubs");
         return TCL_ERROR;
     }
 
