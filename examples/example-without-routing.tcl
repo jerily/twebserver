@@ -24,7 +24,7 @@ set init_script {
 
 }
 
-# use threads and gzip compression
+# minimal configuration
 set config_dict [dict create rootdir [file dirname [info script]]]
 
 # create the server
