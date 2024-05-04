@@ -22,6 +22,7 @@
 #include <stdlib.h>
 
 static int tws_ModuleInitialized;
+static int signal_flag = 0;
 
 int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     tws_server_t *server = tws_GetInternalFromServerName(handle);
@@ -32,6 +33,12 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     if (!tws_UnregisterServerName(handle)) {
         SetResult("unregister server name failed");
         return TCL_ERROR;
+    }
+
+    tws_listener_t *listener = server->firstListenerPtr;
+    while(listener) {
+        Tcl_Free((char *) listener->conn_thread_ids);
+        listener = listener->nextPtr;
     }
 
     Tcl_DecrRefCount(server->cmdPtr);
@@ -439,6 +446,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int ob
     }
     server_ptr->threadId = Tcl_GetCurrentThread();
     server_ptr->rootdirPtr = NULL;
+    server_ptr->firstListenerPtr = NULL;
 
     // configuration
     server_ptr->max_request_read_bytes = 10 * 1024 * 1024;
@@ -1690,9 +1698,9 @@ static int tws_WaitCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_
     DBG(fprintf(stderr, "VarWaitCmd\n"));
     CheckArgs(1, 1, 1, "");
 
-    while (1) {
+    do {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
-    }
+    } while (!signal_flag);
 
     return TCL_OK;
 }
@@ -1728,10 +1736,41 @@ static void tws_ExitHandler(ClientData unused) {
     tws_DeleteRouterNameHT();
 }
 
+static void tws_ThreadQueueTermEvent(Tcl_ThreadId threadId) {
+    Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
+    evPtr->proc = tws_HandleTermEventInThread;
+    Tcl_ThreadQueueEvent(threadId, evPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(threadId);
+}
+
+static void tws_StopServer(tws_server_t *server) {
+    tws_listener_t *listener = server->firstListenerPtr;
+    while(listener) {
+        for (int i = 0; i < listener->option_num_threads; i++) {
+            fprintf(stderr, "Stopping thread %p\n", listener->conn_thread_ids[i]);
+            tws_ThreadQueueTermEvent(listener->conn_thread_ids[i]);
+            // TODO: we have to wait for the thread to exit
+        }
+        listener = listener->nextPtr;
+    }
+}
+
+static int tws_HandleTermInMainThread(Tcl_Event *evPtr, int flags) {
+    tws_StopServers(tws_StopServer);
+    signal_flag = 1;
+    return 1;
+}
+
+void tws_QueueTermEvent() {
+    Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
+    evPtr->proc = tws_HandleTermInMainThread;
+    Tcl_QueueEvent(evPtr, TCL_QUEUE_TAIL);
+}
+
 void tws_SignalHandler(int signum) {
     if (signum == SIGTERM || signum == SIGINT) {
         fprintf(stderr, "Caught signal %d\n", signum);
-        exit(1);
+        tws_QueueTermEvent();
     }
 }
 
@@ -1744,6 +1783,7 @@ void tws_InitModule() {
             fprintf(stderr, "pthread_sigmask failed\n");
         }
 
+        signal_flag = 0;
         signal(SIGTERM, tws_SignalHandler);
         signal(SIGINT, tws_SignalHandler);
 

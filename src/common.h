@@ -63,6 +63,14 @@ static const char *ssl_errors[] = {
         "SSL_ERROR_WANT_RETRY_VERIFY"
 };
 
+typedef struct tws_listener_t_ {
+    int port;
+    int option_http;
+    int option_num_threads;
+    Tcl_ThreadId *conn_thread_ids;
+    struct tws_listener_t_ *nextPtr;
+} tws_listener_t;
+
 typedef struct {
     Tcl_Obj *cmdPtr;
     Tcl_Obj *scriptPtr;
@@ -86,6 +94,7 @@ typedef struct {
     int gzip; // whether gzip compression is on or off
     Tcl_Size gzip_min_length; // the minimum length of the response body to apply gzip compression
     Tcl_HashTable gzip_types_HT; // the list of mime types to apply gzip compression
+    tws_listener_t *firstListenerPtr;
 } tws_server_t;
 
 // declare "tws_conn_t" here so that we can use it in the "tws_accept_ctx_t" struct
@@ -167,6 +176,8 @@ typedef struct {
     int numConns;
     int numRequests;
     int thread_pivot;
+    int terminate;
+    int server_fd;
     int epoll_fd;
 } tws_thread_data_t;
 
@@ -243,6 +254,7 @@ char *tws_strndup(const char *s, size_t n);
 int tws_IsBinaryType(const char *content_type, Tcl_Size content_type_length);
 long long current_time_in_millis();
 void tws_DecrRefCountUntilZero(Tcl_Obj *obj);
+void tws_StopServers(void (*stop_server)(tws_server_t *server));
 
 /*
  * Macros used to cast between pointers and integers (e.g. when storing an int

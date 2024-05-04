@@ -19,5 +19,6 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *responseDictPt
 int tws_CloseConn(tws_conn_t *conn, int force);
 tws_server_t *tws_GetCurrentServer();
 int tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const char *error_text, Tcl_Encoding encoding);
+int tws_HandleTermEventInThread(Tcl_Event *evPtr, int flags);
 
 #endif //TWEBSERVER_CONN_H
