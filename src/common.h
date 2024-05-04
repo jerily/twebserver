@@ -158,13 +158,6 @@ typedef struct {
 } tws_event_t;
 
 typedef struct {
-    Tcl_EventProc *proc;    /* Function to call to service this event. */
-    Tcl_Event *nextPtr;    /* Next in list of pending events, or NULL. */
-    ClientData *routerClientData; // The pointer to the router client data
-    ClientData *connClientData; // The pointer to the conn client data
-} tws_router_event_t;
-
-typedef struct {
     Tcl_Interp *interp;
     Tcl_Obj *cmdPtr;
     tws_server_t *server;
