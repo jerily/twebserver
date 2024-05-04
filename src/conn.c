@@ -530,7 +530,9 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     conn->write_offset = 0;
     conn->blank_line_offset = 0;
     conn->content_length = 0;
-    Tcl_DecrRefCount(conn->requestDictPtr);
+    if (conn->requestDictPtr) {
+        Tcl_DecrRefCount(conn->requestDictPtr);
+    }
     conn->requestDictPtr = NULL;
     conn->handle_conn_fn = tws_HandleRecv;
     conn->shutdown = 0;
@@ -728,10 +730,10 @@ static int tws_HandleRecv(tws_conn_t *conn) {
         }
     } else if (TWS_ERROR == ret) {
         fprintf(stderr, "err\n");
-        if (conn->requestDictPtr != NULL) {
-            Tcl_DecrRefCount(conn->requestDictPtr);
-            conn->requestDictPtr = NULL;
-        }
+//        if (conn->requestDictPtr != NULL) {
+//            Tcl_DecrRefCount(conn->requestDictPtr);
+//            conn->requestDictPtr = NULL;
+//        }
         conn->error = 1;
         tws_CloseConn(conn, 2);
         return 1;
