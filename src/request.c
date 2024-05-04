@@ -219,7 +219,7 @@ static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Encoding encoding
     return TCL_OK;
 }
 
-static int
+int
 tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Obj *queryStringPtr, Tcl_Obj *resultPtr) {
     // parse "query_string" into "queryStringParameters" given that it is of the form "key1=value1&key2=value2&..."
     Tcl_Obj *queryStringParametersPtr = Tcl_NewDictObj();

@@ -17,5 +17,6 @@ int tws_ParseAcceptEncoding(Tcl_Interp *interp, Tcl_Obj *headersPtr, tws_compres
 int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *headersPtr, Tcl_Obj *result_ptr);
 int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn);
 int tws_ParseBottomPart(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *req_dict_ptr);
+int tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Obj *queryStringPtr, Tcl_Obj *resultPtr);
 
 #endif //TWEBSERVER_REQUEST_H

@@ -110,6 +110,14 @@
   set response_dict [::twebserver::build_response 200 text/plain "hello world"]
   set response_dict [::twebserver::build_response -return_file 200 image/png plume.png]
   ```
+
+### Low-level Commands
+
+* **::twebserver::return_response** *conn_handle* *response_dict* *?encoding?*
+    - sends a response to a connection (to be used without routing)
+  ```tcl
+  ::twebserver::return_response $conn_handle $response_dict
+  ```
   
 ### Utility Commands
 
@@ -135,6 +143,11 @@
     - parses a cookie string into a dictionary
 * **::twebserver::add_header** *header_name* *header_value*
 * **::twebserver::add_cookie** *?-path path_value?* *?-domain domain_value?* *?-samesite samesite_value?* *?-httponly?* *?-insecure* *?-maxage seconds?* *cookie_name* *cookie_value*
+
+#### Query String
+
+* **::twebserver::parse_query** *query_string* *?encoding?*
+    - parses a query string into a dictionary
 
 #### Crypto
 
@@ -166,3 +179,8 @@ These commands are provided for convenience.
 
 * **::twebserver::get_rootdir** *?server_handle?*
     - returns the root directory of the current server or the specified server
+
+* **::twebserver::info_conn** *conn_handle*
+    - returns information about a connection:
+      - ```request``` - the request dictionary
+      - ```server``` - the server handle

@@ -530,6 +530,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     conn->write_offset = 0;
     conn->blank_line_offset = 0;
     conn->content_length = 0;
+    Tcl_DecrRefCount(conn->requestDictPtr);
     conn->requestDictPtr = NULL;
     conn->handle_conn_fn = tws_HandleRecv;
     conn->shutdown = 0;
@@ -1246,9 +1247,25 @@ int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
         return TCL_ERROR;
     }
 
-    Tcl_Obj *resultPtr = Tcl_NewDictObj();
+    Tcl_Obj *result_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(result_ptr);
 
+    if (conn->requestDictPtr) {
+        if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("request", -1), conn->requestDictPtr)) {
+            fprintf(stderr, "error writing to dict\n");
+            Tcl_DecrRefCount(result_ptr);
+            return TCL_ERROR;
+        }
+    }
 
+    if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("server", -1), Tcl_NewStringObj(conn->accept_ctx->server->handle, -1))) {
+        fprintf(stderr, "error writing to dict\n");
+        Tcl_DecrRefCount(result_ptr);
+        return TCL_ERROR;
+    }
+
+    Tcl_SetObjResult(interp, result_ptr);
+    Tcl_DecrRefCount(result_ptr);
     return TCL_OK;
 }
 
