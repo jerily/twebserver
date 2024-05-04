@@ -219,7 +219,7 @@ static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Encoding encoding
     return TCL_OK;
 }
 
-static int
+int
 tws_ParseQueryStringParameters(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Obj *queryStringPtr, Tcl_Obj *resultPtr) {
     // parse "query_string" into "queryStringParameters" given that it is of the form "key1=value1&key2=value2&..."
     Tcl_Obj *queryStringParametersPtr = Tcl_NewDictObj();
@@ -671,7 +671,7 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
 
 }
 
-int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *headersPtr, Tcl_Obj *resultPtr) {
+int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj *headersPtr, Tcl_Obj *result_ptr) {
 
     Tcl_Obj *content_type_ptr;
     Tcl_Obj *content_type_key_ptr = Tcl_NewStringObj("content-type", -1);
@@ -682,7 +682,7 @@ int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj
     }
     Tcl_DecrRefCount(content_type_key_ptr);
 
-    int content_length = end - curr;
+    Tcl_Size content_length = end - curr;
 
 
     int base64_encode_it = 0;
@@ -713,30 +713,40 @@ int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj
                 // check if we have a boundary
                 if (p < content_type_end) {
                     // remember the boundary
-                    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("multipartBoundary", -1), Tcl_NewStringObj(p, content_type_end - p));
+                    Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("multipartBoundary", -1), Tcl_NewStringObj(p, content_type_end - p));
                 }
             }
         }
     }
-    Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(base64_encode_it));
+
+    if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(base64_encode_it))) {
+        SetResult("dict put error");
+        return TCL_ERROR;
+    }
 
     if (base64_encode_it) {
         // base64 encode the body and remember as "body"
         char *body = Tcl_Alloc(content_length * 2);
-        size_t bodyLength;
-        if (base64_encode(curr, content_length, body, &bodyLength)) {
+        Tcl_Size body_length;
+        if (base64_encode(curr, content_length, body, &body_length)) {
             Tcl_Free(body);
             SetResult("base64_encode failed");
             return TCL_ERROR;
         }
-        Tcl_Obj *bodyPtr = Tcl_NewStringObj(body, bodyLength);
-        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), bodyPtr);
+        if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(body, body_length))) {
+            Tcl_Free(body);
+            SetResult("dict put error");
+            return TCL_ERROR;
+        }
         Tcl_Free(body);
     } else {
         // mark the end of the token and remember as "body"
         char *body = tws_strndup(curr, content_length);
-        Tcl_Obj *bodyPtr = Tcl_NewStringObj(body, content_length);
-        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("body", -1), bodyPtr);
+        if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(body, content_length))) {
+            Tcl_Free(body);
+            SetResult("dict put error");
+            return TCL_ERROR;
+        }
         Tcl_Free(body);
     }
 
@@ -922,7 +932,7 @@ int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
     Tcl_Obj *req_dict_ptr = Tcl_NewDictObj();
     Tcl_IncrRefCount(req_dict_ptr);
-    if (TCL_OK != tws_ParseRequest(interp, encoding, &conn->ds, req_dict_ptr, &conn->offset)) {
+    if (TCL_OK != tws_ParseRequest(interp, encoding, &conn->ds, req_dict_ptr, &conn->read_offset)) {
         Tcl_DecrRefCount(req_dict_ptr);
         return TCL_ERROR;
     }
@@ -991,9 +1001,11 @@ int tws_ParseBottomPart(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *req_dict_
 
     if (headersPtr) {
         if (conn->content_length > 0) {
-            const char *remaining_unprocessed_ptr = Tcl_DStringValue(&conn->ds) + conn->offset;
+            const char *remaining_unprocessed_ptr = Tcl_DStringValue(&conn->ds) + conn->read_offset;
             const char *end = Tcl_DStringValue(&conn->ds) + Tcl_DStringLength(&conn->ds);
-            tws_ParseBody(interp, remaining_unprocessed_ptr, end, headersPtr, req_dict_ptr);
+            if (TCL_OK != tws_ParseBody(interp, remaining_unprocessed_ptr, end, headersPtr, req_dict_ptr)) {
+                return TCL_ERROR;
+            }
         }
     }
 

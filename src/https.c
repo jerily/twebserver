@@ -106,7 +106,7 @@ int tws_ConfigureSslContext(Tcl_Interp *interp, SSL_CTX *ctx, const char *key_fi
 int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
     DBG(fprintf(stderr, "ReadConn client: %d\n", conn->client));
 
-    long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes;
+    long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes - Tcl_DStringLength(&conn->ds);
     Tcl_Size max_buffer_size =
             size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size);
 
@@ -142,7 +142,7 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
         } else {
             int err = SSL_get_error(conn->ssl, rc);
             if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-                DBG(fprintf(stderr, "SSL_ERROR_WANT_READ or SSL_ERROR_WANT_WRITE\n"));
+                DBG(fprintf(stderr, "AGAIN %s\n", ssl_errors[err]));
                 Tcl_Free(buf);
                 return TWS_AGAIN;
 
@@ -176,5 +176,28 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
 }
 
 int tws_WriteSslConnAsync(tws_conn_t *conn, const char *buf, Tcl_Size len) {
-    return SSL_write(conn->ssl, buf, len);
+    Tcl_Size total_written = 0;
+    int rc;
+    for (;;) {
+        rc = SSL_write(conn->ssl, buf + total_written, len - total_written);
+        if (rc > 0) {
+            // The write operation was successful, the return value is the number
+            // of bytes actually written to the TLS/SSL connection.
+            total_written += rc;
+            if (total_written == len) {
+                return TWS_DONE;
+            }
+        } else {
+            int err = SSL_get_error(conn->ssl, rc);
+            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                conn->write_offset += total_written;
+                return TWS_AGAIN;
+            } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
+                // peer closed connection
+                return TWS_DONE;
+            }
+
+            return TWS_ERROR;
+        }
+    }
 }

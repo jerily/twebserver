@@ -1,6 +1,7 @@
 package require twebserver
 
 set server_port 12345
+set http_server_port 1122
 
 set init_script {
     package require twebserver
@@ -83,6 +84,7 @@ set config_dict [dict create \
 set server_handle [::twebserver::create_server $config_dict process_conn $init_script]
 ::twebserver::add_context $server_handle localhost "../certs/host1/key.pem" "../certs/host1/cert.pem"
 ::twebserver::listen_server -num_threads 4 $server_handle $server_port
+::twebserver::listen_server -http -num_threads 2 $server_handle $http_server_port
 vwait forever
 ::twebserver::destroy_server $server_handle
 

@@ -56,12 +56,72 @@ test basic-2 {simple tls1_2 openssl s_client request} -setup setup -cleanup clea
 
 sleep 100
 
-test basic-3 {whatever request} -setup setup -cleanup cleanup -body {
+test basic-3 {non-blocking message} -setup setup -cleanup cleanup -body {
+    set http_server_port 1122
+    set sock [socket localhost $http_server_port]
+    fconfigure $sock -blocking 0 -buffering none
+    puts -nonewline $sock "GE"
+    flush $sock
+    puts -nonewline $sock "T /asdf HT"
+    flush $sock
+    puts -nonewline $sock "TP/1.1\n\n"
+    flush $sock
+#    fconfigure $sock -blocking 1
+set response ""
+while {[eof $sock] == 0} {
+    append response [read $sock 1]
+}
+#    close $sock
+
+    escape $response
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 27\n\ntest message GET path=/asdf}
+
+sleep 100
+
+test basic-4 {non-blocking message - bad} -setup setup -cleanup cleanup -body {
+    set http_server_port 1122
+    set sock [socket localhost $http_server_port]
+    fconfigure $sock -blocking 0 -buffering none
+    puts -nonewline $sock "GE"
+    flush $sock
+    puts -nonewline $sock "T /asdf HT"
+    flush $sock
+    # \r in the following line is sent as two characters, so it is not a valid HTTP request
+    puts -nonewline $sock "TP/1.1\r\n\r\n"
+    flush $sock
+    fconfigure $sock -blocking 1
+    set response [read $sock]
+    close $sock
+
+    escape $response
+} -result {HTTP/1.1 400\nContent-Length: 11\n\nBad Request}
+
+sleep 100
+
+test basic-5 {whatever request} -setup setup -cleanup cleanup -body {
     set request "whatever"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_2 << $request 2> /dev/null]
     escape $response
 } -result {HTTP/1.1 400\nContent-Length: 11\n\nBad Request}
+
+sleep 100
+
+test basic-6 {non-blocking test tls1_2} -setup setup -cleanup cleanup -body {
+    set request "GET /asdf HTTP/1.1\n\n"
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet -nbio_test -nbio"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_2 << $request 2> /dev/null]
+    escape $response
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 27\n\ntest message GET path=/asdf}
+
+sleep 100
+
+test basic-7 {non-blocking test tls1_3} -setup setup -cleanup cleanup -body {
+    set request "GET /asdf HTTP/1.1\n\n"
+    set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet -nbio_test -nbio"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
+    escape $response
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 27\n\ntest message GET path=/asdf}
 
 sleep 100
 

@@ -39,6 +39,7 @@ set(TCL_POSSIBLE_LIB_PATHS
 )
 
 set(TCL_POSSIBLE_LIB_PATH_SUFFIXES
+        tcl9.0
         tcl8.7
         tcl8.6
         tcl8.5

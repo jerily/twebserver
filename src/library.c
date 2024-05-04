@@ -1,6 +1,6 @@
 /**
  * Copyright Jerily LTD. All Rights Reserved.
- * SPDX-FileCopyrightText: 2023 Neofytos Dimitriou (neo@jerily.cy)
+ * SPDX-FileCopyrightText: 2024 Neofytos Dimitriou (neo@jerily.cy)
  * SPDX-License-Identifier: MIT.
  */
 #include "common.h"
@@ -949,6 +949,35 @@ static int tws_ParseCookieCmd(ClientData clientData, Tcl_Interp *interp, int obj
 
 }
 
+
+static int tws_ParseQueryCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "ParseCookieCmd\n"));
+    CheckArgs(2, 3, 1, "query_string ?encoding?");
+
+    Tcl_Size cookie_header_len;
+    const char *cookie_header = Tcl_GetStringFromObj(objv[1], &cookie_header_len);
+
+    Tcl_Obj *query_dict = Tcl_NewDictObj();
+    Tcl_IncrRefCount(query_dict);
+
+    const char *encoding_name = "utf-8";
+    if (objc == 3) {
+        encoding_name = Tcl_GetString(objv[2]);
+    }
+
+    if (TCL_OK != tws_ParseQueryStringParameters(interp, Tcl_GetEncoding(interp, encoding_name), objv[1], query_dict)) {
+        Tcl_DecrRefCount(query_dict);
+        SetResult("error parsing query string");
+        return TCL_ERROR;
+    }
+
+    Tcl_SetObjResult(interp, query_dict);
+    Tcl_DecrRefCount(query_dict);
+    return TCL_OK;
+
+}
+
+
 static int tws_AddHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "AddHeaderCmd\n"));
     CheckArgs(4, 4, 1, "response_dict header_name header_value");
@@ -1633,6 +1662,30 @@ int tws_IpV6ToIpV4Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
     return TCL_OK;
 }
 
+int tws_ReturnResponseCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "ReturnResponseCmd\n"));
+    CheckArgs(3, 4, 1, "conn_handle response_dict ?encoding?");
+
+    const char *conn_handle = Tcl_GetString(objv[1]);
+    tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
+    if (!conn) {
+        SetResult("return_response: conn handle not found");
+        return TCL_ERROR;
+    }
+
+    const char *encoding_name = "utf-8";
+    if (objc == 3) {
+        Tcl_Size encoding_name_length;
+        encoding_name = Tcl_GetStringFromObj(objv[3], &encoding_name_length);
+    }
+
+    if (TCL_OK != tws_ReturnConn(interp, conn, objv[2], Tcl_GetEncoding(interp, encoding_name))) {
+        return TCL_ERROR;
+    }
+
+    return TCL_OK;
+}
+
 static int tws_WaitCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "VarWaitCmd\n"));
     CheckArgs(1, 1, 1, "");
@@ -1704,13 +1757,16 @@ void tws_InitModule() {
     }
 }
 
+#if TCL_MAJOR_VERSION > 8
+#define MIN_VERSION "9.0"
+#else
+#define MIN_VERSION "8.6"
+#endif
+
 int Twebserver_Init(Tcl_Interp *interp) {
 
-    int major, minor, patchLevel, type;
-    Tcl_GetVersion(&major, &minor, &patchLevel, &type);
-
-    const char *version = major == 9 ? "9.0" : "8.6";
-    if (Tcl_InitStubs(interp, version, 0) == NULL) {
+    if (Tcl_InitStubs(interp, MIN_VERSION, 0) == NULL) {
+        SetResult("Unable to initialize Tcl stubs");
         return TCL_ERROR;
     }
 
@@ -1743,6 +1799,7 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::add_header", tws_AddHeaderCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_cookie", tws_AddCookieCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::build_response", tws_BuildResponseCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::parse_query", tws_ParseQueryCmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::random_bytes", tws_RandomBytesCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::sha1", tws_Sha1Cmd, NULL, NULL);
@@ -1756,6 +1813,8 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::get_param", tws_GetParamCmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::ipv6_to_ipv4", tws_IpV6ToIpV4Cmd, NULL, NULL);
+
+    Tcl_CreateObjCommand(interp, "::twebserver::return_response", tws_ReturnResponseCmd, NULL, NULL);
 
     return Tcl_PkgProvide(interp, "twebserver", XSTR(VERSION));
 }

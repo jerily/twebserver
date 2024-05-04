@@ -269,7 +269,7 @@ char *tws_strndup(const char *s, size_t n) {
     return result;
 }
 
-int tws_IsBinaryType(const char *content_type, int content_type_length) {
+int tws_IsBinaryType(const char *content_type, Tcl_Size content_type_length) {
     int is_binary_type = 0;
     if (content_type_length >= 5 && content_type[0] == 't' && content_type[1] == 'e' && content_type[2] == 'x' && content_type[3] == 't' && content_type[4] == '/') {
         // text/*
@@ -310,4 +310,11 @@ long long current_time_in_millis() {
     // convert tv to milliseconds
     long long milliseconds = (tv.tv_sec * 1000LL) + (tv.tv_usec / 1000LL);
     return milliseconds;
+}
+
+void tws_DecrRefCountUntilZero(Tcl_Obj *obj) {
+    while (Tcl_IsShared(obj)) {
+        Tcl_DecrRefCount(obj);
+    }
+    Tcl_DecrRefCount(obj);
 }

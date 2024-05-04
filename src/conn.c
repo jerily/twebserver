@@ -302,7 +302,8 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     Tcl_DStringInit(&conn->ds);
     conn->dataKeyPtr = &dataKey;
     conn->requestDictPtr = NULL;
-    conn->offset = 0;
+    conn->read_offset = 0;
+    conn->write_offset = 0;
     conn->content_length = 0;
     conn->error = 0;
     conn->blank_line_offset = 0;
@@ -523,9 +524,15 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
                 conn->keepalive, conn->created_file_handler_p));
 
     Tcl_DStringSetLength(&conn->ds, 0);
-    conn->offset = 0;
+    Tcl_DStringFree(&conn->ds);
+    Tcl_DStringInit(&conn->ds);
+    conn->read_offset = 0;
+    conn->write_offset = 0;
     conn->blank_line_offset = 0;
     conn->content_length = 0;
+    if (conn->requestDictPtr) {
+        Tcl_DecrRefCount(conn->requestDictPtr);
+    }
     conn->requestDictPtr = NULL;
     conn->handle_conn_fn = tws_HandleRecv;
     conn->shutdown = 0;
@@ -595,7 +602,17 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
     if (TCL_OK != Tcl_EvalObjv(interp, 4, cmdobjv, TCL_EVAL_INVOKE)) {
         fprintf(stderr, "error evaluating script sock=%d\n", conn->client);
         fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(interp)));
-        fprintf(stderr, "%s\n", Tcl_GetVar2(interp, "::errorInfo", NULL, TCL_GLOBAL_ONLY));
+        Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(interp, TCL_ERROR);
+        Tcl_Obj *errorinfo_key_ptr = Tcl_NewStringObj("-errorinfo", -1);
+        Tcl_Obj *errorinfo_ptr;
+        Tcl_IncrRefCount(errorinfo_key_ptr);
+        if (TCL_OK != Tcl_DictObjGet(interp, return_options_dict_ptr, errorinfo_key_ptr, &errorinfo_ptr)) {
+            fprintf(stderr, "error getting errorinfo\n");
+            Tcl_DecrRefCount(errorinfo_key_ptr);
+            return 1;
+        }
+        Tcl_DecrRefCount(errorinfo_key_ptr);
+        fprintf(stderr, "HandleProcessing: errorinfo=%s\n", Tcl_GetString(errorinfo_ptr));
         Tcl_DecrRefCount(connPtr);
         Tcl_DecrRefCount(addrPtr);
         Tcl_DecrRefCount(portPtr);
@@ -608,21 +625,25 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
     return 1;
 }
 
-static int tws_HandleRecv(tws_conn_t *conn);
-
 static int tws_FoundBlankLine(tws_conn_t *conn) {
+    if (conn->blank_line_offset == -1) {
+        return 1;
+    }
+
     const char *s = Tcl_DStringValue(&conn->ds);
     const char *p = s + conn->blank_line_offset;
     const char *end = s + Tcl_DStringLength(&conn->ds);
     while (p < end) {
         if ((p < end - 3 && *p == '\r' && *(p + 1) == '\n' && *(p + 2) == '\r' && *(p + 3) == '\n') || (p < end - 1 && *p == '\n' && *(p + 1) == '\n')) {
-            conn->blank_line_offset = p - s - 1;
+            DBG(fprintf(stderr, "FoundBlankLine\n"));
+            conn->blank_line_offset = -1;
             return 1;
         }
         p++;
     }
 
-    conn->blank_line_offset = p - s - 1;
+    DBG(fprintf(stderr, "NotFoundBlankLine\n"));
+    conn->blank_line_offset = p - s;
     return 0;
 }
 
@@ -636,13 +657,13 @@ static int tws_ShouldParseBottomPart(tws_conn_t *conn) {
 
 static int tws_ShouldReadMore(tws_conn_t *conn) {
     if (conn->content_length > 0) {
-        int unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
+        int unprocessed = Tcl_DStringLength(&conn->ds) - conn->read_offset;
         return conn->content_length - unprocessed > 0;
     }
     return !tws_FoundBlankLine(conn);
 }
 
-static int
+int
 tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const char *error_text, Tcl_Encoding encoding) {
     if (conn->error) {
         return TCL_OK;
@@ -697,22 +718,22 @@ static int tws_HandleRecv(tws_conn_t *conn) {
 
     int ret = TWS_DONE;
     if (tws_ShouldReadMore(conn)) {
-        Tcl_Size remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->offset;
+        Tcl_Size remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->read_offset;
         Tcl_Size bytes_to_read = conn->content_length == 0 ? 0 : conn->content_length - remaining_unprocessed;
         ret = conn->accept_ctx->read_fn(conn, &conn->ds, bytes_to_read);
     }
 
     if (TWS_AGAIN == ret) {
         if (tws_ShouldParseTopPart(conn) || tws_ShouldReadMore(conn)) {
-            DBG(fprintf(stderr, "retry dslen=%zd offset=%zd reqdictptr=%p\n", Tcl_DStringLength(&conn->ds), conn->offset, conn->requestDictPtr));
+            DBG(fprintf(stderr, "retry dslen=%zd offset=%zd reqdictptr=%p\n", Tcl_DStringLength(&conn->ds), conn->read_offset, conn->requestDictPtr));
             return 0;
         }
     } else if (TWS_ERROR == ret) {
         fprintf(stderr, "err\n");
-        if (conn->requestDictPtr != NULL) {
-            Tcl_DecrRefCount(conn->requestDictPtr);
-            conn->requestDictPtr = NULL;
-        }
+//        if (conn->requestDictPtr != NULL) {
+//            Tcl_DecrRefCount(conn->requestDictPtr);
+//            conn->requestDictPtr = NULL;
+//        }
         conn->error = 1;
         tws_CloseConn(conn, 2);
         return 1;
@@ -726,6 +747,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
                 Tcl_DStringLength(&conn->ds), conn->content_length));
 
     if (tws_ShouldParseTopPart(conn)) {
+        DBG(fprintf(stderr, "parse top part after without defer reqdictptr=%p\n", conn->requestDictPtr));
         // case when we have read as much as we could without deferring
         if (TCL_OK != tws_ParseTopPart(dataPtr->interp, conn)) {
             Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
@@ -745,6 +767,18 @@ static int tws_HandleRecv(tws_conn_t *conn) {
             return 1;
         }
     } else {
+        DBG(fprintf(stderr, "conn->requestDictPtr: %p\n", conn->requestDictPtr));
+
+        if (conn->requestDictPtr == NULL) {
+            DBG(fprintf(stderr, "requestDictPtr is null, ds: %s\n", Tcl_DStringValue(&conn->ds)));
+            // return error
+            Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
+            if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
+                tws_CloseConn(conn, 1);
+            }
+            return 1;
+        }
+
         if (TCL_OK !=
             Tcl_DictObjPut(dataPtr->interp, conn->requestDictPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(0))) {
             fprintf(stderr, "failed to write to dict");
@@ -833,6 +867,47 @@ static void tws_QueueProcessEvent(tws_conn_t *conn) {
      Tcl_ThreadAlert(conn->threadId);
     DBG(fprintf(stderr, "ThreadQueueProcessEvent done - threadId: %p\n", conn->threadId));
 }
+
+static int tws_HandleWriteEventInThread(Tcl_Event *evPtr, int flags) {
+    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
+
+    DBG(fprintf(stderr, "HandleWriteEventInThread: %s\n", conn->conn_handle));
+
+    int reply_length = Tcl_DStringLength(&conn->ds);
+    const char *reply = Tcl_DStringValue(&conn->ds);
+
+    int rc = conn->accept_ctx->write_fn(conn, reply + conn->write_offset, reply_length - conn->write_offset);
+
+    if (rc == TWS_AGAIN) {
+        return 0;
+    } else if (rc == TWS_ERROR) {
+        conn->error = 1;
+        tws_CloseConn(conn, 1);
+        return 1;
+    }
+
+    // TWS_DONE
+    tws_CloseConn(conn, 0);
+
+    DBG(fprintf(stderr, "------------done\n"));
+
+    return 1;
+}
+
+static void tws_QueueWriteEvent(tws_conn_t *conn) {
+    DBG(fprintf(stderr, "ThreadQueueWriteEvent - threadId: %p\n", conn->threadId));
+    conn->write_offset = 0;
+    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    connEvPtr->proc = tws_HandleWriteEventInThread;
+    connEvPtr->nextPtr = NULL;
+    connEvPtr->clientData = (ClientData *) conn;
+    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(conn->threadId);
+    DBG(fprintf(stderr, "ThreadQueueWriteEvent done - threadId: %p\n", conn->threadId));
+
+}
+
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
 static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
@@ -962,13 +1037,12 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     }
     Tcl_DecrRefCount(isBase64EncodedKeyPtr);
 
-    Tcl_DString ds;
-    Tcl_DStringInit(&ds);
-    Tcl_DStringAppend(&ds, "HTTP/1.1 ", 9);
+    Tcl_DStringSetLength(&conn->ds, 0);
+    Tcl_DStringAppend(&conn->ds, "HTTP/1.1 ", 9);
 
     Tcl_Size status_code_length;
     const char *status_code = Tcl_GetStringFromObj(statusCodePtr, &status_code_length);
-    Tcl_DStringAppend(&ds, status_code, status_code_length);
+    Tcl_DStringAppend(&conn->ds, status_code, status_code_length);
 
     // write each "header" from the "headers" dictionary to the ssl connection
     Tcl_Obj *keyPtr;
@@ -987,14 +1061,14 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
                     continue;
                 }
             }
-            Tcl_DStringAppend(&ds, "\r\n", 2);
+            Tcl_DStringAppend(&conn->ds, "\r\n", 2);
             Tcl_Size key_length;
             const char *key = Tcl_GetStringFromObj(keyPtr, &key_length);
-            Tcl_DStringAppend(&ds, key, key_length);
-            Tcl_DStringAppend(&ds, ": ", 2);
+            Tcl_DStringAppend(&conn->ds, key, key_length);
+            Tcl_DStringAppend(&conn->ds, ": ", 2);
             Tcl_Size value_length;
             const char *value = Tcl_GetStringFromObj(valuePtr, &value_length);
-            Tcl_DStringAppend(&ds, value, value_length);
+            Tcl_DStringAppend(&conn->ds, value, value_length);
         }
         Tcl_DictObjDone(&headersSearch);
     }
@@ -1006,11 +1080,11 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
              !done;
              Tcl_DictObjNext(&mvHeadersSearch, &keyPtr, &valuePtr, &done)) {
 
-            Tcl_DStringAppend(&ds, "\r\n", 2);
+            Tcl_DStringAppend(&conn->ds, "\r\n", 2);
             Tcl_Size key_length;
             const char *key = Tcl_GetStringFromObj(keyPtr, &key_length);
-            Tcl_DStringAppend(&ds, key, key_length);
-            Tcl_DStringAppend(&ds, ": ", 2);
+            Tcl_DStringAppend(&conn->ds, key, key_length);
+            Tcl_DStringAppend(&conn->ds, ": ", 2);
 
             // "valuePtr" is a list, iterate over its elements
             Tcl_Size list_length;
@@ -1020,9 +1094,9 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
                 Tcl_ListObjIndex(interp, valuePtr, i, &elemPtr);
                 Tcl_Size value_length;
                 const char *value = Tcl_GetStringFromObj(elemPtr, &value_length);
-                Tcl_DStringAppend(&ds, value, value_length);
+                Tcl_DStringAppend(&conn->ds, value, value_length);
                 if (i < value_length - 1) {
-                    Tcl_DStringAppend(&ds, ", ", 2);
+                    Tcl_DStringAppend(&conn->ds, ", ", 2);
                 }
             }
 
@@ -1048,7 +1122,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
             body = Tcl_Alloc(3 * b64_body_length / 4 + 2);
             body_alloc = 1;
             if (base64_decode(b64_body, b64_body_length, body, &body_length)) {
-                Tcl_DStringFree(&ds);
+//                Tcl_DStringFree(&ds);
                 Tcl_Free(body);
                 tws_CloseConn(conn, 1);
                 SetResult("base64 decode error");
@@ -1071,7 +1145,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         Tcl_IncrRefCount(contentTypeKeyPtr);
         if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentTypeKeyPtr, &contentTypePtr)) {
             Tcl_DecrRefCount(contentTypeKeyPtr);
-            Tcl_DStringFree(&ds);
+//            Tcl_DStringFree(&ds);
             if (body_alloc) {
                 Tcl_Free(body);
             }
@@ -1106,8 +1180,8 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
 
     if (gzip_p) {
         // set the Content-Encoding header to "gzip"
-        Tcl_DStringAppend(&ds, "\r\n", 2);
-        Tcl_DStringAppend(&ds, "Content-Encoding: gzip", 22);
+        Tcl_DStringAppend(&conn->ds, "\r\n", 2);
+        Tcl_DStringAppend(&conn->ds, "Content-Encoding: gzip", 22);
     }
 
     Tcl_Obj *compressed = NULL;
@@ -1118,7 +1192,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         if (Tcl_ZlibDeflate(interp, TCL_ZLIB_FORMAT_GZIP, baObj,
                             TCL_ZLIB_COMPRESS_FAST, NULL)) {
             Tcl_DecrRefCount(baObj);
-            Tcl_DStringFree(&ds);
+//            Tcl_DStringFree(&ds);
             if (body_alloc) {
                 Tcl_Free(body);
             }
@@ -1140,14 +1214,14 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(contentLengthPtr);
     Tcl_Size content_length_str_len;
     const char *content_length_str = Tcl_GetStringFromObj(contentLengthPtr, &content_length_str_len);
-    Tcl_DStringAppend(&ds, "\r\n", 2);
-    Tcl_DStringAppend(&ds, "Content-Length: ", 16);
-    Tcl_DStringAppend(&ds, content_length_str, content_length_str_len);
-    Tcl_DStringAppend(&ds, "\r\n\r\n", 4);
+    Tcl_DStringAppend(&conn->ds, "\r\n", 2);
+    Tcl_DStringAppend(&conn->ds, "Content-Length: ", 16);
+    Tcl_DStringAppend(&conn->ds, content_length_str, content_length_str_len);
+    Tcl_DStringAppend(&conn->ds, "\r\n\r\n", 4);
     Tcl_DecrRefCount(contentLengthPtr);
 
     if (body_length > 0) {
-        Tcl_DStringAppend(&ds, body, body_length);
+        Tcl_DStringAppend(&conn->ds, body, body_length);
     }
 
     if (compressed != NULL) {
@@ -1158,25 +1232,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         Tcl_Free((char *) body);
     }
 
-
-    int reply_length = Tcl_DStringLength(&ds);
-    const char *reply = Tcl_DStringValue(&ds);
-
-    rc = conn->accept_ctx->write_fn(conn, reply, reply_length);
-
-    Tcl_DStringFree(&ds);
-
-    if (rc == TWS_ERROR) {
-        conn->error = 1;
-        tws_CloseConn(conn, 1);
-        SetResult("return_conn: write error (reply)");
-        return TCL_ERROR;
-    }
-
-    if (TCL_OK != tws_CloseConn(conn, 0)) {
-        SetResult("return_conn: close_conn failed");
-        return TCL_ERROR;
-    }
+    tws_QueueWriteEvent(conn);
 
     return TCL_OK;
 }
@@ -1193,9 +1249,25 @@ int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
         return TCL_ERROR;
     }
 
-    Tcl_Obj *resultPtr = Tcl_NewDictObj();
+    Tcl_Obj *result_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(result_ptr);
 
+    if (conn->requestDictPtr) {
+        if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("request", -1), conn->requestDictPtr)) {
+            fprintf(stderr, "error writing to dict\n");
+            Tcl_DecrRefCount(result_ptr);
+            return TCL_ERROR;
+        }
+    }
 
+    if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("server", -1), Tcl_NewStringObj(conn->accept_ctx->server->handle, -1))) {
+        fprintf(stderr, "error writing to dict\n");
+        Tcl_DecrRefCount(result_ptr);
+        return TCL_ERROR;
+    }
+
+    Tcl_SetObjResult(interp, result_ptr);
+    Tcl_DecrRefCount(result_ptr);
     return TCL_OK;
 }
 

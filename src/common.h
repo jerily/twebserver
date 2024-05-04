@@ -142,7 +142,8 @@ typedef struct tws_conn_t_ {
     Tcl_DString ds;
     Tcl_ThreadDataKey *dataKeyPtr;
     Tcl_Obj *requestDictPtr;
-    Tcl_Size offset;
+    Tcl_Size read_offset;
+    Tcl_Size write_offset;
     Tcl_Size content_length;
     Tcl_Size blank_line_offset;
 
@@ -246,8 +247,9 @@ int tws_RegisterRouterName(const char *name, tws_router_t *internal);
 int tws_UnregisterRouterName(const char *name);
 tws_router_t *tws_GetInternalFromRouterName(const char *name);
 char *tws_strndup(const char *s, size_t n);
-int tws_IsBinaryType(const char *content_type, int content_type_length);
+int tws_IsBinaryType(const char *content_type, Tcl_Size content_type_length);
 long long current_time_in_millis();
+void tws_DecrRefCountUntilZero(Tcl_Obj *obj);
 
 /*
  * Macros used to cast between pointers and integers (e.g. when storing an int

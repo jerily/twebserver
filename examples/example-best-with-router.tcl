@@ -1,5 +1,5 @@
 # Copyright Jerily LTD. All Rights Reserved.
-# SPDX-FileCopyrightText: 2023 Neofytos Dimitriou (neo@jerily.cy)
+# SPDX-FileCopyrightText: 2024 Neofytos Dimitriou (neo@jerily.cy)
 # SPDX-License-Identifier: MIT.
 
 package require twebserver
@@ -81,6 +81,7 @@ set init_script {
     }
 
     proc post_example_handler {ctx req} {
+
         set form [::twebserver::get_form $req]
         #puts form=$form
 
@@ -122,8 +123,8 @@ set init_script {
 set config_dict [dict create \
     rootdir [file dirname [info script]] \
     gzip on \
-    gzip_types [list text/plain application/json] \
-    gzip_min_length 20]
+    gzip_types [list text/html text/plain application/json] \
+    gzip_min_length 8192]
 
 # create the server
 set server_handle [::twebserver::create_server $config_dict process_conn $init_script]

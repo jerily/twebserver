@@ -353,7 +353,7 @@ tws_ParseMultipartForm(Tcl_Interp *interp, const char *body, int body_length, Tc
 
 static int
 tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *multivalue_fields_ptr, const char *key,
-                           const char *value, int value_length) {
+                           const char *value, Tcl_Size value_length) {
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
 
     Tcl_Obj *key_ptr = Tcl_NewStringObj(key, value - key - 1);
@@ -453,26 +453,20 @@ static int tws_ParseUrlEncodedForm(Tcl_Interp *interp, Tcl_Obj *body_ptr, Tcl_Ob
             SetResult("ParseUrlEncodedForm: malformed urlencoded form data");
             return TCL_ERROR;
         }
+
         value = p + 1;
+
         while (p < end && *p != '&') {
             p++;
         }
-        if (p == end) {
-            if (TCL_OK !=
-                tws_AddUrlEncodedFormField(interp, fields_ptr, multivalue_fields_ptr, key, value, p - value)) {
-                Tcl_DecrRefCount(fields_ptr);
-                Tcl_DecrRefCount(multivalue_fields_ptr);
-                SetResult("ParseUrlEncodedForm: dict write error");
-                return TCL_ERROR;
-            }
-            break;
-        }
+
         if (TCL_OK != tws_AddUrlEncodedFormField(interp, fields_ptr, multivalue_fields_ptr, key, value, p - value)) {
             Tcl_DecrRefCount(fields_ptr);
             Tcl_DecrRefCount(multivalue_fields_ptr);
-            SetResult("ParseUrlEncodedForm: dict write error");
+//            SetResult("ParseUrlEncodedForm: dict write error");
             return TCL_ERROR;
         }
+
         p++;
     }
 
@@ -499,7 +493,7 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
     DBG(fprintf(stderr, "GetFormCmd\n"));
     CheckArgs(2, 2, 1, "request_dict");
 
-//    fprintf(stderr, "req=%s\n", Tcl_GetString(objv[1]));
+    //    fprintf(stderr, "req=%s\n", Tcl_GetString(objv[1]));
 
     Tcl_Obj *body_ptr = NULL;
     Tcl_Obj *body_key_ptr = Tcl_NewStringObj("body", -1);
@@ -583,11 +577,11 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
                 const char *content_type = Tcl_GetStringFromObj(content_type_ptr, &content_type_length);
 
                 if (content_type_length >= 33 && strncmp(content_type, "application/x-www-form-urlencoded", 33) == 0) {
+
                     // parse urlencoded form data
                     if (TCL_OK != tws_ParseUrlEncodedForm(interp, body_ptr, result_ptr)) {
-                        Tcl_DecrRefCount(headers_ptr);
+                        fprintf(stderr, "get_form: error parsing urlencoded form data\n");
                         Tcl_DecrRefCount(result_ptr);
-                        SetResult("get_form: error parsing urlencoded form data");
                         return TCL_ERROR;
                     }
                     success = 1;

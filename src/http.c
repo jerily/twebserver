@@ -8,7 +8,7 @@
 #include "http.h"
 
 int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
-    long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes;
+    long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes - Tcl_DStringLength(&conn->ds);
     Tcl_Size max_buffer_size =
             size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size);
 
@@ -28,9 +28,6 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
                 return TWS_ERROR;
             }
             Tcl_DStringAppend(dsPtr, buf, bytes_read);
-            if (total_read < size) {
-                continue;
-            }
             if (total_read == size) {
                 Tcl_Free(buf);
                 return TWS_DONE;
@@ -57,18 +54,24 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
 }
 
 int tws_WriteHttpConnAsync(tws_conn_t *conn, const char *buf, Tcl_Size len) {
-    ssize_t rc = write(conn->client, buf, len);
-    if (rc == len) {
-        return TWS_DONE;
-    } else {
-        if (rc == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                return TWS_AGAIN;
-            } else {
-                return TWS_ERROR;
+    Tcl_Size total_written = 0;
+    ssize_t rc;
+    for (;;) {
+        rc = write(conn->client, buf+total_written, len-total_written);
+        if (rc > 0) {
+            total_written += rc;
+            if (total_written == len) {
+                return TWS_DONE;
             }
         } else {
-            return TWS_AGAIN;
+            if (rc == -1) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    conn->write_offset += total_written;
+                    return TWS_AGAIN;
+                } else {
+                    return TWS_ERROR;
+                }
+            }
         }
     }
 }
