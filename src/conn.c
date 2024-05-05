@@ -1479,16 +1479,17 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     }
 
     // notify the main thread that we are done initializing
-    Tcl_ConditionNotify(&ctrl->cond_wait);
+    Tcl_ConditionNotify(ctrl->cond_wait_ptr);
 
     DBG(fprintf(stderr, "HandleConnThread: in (%p)\n", Tcl_GetCurrentThread()));
     do {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
     } while (!dataPtr->terminate && !dataPtr->num_conns);
 
+    Tcl_Free(accept_ctx);
+
     fprintf(stderr, "HandleConnThread: out (%p)\n", Tcl_GetCurrentThread());
 
-    Tcl_Free(accept_ctx);
     Tcl_FinalizeThread();
     Tcl_ExitThread(TCL_OK);
     TCL_THREAD_CREATE_RETURN;
@@ -1556,6 +1557,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
     listener->option_num_threads = option_num_threads;
     listener->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(option_num_threads * sizeof(Tcl_ThreadId));
     listener->nextPtr = NULL;
+    listener->cond_wait = NULL;
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     int server_fd;
@@ -1613,14 +1615,14 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
         Tcl_MutexLock(&tws_Thread_Mutex);
         Tcl_ThreadId id;
         tws_thread_ctrl_t ctrl;
-        ctrl.cond_wait = NULL;
+        ctrl.cond_wait_ptr = &listener->cond_wait;
         ctrl.server = server;
         ctrl.thread_index = i;
         ctrl.host = host;
         ctrl.port = port;
         ctrl.option_http = option_http;
         if (TCL_OK !=
-            Tcl_CreateThread(&id, tws_HandleConnThread, &ctrl, server->thread_stacksize, TCL_THREAD_NOFLAGS)) {
+            Tcl_CreateThread(&id, tws_HandleConnThread, &ctrl, server->thread_stacksize, TCL_THREAD_JOINABLE)) {
             Tcl_MutexUnlock(&tws_Thread_Mutex);
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
             Tcl_Free((char *) accept_ctx);
@@ -1637,9 +1639,9 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
         listener->conn_thread_ids[i] = id;
 
         // Wait for the thread to start because it is using something on our stack!
-        Tcl_ConditionWait(&ctrl.cond_wait, &tws_Thread_Mutex, NULL);
+        Tcl_ConditionWait(&listener->cond_wait, &tws_Thread_Mutex, NULL);
         Tcl_MutexUnlock(&tws_Thread_Mutex);
-        Tcl_ConditionFinalize(&ctrl.cond_wait);
+        Tcl_ConditionFinalize(&listener->cond_wait);
         DBG(fprintf(stderr, "Listen - created thread: %p\n", id));
     }
 

@@ -68,6 +68,7 @@ typedef struct tws_listener_t_ {
     int option_http;
     int option_num_threads;
     Tcl_ThreadId *conn_thread_ids;
+    Tcl_Condition cond_wait;
     struct tws_listener_t_ *nextPtr;
 } tws_listener_t;
 
@@ -182,7 +183,7 @@ typedef struct {
 } tws_thread_data_t;
 
 typedef struct {
-    Tcl_Condition cond_wait;
+    Tcl_Condition *cond_wait_ptr;
     tws_server_t *server;
     int thread_index;
     const char *host;

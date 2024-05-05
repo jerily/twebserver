@@ -37,13 +37,26 @@ static void tws_StopServer(tws_server_t *server) {
         for (int i = 0; i < listener->option_num_threads; i++) {
             fprintf(stderr, "Stopping thread %p\n", listener->conn_thread_ids[i]);
             tws_ThreadQueueTermEvent(listener->conn_thread_ids[i]);
-            // TODO: we have to wait for the thread to exit
+        }
+        listener = listener->nextPtr;
+    }
+
+    listener = server->first_listener_ptr;
+    while(listener) {
+        for (int i = 0; i < listener->option_num_threads; i++) {
+            fprintf(stderr, "Waiting for thread %p\n", listener->conn_thread_ids[i]);
+            if (TCL_OK != Tcl_JoinThread(listener->conn_thread_ids[i], NULL)) {
+                fprintf(stderr, "Error joining thread %p\n", listener->conn_thread_ids[i]);
+            }
+            fprintf(stderr, "Thread %p exited\n", listener->conn_thread_ids[i]);
         }
         listener = listener->nextPtr;
     }
 }
 
 int tws_Destroy(Tcl_Interp *interp, const char *handle) {
+    fprintf(stderr, "Destroy\n");
+
     tws_server_t *server = tws_GetInternalFromServerName(handle);
     if (!server) {
         SetResult("server handle not found");
@@ -1733,7 +1746,9 @@ void tws_QueueBreakLoopEvent() {
 void tws_SignalHandler(int signum) {
     if (signum == SIGTERM || signum == SIGINT) {
         fprintf(stderr, "Caught signal: %s\n", signum == SIGTERM ? "SIGTERM" : "SIGINT");
-        tws_QueueBreakLoopEvent();
+        if (!signal_flag) {
+            tws_QueueBreakLoopEvent();
+        }
     }
 }
 
