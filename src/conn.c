@@ -1421,6 +1421,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         accept_ctx->read_fn = tws_ReadHttpConnAsync;
         accept_ctx->write_fn = tws_WriteHttpConnAsync;
         accept_ctx->handle_conn_fn = tws_HandleRecv;
+        accept_ctx->ssl_ctx = NULL;
     } else {
 
         accept_ctx->read_fn = tws_ReadSslConnAsync;
@@ -1486,7 +1487,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
     } while (!dataPtr->terminate || dataPtr->num_conns);
 
-    if (!ctrl->option_http) {
+    if (accept_ctx->ssl_ctx) {
         SSL_CTX_free(accept_ctx->ssl_ctx);
     }
     Tcl_Free(accept_ctx);
