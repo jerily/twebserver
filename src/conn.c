@@ -1486,7 +1486,9 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
     } while (!dataPtr->terminate || dataPtr->num_conns);
 
-    SSL_CTX_free(accept_ctx->ssl_ctx);
+    if (!ctrl->option_http) {
+        SSL_CTX_free(accept_ctx->ssl_ctx);
+    }
     Tcl_Free(accept_ctx);
 
     fprintf(stderr, "HandleConnThread: out (%p)\n", Tcl_GetCurrentThread());
