@@ -1026,12 +1026,12 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
         accept_ctx->write_fn = tws_WriteSslConnAsync;
         accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
 
-        if (TCL_OK != tws_CreateSslContext(interp, &accept_ctx->sslCtx)) {
+        if (TCL_OK != tws_CreateSslContext(interp, &accept_ctx->ssl_ctx)) {
             Tcl_Free((char *) accept_ctx);
             SetResult("Failed to create SSL context");
             return TCL_ERROR;
         }
-        SSL_CTX_set_client_hello_cb(accept_ctx->sslCtx, tws_ClientHelloCallback, NULL);
+        SSL_CTX_set_client_hello_cb(accept_ctx->ssl_ctx, tws_ClientHelloCallback, NULL);
 
     }
 
