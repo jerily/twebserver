@@ -224,6 +224,12 @@ typedef struct {
     char handle[40];
 } tws_router_t;
 
+typedef struct {
+    Tcl_Interp *interp;
+    char *varname;
+    tws_router_t *item;
+} tws_trace_t;
+
 enum {
     TWS_DONE,
     TWS_ERROR,

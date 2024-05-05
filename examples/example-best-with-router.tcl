@@ -19,7 +19,7 @@ set init_script {
     }
 
     # create a router
-    set router [::twebserver::create_router]
+    ::twebserver::create_router router
 
     # add middleware to the router
     ::twebserver::add_middleware \

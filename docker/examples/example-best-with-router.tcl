@@ -19,7 +19,7 @@ set init_script {
     }
 
     # create a router
-    set router [::twebserver::create_router]
+    ::twebserver::create_router router
 
     # add middleware to the router
     ::twebserver::add_middleware \
@@ -142,7 +142,7 @@ set dir [file dirname [info script]]
 puts "server is running. go to https://localhost:4433/ or http://localhost:8080/"
 
 # wait forever
-::twebserver::wait
+::twebserver::wait_signal
 #vwait forever
 
 # destroy the server

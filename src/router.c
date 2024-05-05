@@ -391,9 +391,77 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
     return TCL_OK;
 }
 
+static int tws_DestroyRouter(Tcl_Interp *interp, const char *handle) {
+    fprintf(stderr, "DestroyRouter: %s\n", handle);
+    tws_router_t *router_ptr = tws_GetInternalFromRouterName(handle);
+    if (!router_ptr) {
+        SetResult("DestroyRouter: router handle not found");
+        return TCL_ERROR;
+    }
+
+    if (TCL_OK != tws_UnregisterRouterName(handle)) {
+        SetResult("DestroyRouter: unregister_router_name failed");
+        return TCL_ERROR;
+    }
+
+    Tcl_DeleteCommand(interp, router_ptr->handle);
+
+    tws_route_t *route = router_ptr->firstRoutePtr;
+    while(route) {
+        tws_route_t *next = route->nextPtr;
+        Tcl_DecrRefCount(route->keys);
+        Tcl_Free((char *) route);
+        route = next;
+    }
+
+    tws_middleware_t *middleware = router_ptr->firstMiddlewarePtr;
+    while(middleware) {
+        tws_middleware_t *next = middleware->nextPtr;
+        tws_DecrRefCountUntilZero(middleware->enter_proc_ptr);
+        tws_DecrRefCountUntilZero(middleware->leave_proc_ptr);
+        Tcl_Free((char *) middleware);
+        middleware = next;
+    }
+
+    Tcl_Free((char *) router_ptr);
+
+    fprintf(stderr, "router destroyed\n");
+
+    return TCL_OK;
+}
+
+static char VAR_READ_ONLY_MSG[] = "var is read-only";
+
+char *tws_VarTraceProc(ClientData clientData, Tcl_Interp *interp, const char *name1, const char *name2, int flags) {
+    tws_trace_t *trace = (tws_trace_t *) clientData;
+    if (trace->item == NULL) {
+        DBG(fprintf(stderr, "VarTraceProc: router has been deleted\n"));
+        if (!Tcl_InterpDeleted(trace->interp)) {
+            Tcl_UntraceVar(trace->interp, trace->varname, TCL_TRACE_WRITES|TCL_TRACE_UNSETS,
+                           (Tcl_VarTraceProc*) tws_VarTraceProc,
+                           (ClientData) clientData);
+        }
+        Tcl_Free((char *) trace->varname);
+        Tcl_Free((char *) trace);
+        return NULL;
+    }
+    if (flags & TCL_TRACE_WRITES) {
+        DBG(fprintf(stderr, "VarTraceProc: TCL_TRACE_WRITES\n"));
+        Tcl_SetVar2(trace->interp, name1, name2, ((tws_router_t *) trace->item)->handle, TCL_LEAVE_ERR_MSG);
+        return VAR_READ_ONLY_MSG;
+    }
+    if (flags & TCL_TRACE_UNSETS) {
+        DBG(fprintf(stderr, "VarTraceProc: TCL_TRACE_UNSETS\n"));
+        tws_DestroyRouter(trace->interp, ((tws_router_t *) trace->item)->handle);
+        Tcl_Free((char *) trace->varname);
+        Tcl_Free((char *) trace);
+    }
+    return NULL;
+}
+
 int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "CreateCmd\n"));
-    CheckArgs(1, 1, 1, "");
+    CheckArgs(1, 2, 1, "?varname?");
 
     tws_router_t *router_ptr = (tws_router_t *) Tcl_Alloc(sizeof(tws_router_t));
     if (!router_ptr) {
@@ -410,6 +478,19 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
     DBG(fprintf(stderr, "creating obj cmd\n"));
     Tcl_CreateObjCommand(interp, router_ptr->handle, tws_RouterProcessConnCmd, (ClientData) router_ptr, NULL);
     DBG(fprintf(stderr, "done creating obj cmd\n"));
+
+    if (objc == 2) {
+        tws_trace_t *trace = (tws_trace_t *) Tcl_Alloc(sizeof(tws_trace_t));
+        trace->interp = interp;
+        trace->varname = tws_strndup(Tcl_GetString(objv[1]), 80);
+        trace->item = router_ptr;
+        const char *objVar = Tcl_GetString(objv[1]);
+        Tcl_UnsetVar(interp, objVar, 0);
+        Tcl_SetVar  (interp, objVar, router_ptr->handle, 0);
+        Tcl_TraceVar(interp,objVar,TCL_TRACE_WRITES|TCL_TRACE_UNSETS,
+                     (Tcl_VarTraceProc*) tws_VarTraceProc,
+                     (ClientData) trace);
+    }
 
     SetResult(router_ptr->handle);
     return TCL_OK;
