@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: MIT.
  */
 #include "common.h"
-#include "conn.h"
 #include "router.h"
 #include "path_regexp/path_regexp.h"
 #include "request.h"
+#include "return.h"
 #include <string.h>
 
 enum {
@@ -236,13 +236,14 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
 //                    tws_IncrRefCountObjv(3, proc_objv);
                     if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
 //                        tws_DecrRefCountObjv(3, proc_objv);
-                        if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
-                            tws_CloseConn(conn, 1);
-                            tws_DecrRefCountUntilZero(ctx_dict_ptr);
-                            tws_DecrRefCountUntilZero(req_dict_ptr);
-//                            SetResult("router_process_conn: return_error failed");
-                            return TCL_ERROR;
-                        }
+// HERE:
+//                        if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
+//                            tws_CloseConn(conn, 1);
+//                            tws_DecrRefCountUntilZero(ctx_dict_ptr);
+//                            tws_DecrRefCountUntilZero(req_dict_ptr);
+////                            SetResult("router_process_conn: return_error failed");
+//                            return TCL_ERROR;
+//                        }
 //                        tws_CloseConn(conn, 1);
                         tws_DecrRefCountUntilZero(ctx_dict_ptr);
                         tws_DecrRefCountUntilZero(req_dict_ptr);
@@ -264,13 +265,14 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
             // eval route proc
             if (TCL_OK != tws_EvalRoute(interp, route_ptr, ctx_dict_ptr, req_dict_ptr)) {
                 DBG(fprintf(stderr, "router_process_conn: eval route failed path: %s\n", route_ptr->path));
-                if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
-                    tws_CloseConn(conn, 1);
-                    Tcl_DecrRefCount(ctx_dict_ptr);
-                    Tcl_DecrRefCount(req_dict_ptr);
-//                    SetResult("router_process_conn: return_error failed");
-                    return TCL_ERROR;
-                }
+// HERE:
+//                if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
+//                    tws_CloseConn(conn, 1);
+//                    Tcl_DecrRefCount(ctx_dict_ptr);
+//                    Tcl_DecrRefCount(req_dict_ptr);
+////                    SetResult("router_process_conn: return_error failed");
+//                    return TCL_ERROR;
+//                }
 //                tws_CloseConn(conn, 1);
                 Tcl_DecrRefCount(ctx_dict_ptr);
                 Tcl_DecrRefCount(req_dict_ptr);
@@ -291,14 +293,15 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
 //                    tws_IncrRefCountObjv(4, proc_objv);
                     if (TCL_OK != Tcl_EvalObjv(interp, 4, proc_objv, TCL_EVAL_GLOBAL)) {
 //                        tws_DecrRefCountObjv(4, proc_objv);
-                        if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
-                            tws_CloseConn(conn, 1);
-                            Tcl_DecrRefCount(ctx_dict_ptr);
-                            Tcl_DecrRefCount(req_dict_ptr);
-                            tws_DecrRefCountUntilZero(res_dict_ptr);
-//                            SetResult("router_process_conn: return_error failed");
-                            return TCL_ERROR;
-                        }
+// Here:
+//                        if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
+//                            tws_CloseConn(conn, 1);
+//                            Tcl_DecrRefCount(ctx_dict_ptr);
+//                            Tcl_DecrRefCount(req_dict_ptr);
+//                            tws_DecrRefCountUntilZero(res_dict_ptr);
+////                            SetResult("router_process_conn: return_error failed");
+//                            return TCL_ERROR;
+//                        }
 //                        tws_CloseConn(conn, 1);
                         Tcl_DecrRefCount(ctx_dict_ptr);
                         Tcl_DecrRefCount(req_dict_ptr);
@@ -318,14 +321,15 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
 
             // return response
             if (TCL_OK != tws_ReturnConn(interp, conn, res_dict_ptr, encoding)) {
-                if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
-                    tws_CloseConn(conn, 1);
-                    Tcl_DecrRefCount(ctx_dict_ptr);
-                    Tcl_DecrRefCount(req_dict_ptr);
-                    tws_DecrRefCountUntilZero(res_dict_ptr);
-                    SetResult("router_process_conn: return_error failed");
-                    return TCL_ERROR;
-                }
+// Here:
+//                if (TCL_OK != tws_ReturnError(interp, conn, 500, "Internal Server Error", encoding)) {
+//                    tws_CloseConn(conn, 1);
+//                    Tcl_DecrRefCount(ctx_dict_ptr);
+//                    Tcl_DecrRefCount(req_dict_ptr);
+//                    tws_DecrRefCountUntilZero(res_dict_ptr);
+//                    SetResult("router_process_conn: return_error failed");
+//                    return TCL_ERROR;
+//                }
 //                tws_CloseConn(conn, 1);
                 Tcl_DecrRefCount(ctx_dict_ptr);
                 Tcl_DecrRefCount(req_dict_ptr);
@@ -349,7 +353,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
     return TCL_OK;
 }
 
-static int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) {
+int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) {
 
     DBG(fprintf(stderr, "HandleRouteEventInThread: %s\n", conn->handle));
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(conn->dataKeyPtr, sizeof(tws_thread_data_t));
@@ -407,7 +411,7 @@ static int tws_DestroyRouter(Tcl_Interp *interp, const char *handle) {
         return TCL_ERROR;
     }
 
-    Tcl_DeleteCommand(interp, router_ptr->handle);
+//    Tcl_DeleteCommand(interp, router_ptr->handle);
 
     tws_route_t *route = router_ptr->firstRoutePtr;
     while(route) {
@@ -480,7 +484,7 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
     CMD_ROUTER_NAME(router_ptr->handle, router_ptr);
     tws_RegisterRouterName(router_ptr->handle, router_ptr);
     DBG(fprintf(stderr, "creating obj cmd\n"));
-    Tcl_CreateObjCommand(interp, router_ptr->handle, tws_RouterProcessConnCmd, (ClientData) router_ptr, NULL);
+//    Tcl_CreateObjCommand(interp, router_ptr->handle, tws_RouterProcessConnCmd, (ClientData) router_ptr, NULL);
     DBG(fprintf(stderr, "done creating obj cmd\n"));
 
     if (objc == 2) {

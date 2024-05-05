@@ -7,6 +7,9 @@
 #include <sys/time.h>
 #include "common.h"
 
+static Tcl_Mutex tws_Thread_Mutex;
+static Tcl_ThreadDataKey dataKey;
+
 static Tcl_HashTable tws_ServerNameToInternal_HT;
 static Tcl_Mutex tws_ServerNameToInternal_HT_Mutex;
 
@@ -18,6 +21,14 @@ static Tcl_Mutex tws_HostNameToInternal_HT_Mutex;
 
 static Tcl_HashTable tws_RouterNameToInternal_HT;
 static Tcl_Mutex tws_RouterNameToInternal_HT_Mutex;
+
+Tcl_ThreadDataKey *tws_GetThreadDataKey() {
+    return &dataKey;
+}
+
+Tcl_Mutex *tws_GetThreadMutex() {
+    return &tws_Thread_Mutex;
+}
 
 int tws_RegisterServerName(const char *name, tws_server_t *internal) {
 

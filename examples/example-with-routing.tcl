@@ -18,37 +18,6 @@ set init_script {
         }
     }
 
-    # create a router
-    ::twebserver::create_router router
-
-    # add middleware to the router
-#    ::twebserver::add_middleware \
-#        -enter_proc simple_session_manager::enter \
-#        -leave_proc simple_session_manager::leave \
-#        $router
-
-    # add a route that will be called if the request method is GET and the path is "/"
-    ::twebserver::add_route -strict $router GET / get_index_page_handler
-
-    # add a route that has a path parameter called "user_id"
-    # when the route path expression matches, it will call "get_blog_entry_handler" proc
-    ::twebserver::add_route -strict $router GET /blog/:user_id/sayhi get_blog_entry_handler
-
-    # add a route that will be called if the request method is GET and the path is "/addr"
-    ::twebserver::add_route -strict $router GET /addr get_addr_handler
-
-    # add a route that will be called if the request method is POST and the path is "/example"
-    ::twebserver::add_route -strict $router POST /example post_example_handler
-
-    # add a route that will be called if the request method is GET and the path is "/logo"
-    ::twebserver::add_route -strict $router GET /logo get_logo_handler
-
-    # add a catchall route that will be called if no other route matches a GET request
-    ::twebserver::add_route $router GET "*" get_catchall_handler
-
-    # make sure that the router will be called when the server receives a connection
-    interp alias {} process_conn {} $router
-
     proc get_index_page_handler {ctx req} {
         set html {
             <html>
@@ -119,26 +88,54 @@ set init_script {
 
 }
 
+# create a router
+::twebserver::create_router router
+
+# add middleware to the router
+#    ::twebserver::add_middleware \
+#        -enter_proc simple_session_manager::enter \
+#        -leave_proc simple_session_manager::leave \
+#        $router
+
+# add a route that will be called if the request method is GET and the path is "/"
+::twebserver::add_route -strict $router GET / get_index_page_handler
+
+# add a route that has a path parameter called "user_id"
+# when the route path expression matches, it will call "get_blog_entry_handler" proc
+::twebserver::add_route -strict $router GET /blog/:user_id/sayhi get_blog_entry_handler
+
+# add a route that will be called if the request method is GET and the path is "/addr"
+::twebserver::add_route -strict $router GET /addr get_addr_handler
+
+# add a route that will be called if the request method is POST and the path is "/example"
+::twebserver::add_route -strict $router POST /example post_example_handler
+
+# add a route that will be called if the request method is GET and the path is "/logo"
+::twebserver::add_route -strict $router GET /logo get_logo_handler
+
+# add a catchall route that will be called if no other route matches a GET request
+::twebserver::add_route $router GET "*" get_catchall_handler
+
 # use threads and gzip compression
 set config_dict [dict create \
     rootdir [file dirname [info script]] \
-    gzip off \
+    gzip on \
     gzip_types [list text/html text/plain application/json] \
     gzip_min_length 8192]
 
 # create the server
-set server_handle [::twebserver::create_server $config_dict process_conn $init_script]
+set server_handle [::twebserver::create_server -with_router $config_dict $router $init_script]
 
 # add SSL context to the server
 set dir [file dirname [info script]]
-::twebserver::add_context $server_handle localhost [file join $dir "../certs/host1/key.pem"] [file join $dir "../certs/host1/cert.pem"]
-::twebserver::add_context $server_handle www.example.com [file join $dir "../certs/host2/key.pem"] [file join $dir "../certs/host2/cert.pem"]
+#::twebserver::add_context $server_handle localhost [file join $dir "../certs/host1/key.pem"] [file join $dir "../certs/host1/cert.pem"]
+#::twebserver::add_context $server_handle www.example.com [file join $dir "../certs/host2/key.pem"] [file join $dir "../certs/host2/cert.pem"]
 
 # listen for an HTTPS connection on port 4433
-::twebserver::listen_server -num_threads 8 $server_handle 4433
+#::twebserver::listen_server -num_threads 8 $server_handle 4433
 
 # listen for an HTTP connection on port 8080
-::twebserver::listen_server -http -num_threads 4 $server_handle 8080
+::twebserver::listen_server -http -num_threads 1 $server_handle 8080
 
 # print that the server is running
 puts "server is running. go to https://localhost:4433/ or http://localhost:8080/"

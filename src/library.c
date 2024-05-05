@@ -12,6 +12,7 @@
 #include "router.h"
 #include "crypto.h"
 #include "form.h"
+#include "return.h"
 
 #include <sys/socket.h> // for SOMAXCONN
 #include <stdio.h>
@@ -466,24 +467,40 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     return TCL_OK;
 }
 
-static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "CreateCmd\n"));
-    CheckArgs(4, 4, 1, "config_dict cmd_name init_script");
+
+    int option_router = 0;
+    Tcl_ArgvInfo ArgTable[] = {
+            {TCL_ARGV_CONSTANT, "-with_router", INT2PTR(1), &option_router, "whether cmd_name is a router"},
+            {TCL_ARGV_END, NULL,         NULL, NULL, NULL}
+    };
+
+    Tcl_Obj **remObjv;
+    Tcl_Size objc = incoming_objc;
+    Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
+
+    if ((objc < 4) || (objc > 4)) {
+        ckfree(remObjv);
+        Tcl_WrongNumArgs(interp, 1, remObjv, "config_dict cmd_name init_script");
+        return TCL_ERROR;
+    }
 
     tws_server_t *server_ptr = (tws_server_t *) Tcl_Alloc(sizeof(tws_server_t));
     if (!server_ptr) {
+        ckfree(remObjv);
         SetResult("Unable to allocate memory");
         return TCL_ERROR;
     }
 
-    server_ptr->cmdPtr = Tcl_DuplicateObj(objv[2]);
+    fprintf(stderr, "option_router=%d\n", option_router);
+
+    server_ptr->option_router = option_router;
+    server_ptr->cmdPtr = Tcl_DuplicateObj(remObjv[2]);
     Tcl_IncrRefCount(server_ptr->cmdPtr);
-    if (objc == 4) {
-        server_ptr->scriptPtr = Tcl_DuplicateObj(objv[3]);
-        Tcl_IncrRefCount(server_ptr->scriptPtr);
-    } else {
-        server_ptr->scriptPtr = NULL;
-    }
+    server_ptr->scriptPtr = Tcl_DuplicateObj(remObjv[3]);
+    Tcl_IncrRefCount(server_ptr->scriptPtr);
+
     server_ptr->thread_id = Tcl_GetCurrentThread();
     server_ptr->rootdir_ptr = NULL;
     server_ptr->first_listener_ptr = NULL;
@@ -515,7 +532,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int ob
     server_ptr->thread_stacksize = TCL_THREAD_STACK_DEFAULT;
     server_ptr->thread_max_concurrent_conns = 0;
 
-    if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ptr, objv[1])) {
+    if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ptr, remObjv[1])) {
         Tcl_Free((char *) server_ptr);
         return TCL_ERROR;
     }

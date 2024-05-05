@@ -73,6 +73,7 @@ typedef struct tws_listener_t_ {
 } tws_listener_t;
 
 typedef struct {
+    int option_router;
     Tcl_Obj *cmdPtr;
     Tcl_Obj *scriptPtr;
     Tcl_Obj *rootdir_ptr;
@@ -265,6 +266,9 @@ void tws_FreeSslContexts();
 void tws_IncrRefCountObjv(int objc, Tcl_Obj *const objv[]);
 void tws_DecrRefCountObjv(int objc, Tcl_Obj *const objv[]);
 
+Tcl_Mutex *tws_GetThreadMutex();
+Tcl_ThreadDataKey *tws_GetThreadDataKey();
+
 /*
  * Macros used to cast between pointers and integers (e.g. when storing an int
  * in ClientData), on 64-bit architectures they avoid gcc warning about "cast
@@ -280,5 +284,6 @@ void tws_DecrRefCountObjv(int objc, Tcl_Obj *const objv[]);
 #	define PTR2INT(p) ((int)(p))
 #   endif
 #endif
+
 
 #endif //TWEBSERVER_COMMON_H
