@@ -1484,6 +1484,9 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     DBG(fprintf(stderr, "HandleConnThread: in (%p)\n", Tcl_GetCurrentThread()));
     do {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
+        if (dataPtr->terminate) {
+            fprintf(stderr, "terminate\n");
+        }
     } while (!dataPtr->terminate && !dataPtr->num_conns);
 
     Tcl_Free(accept_ctx);

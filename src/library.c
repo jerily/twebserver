@@ -1741,6 +1741,7 @@ void tws_QueueBreakLoopEvent() {
     Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
     evPtr->proc = tws_HandleBreakLoopInMainThread;
     Tcl_QueueEvent(evPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(Tcl_GetCurrentThread());
 }
 
 void tws_SignalHandler(int signum) {
