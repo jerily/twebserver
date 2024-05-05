@@ -493,7 +493,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
         return TCL_ERROR;
     }
 
-    fprintf(stderr, "option_router=%d\n", option_router);
+    DBG(fprintf(stderr, "option_router=%d\n", option_router));
 
     server_ptr->option_router = option_router;
     server_ptr->cmdPtr = Tcl_DuplicateObj(remObjv[2]);
