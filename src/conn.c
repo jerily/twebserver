@@ -968,12 +968,21 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
     for (int i = 0; i < nfds; i++) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
         tws_conn_t *conn = (tws_conn_t *) events[i].udata;
+
+        if (!conn->handle_conn_fn) {
+            conn->handle_conn_fn = tws_HandleRecv;
+        }
+
         tws_ThreadQueueKeepaliveEvent(conn);
 #else
         tws_conn_t *conn = (tws_conn_t *) events[i].data.ptr;
         DBG(fprintf(stderr, "KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->handle));
         conn->start_read_millis = current_time_in_millis();
         conn->latest_millis = conn->start_read_millis;
+
+        if (!conn->handle_conn_fn) {
+            conn->handle_conn_fn = tws_HandleRecv;
+        }
 
         tws_QueueProcessEvent(conn);
 #endif
