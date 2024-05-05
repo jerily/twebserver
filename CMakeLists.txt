@@ -15,7 +15,7 @@ message(STATUS "TCL_LIBRARY: ${TCL_LIBRARY}")
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 # NDEBUG to not generate code for assert
-set(CMAKE_C_FLAGS  "-DNDEBUG -DTCL_THREADS -DVERSION=${PROJECT_VERSION} ${CMAKE_C_FLAGS}")
+set(CMAKE_C_FLAGS  "-g -DNDEBUG -DTCL_THREADS -DVERSION=${PROJECT_VERSION} ${CMAKE_C_FLAGS}")
 
 
 add_library(twebserver SHARED src/library.c src/base64.c src/base64/cencode.c src/base64/cdecode.c
@@ -28,6 +28,7 @@ add_library(twebserver SHARED src/library.c src/base64.c src/base64/cencode.c sr
         src/form.c
         src/https.c
         src/http.c
+        src/return.c
 )
 set_target_properties(twebserver PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
