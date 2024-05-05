@@ -109,7 +109,7 @@ typedef struct {
     int num_threads;
     Tcl_Interp *interp;
     tws_server_t *server;
-    SSL_CTX *sslCtx;
+    SSL_CTX *ssl_ctx;
     int (*read_fn)(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size);
     int (*write_fn)(tws_conn_t *conn, const char *buf, Tcl_Size len);
     int (*handle_conn_fn)(tws_conn_t *conn);

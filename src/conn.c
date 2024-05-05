@@ -275,7 +275,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     if (accept_ctx->option_http) {
         conn->ssl = NULL;
     } else {
-        SSL *ssl = SSL_new(accept_ctx->sslCtx);
+        SSL *ssl = SSL_new(accept_ctx->ssl_ctx);
         if (ssl == NULL) {
             Tcl_Free((char *) conn);
             return NULL;
@@ -1430,13 +1430,13 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
 #else
         // it is an https server, so we need to create an SSL_CTX
-        if (TCL_OK != tws_CreateSslContext(dataPtr->interp, &accept_ctx->sslCtx)) {
+        if (TCL_OK != tws_CreateSslContext(dataPtr->interp, &accept_ctx->ssl_ctx)) {
             Tcl_Free((char *) accept_ctx);
             Tcl_FinalizeThread();
             Tcl_ExitThread(TCL_ERROR);
             TCL_THREAD_CREATE_RETURN;
         }
-        SSL_CTX_set_client_hello_cb(accept_ctx->sslCtx, tws_ClientHelloCallback, NULL);
+        SSL_CTX_set_client_hello_cb(accept_ctx->ssl_ctx, tws_ClientHelloCallback, NULL);
 #endif
     }
 
@@ -1486,6 +1486,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
     } while (!dataPtr->terminate || dataPtr->num_conns);
 
+    SSL_CTX_free(accept_ctx->ssl_ctx);
     Tcl_Free(accept_ctx);
 
     fprintf(stderr, "HandleConnThread: out (%p)\n", Tcl_GetCurrentThread());
