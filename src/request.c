@@ -293,7 +293,8 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding
                                        Tcl_Obj *resultPtr) {
     // parse "path" and "queryStringParameters" from "url"
     const char *p2 = url;
-    while (p2 < url + url_length && *p2 != '\0') {
+    const char *end = url + url_length;
+    while (p2 < end && *p2 != '\0') {
         if (*p2 == '?') {
             Tcl_Size path_length = p2 - url;
             Tcl_Obj *pathPtr = Tcl_NewStringObj("", 0);
@@ -324,12 +325,12 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding
         }
         p2++;
     }
-    if (p2 == url + url_length) {
+    if (p2 == end) {
         if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), Tcl_NewStringObj(url, url_length))) {
             SetResult("path dict put error");
             return TCL_ERROR;
         }
-        if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), Tcl_NewStringObj("", 0))) {
+        if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), Tcl_NewStringObj("", -1))) {
             SetResult("queryString dict put error");
             return TCL_ERROR;
         }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(twebserver VERSION 1.47.24 LANGUAGES CXX C)
+project(twebserver VERSION 1.47.25 LANGUAGES CXX C)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(TARGET twebserver)
@@ -15,7 +15,7 @@ message(STATUS "TCL_LIBRARY: ${TCL_LIBRARY}")
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 # NDEBUG to not generate code for assert
-set(CMAKE_C_FLAGS  "-g -DNDEBUG -DTCL_THREADS -DVERSION=${PROJECT_VERSION} ${CMAKE_C_FLAGS}")
+set(CMAKE_C_FLAGS  "-DNDEBUG -DTCL_THREADS -DVERSION=${PROJECT_VERSION} ${CMAKE_C_FLAGS}")
 
 
 add_library(twebserver SHARED src/library.c src/base64.c src/base64/cencode.c src/base64/cdecode.c

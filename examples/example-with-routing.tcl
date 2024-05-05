@@ -128,14 +128,14 @@ set server_handle [::twebserver::create_server -with_router $config_dict $router
 
 # add SSL context to the server
 set dir [file dirname [info script]]
-#::twebserver::add_context $server_handle localhost [file join $dir "../certs/host1/key.pem"] [file join $dir "../certs/host1/cert.pem"]
-#::twebserver::add_context $server_handle www.example.com [file join $dir "../certs/host2/key.pem"] [file join $dir "../certs/host2/cert.pem"]
+::twebserver::add_context $server_handle localhost [file join $dir "../certs/host1/key.pem"] [file join $dir "../certs/host1/cert.pem"]
+::twebserver::add_context $server_handle www.example.com [file join $dir "../certs/host2/key.pem"] [file join $dir "../certs/host2/cert.pem"]
 
 # listen for an HTTPS connection on port 4433
-#::twebserver::listen_server -num_threads 8 $server_handle 4433
+::twebserver::listen_server -num_threads 8 $server_handle 4433
 
 # listen for an HTTP connection on port 8080
-::twebserver::listen_server -http -num_threads 1 $server_handle 8080
+::twebserver::listen_server -http -num_threads 4 $server_handle 8080
 
 # print that the server is running
 puts "server is running. go to https://localhost:4433/ or http://localhost:8080/"

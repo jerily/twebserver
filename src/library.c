@@ -752,7 +752,7 @@ static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
 
 static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *const responseDictPtr, Tcl_Obj *headerNamePtr, Tcl_Obj *headerValuePtr,
                          Tcl_Obj **resultPtr) {
-    Tcl_Obj *dupResponseDictPtr = Tcl_DuplicateObj(responseDictPtr);
+    Tcl_Obj *dupResponseDictPtr = Tcl_IsShared(responseDictPtr) ? Tcl_DuplicateObj(responseDictPtr) : responseDictPtr;
 //    Tcl_Obj *dupResponseDictPtr = responseDictPtr;
     Tcl_IncrRefCount(dupResponseDictPtr);
 
