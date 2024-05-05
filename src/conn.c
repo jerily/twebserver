@@ -565,10 +565,10 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     }
 
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
-    dataPtr->numRequests = (dataPtr->numRequests + 1) % INT_MAX;
+    dataPtr->num_requests = (dataPtr->num_requests + 1) % INT_MAX;
     tws_server_t *server = conn->accept_ctx->server;
     // make sure that garbage collection does not start the same time on all threads
-    if (dataPtr->numRequests % server->garbage_collection_cleanup_threshold == dataPtr->thread_pivot) {
+    if (dataPtr->num_requests % server->garbage_collection_cleanup_threshold == dataPtr->thread_pivot) {
         tws_QueueCleanupEvent();
     }
 
@@ -1370,7 +1370,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     dataPtr->server = ctrl->server;
     dataPtr->thread_index = ctrl->thread_index;
     dataPtr->terminate = 0;
-    dataPtr->numRequests = 0;
+    dataPtr->num_requests = 0;
     dataPtr->thread_pivot = dataPtr->thread_index * (ctrl->server->garbage_collection_cleanup_threshold / ctrl->server->num_threads);
     dataPtr->num_conns = 0;
     dataPtr->firstConnPtr = NULL;
@@ -1484,10 +1484,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     DBG(fprintf(stderr, "HandleConnThread: in (%p)\n", Tcl_GetCurrentThread()));
     do {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
-        if (dataPtr->terminate) {
-            fprintf(stderr, "terminate\n");
-        }
-    } while (!dataPtr->terminate && !dataPtr->num_conns);
+    } while (!dataPtr->terminate || dataPtr->num_conns);
 
     Tcl_Free(accept_ctx);
 

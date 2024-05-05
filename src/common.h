@@ -175,7 +175,7 @@ typedef struct {
     tws_conn_t *lastConnPtr;
     int thread_index;
     int num_conns;
-    int numRequests;
+    int num_requests;
     int thread_pivot;
     int terminate;
     int server_fd;
