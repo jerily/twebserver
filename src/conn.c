@@ -1528,11 +1528,11 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
 }
 
 static void tws_AddListenerToServer(tws_server_t *server, tws_listener_t *listener) {
-    if (server->firstListenerPtr == NULL) {
-        server->firstListenerPtr = listener;
+    if (server->first_listener_ptr == NULL) {
+        server->first_listener_ptr = listener;
     } else {
-        listener->nextPtr = server->firstListenerPtr;
-        server->firstListenerPtr = listener;
+        listener->nextPtr = server->first_listener_ptr;
+        server->first_listener_ptr = listener;
     }
 }
 
@@ -1543,6 +1543,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
     listener->option_http = option_http;
     listener->option_num_threads = option_num_threads;
     listener->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(option_num_threads * sizeof(Tcl_ThreadId));
+    listener->nextPtr = NULL;
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     int server_fd;

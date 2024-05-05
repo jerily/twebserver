@@ -24,29 +24,54 @@
 static int tws_ModuleInitialized;
 static int signal_flag = 0;
 
+static void tws_ThreadQueueTermEvent(Tcl_ThreadId threadId) {
+    Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
+    evPtr->proc = tws_HandleTermEventInThread;
+    Tcl_ThreadQueueEvent(threadId, evPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(threadId);
+}
+
+static void tws_StopServer(tws_server_t *server) {
+    tws_listener_t *listener = server->first_listener_ptr;
+    while(listener) {
+        for (int i = 0; i < listener->option_num_threads; i++) {
+            fprintf(stderr, "Stopping thread %p\n", listener->conn_thread_ids[i]);
+            tws_ThreadQueueTermEvent(listener->conn_thread_ids[i]);
+            // TODO: we have to wait for the thread to exit
+        }
+        listener = listener->nextPtr;
+    }
+}
+
 int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     tws_server_t *server = tws_GetInternalFromServerName(handle);
     if (!server) {
         SetResult("server handle not found");
         return TCL_ERROR;
     }
+
+    tws_StopServer(server);
+
     if (!tws_UnregisterServerName(handle)) {
         SetResult("unregister server name failed");
         return TCL_ERROR;
     }
 
-    tws_listener_t *listener = server->firstListenerPtr;
+    tws_listener_t *listener = server->first_listener_ptr;
     while(listener) {
+        fprintf(stderr, "deleting listener\n");
         Tcl_Free((char *) listener->conn_thread_ids);
-        listener = listener->nextPtr;
+        tws_listener_t *next_listener = listener->nextPtr;
+        Tcl_Free((char *) listener);
+        listener = next_listener;
     }
 
     Tcl_DecrRefCount(server->cmdPtr);
     if (server->scriptPtr != NULL) {
         Tcl_DecrRefCount(server->scriptPtr);
     }
-    if (server->rootdirPtr != NULL) {
-        Tcl_DecrRefCount(server->rootdirPtr);
+    if (server->rootdir_ptr != NULL) {
+        Tcl_DecrRefCount(server->rootdir_ptr);
     }
 
     Tcl_DeleteCommand(interp, handle);
@@ -65,8 +90,8 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     }
     Tcl_DecrRefCount(rootdirKeyPtr);
     if (rootdirPtr) {
-        server_ctx->rootdirPtr = rootdirPtr;
-        Tcl_IncrRefCount(server_ctx->rootdirPtr);
+        server_ctx->rootdir_ptr = rootdirPtr;
+        Tcl_IncrRefCount(server_ctx->rootdir_ptr);
     }
 
     Tcl_Obj *maxRequestReadBytesPtr;
@@ -444,9 +469,9 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int ob
     } else {
         server_ptr->scriptPtr = NULL;
     }
-    server_ptr->threadId = Tcl_GetCurrentThread();
-    server_ptr->rootdirPtr = NULL;
-    server_ptr->firstListenerPtr = NULL;
+    server_ptr->thread_id = Tcl_GetCurrentThread();
+    server_ptr->rootdir_ptr = NULL;
+    server_ptr->first_listener_ptr = NULL;
 
     // configuration
     server_ptr->max_request_read_bytes = 10 * 1024 * 1024;
@@ -1694,9 +1719,31 @@ int tws_ReturnResponseCmd(ClientData clientData, Tcl_Interp *interp, int objc, T
     return TCL_OK;
 }
 
-static int tws_WaitCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+static int tws_HandleBreakLoopInMainThread(Tcl_Event *evPtr, int flags) {
+    signal_flag = 1;
+    return 1;
+}
+
+void tws_QueueBreakLoopEvent() {
+    Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
+    evPtr->proc = tws_HandleBreakLoopInMainThread;
+    Tcl_QueueEvent(evPtr, TCL_QUEUE_TAIL);
+}
+
+void tws_SignalHandler(int signum) {
+    if (signum == SIGTERM || signum == SIGINT) {
+        fprintf(stderr, "Caught signal: %s\n", signum == SIGTERM ? "SIGTERM" : "SIGINT");
+        tws_QueueBreakLoopEvent();
+    }
+}
+
+static int tws_WaitSignalCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "VarWaitCmd\n"));
     CheckArgs(1, 1, 1, "");
+
+    signal_flag = 0;
+    signal(SIGTERM, tws_SignalHandler);
+    signal(SIGINT, tws_SignalHandler);
 
     do {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
@@ -1723,55 +1770,18 @@ static int tws_GetRootdirCmd(ClientData clientData, Tcl_Interp *interp, int objc
         return TCL_ERROR;
     }
 
-    if (server->rootdirPtr != NULL) {
-        Tcl_SetObjResult(interp, server->rootdirPtr);
+    if (server->rootdir_ptr != NULL) {
+        Tcl_SetObjResult(interp, server->rootdir_ptr);
     }
     return TCL_OK;
 }
 
 static void tws_ExitHandler(ClientData unused) {
+    fprintf(stderr, "Exit Handler\n");
     tws_DeleteServerNameHT();
     tws_DeleteConnNameHT();
     tws_DeleteHostNameHT();
     tws_DeleteRouterNameHT();
-}
-
-static void tws_ThreadQueueTermEvent(Tcl_ThreadId threadId) {
-    Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
-    evPtr->proc = tws_HandleTermEventInThread;
-    Tcl_ThreadQueueEvent(threadId, evPtr, TCL_QUEUE_TAIL);
-    Tcl_ThreadAlert(threadId);
-}
-
-static void tws_StopServer(tws_server_t *server) {
-    tws_listener_t *listener = server->firstListenerPtr;
-    while(listener) {
-        for (int i = 0; i < listener->option_num_threads; i++) {
-            fprintf(stderr, "Stopping thread %p\n", listener->conn_thread_ids[i]);
-            tws_ThreadQueueTermEvent(listener->conn_thread_ids[i]);
-            // TODO: we have to wait for the thread to exit
-        }
-        listener = listener->nextPtr;
-    }
-}
-
-static int tws_HandleTermInMainThread(Tcl_Event *evPtr, int flags) {
-    tws_StopServers(tws_StopServer);
-    signal_flag = 1;
-    return 1;
-}
-
-void tws_QueueTermEvent() {
-    Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
-    evPtr->proc = tws_HandleTermInMainThread;
-    Tcl_QueueEvent(evPtr, TCL_QUEUE_TAIL);
-}
-
-void tws_SignalHandler(int signum) {
-    if (signum == SIGTERM || signum == SIGINT) {
-        fprintf(stderr, "Caught signal %d\n", signum);
-        tws_QueueTermEvent();
-    }
 }
 
 void tws_InitModule() {
@@ -1782,10 +1792,6 @@ void tws_InitModule() {
         if (pthread_sigmask(SIG_BLOCK, &sigset, NULL)) {
             fprintf(stderr, "pthread_sigmask failed\n");
         }
-
-        signal_flag = 0;
-        signal(SIGTERM, tws_SignalHandler);
-        signal(SIGINT, tws_SignalHandler);
 
         tws_InitServerNameHT();
         tws_InitConnNameHT();
@@ -1818,7 +1824,7 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::listen_server", tws_ListenCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_context", tws_AddContextCmd, NULL, NULL);
 
-    Tcl_CreateObjCommand(interp, "::twebserver::wait", tws_WaitCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::wait_signal", tws_WaitSignalCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::get_rootdir", tws_GetRootdirCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::info_conn", tws_InfoConnCmd, NULL, NULL);
 

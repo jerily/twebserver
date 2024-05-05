@@ -318,16 +318,3 @@ void tws_DecrRefCountUntilZero(Tcl_Obj *obj) {
     }
     Tcl_DecrRefCount(obj);
 }
-
-void tws_StopServers(void (*stop_server)(tws_server_t *server)) {
-    // foreach server in tws_ServerNameToInternal_HT hash table
-
-    Tcl_HashSearch search;
-    Tcl_HashEntry *entry = Tcl_FirstHashEntry(&tws_ServerNameToInternal_HT, &search);
-    while (entry) {
-        tws_server_t *server = (tws_server_t *) Tcl_GetHashValue(entry);
-        stop_server(server);
-        entry = Tcl_NextHashEntry(&search);
-    }
-
-}
