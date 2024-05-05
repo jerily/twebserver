@@ -1490,6 +1490,8 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     if (accept_ctx->ssl_ctx) {
         SSL_CTX_free(accept_ctx->ssl_ctx);
     }
+    tws_DecrRefCountUntilZero(dataPtr->cmdPtr);
+    Tcl_DeleteInterp(dataPtr->interp);
     Tcl_Free(accept_ctx);
 
     fprintf(stderr, "HandleConnThread: out (%p)\n", Tcl_GetCurrentThread());
