@@ -733,9 +733,10 @@ static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
     return TCL_OK;
 }
 
-static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *responseDictPtr, Tcl_Obj *headerNamePtr, Tcl_Obj *headerValuePtr,
+static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *const responseDictPtr, Tcl_Obj *headerNamePtr, Tcl_Obj *headerValuePtr,
                          Tcl_Obj **resultPtr) {
     Tcl_Obj *dupResponseDictPtr = Tcl_DuplicateObj(responseDictPtr);
+//    Tcl_Obj *dupResponseDictPtr = responseDictPtr;
     Tcl_IncrRefCount(dupResponseDictPtr);
 
     // check if the header exists in "multiValueHeaders" first
@@ -1072,14 +1073,14 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incom
         return TCL_ERROR;
     }
 
-    Tcl_Obj *headerNamePtr = Tcl_NewStringObj("Set-Cookie", 10);
-    Tcl_IncrRefCount(headerNamePtr);
-    Tcl_Obj *headerValuePtr = Tcl_NewStringObj("", 0);
-    Tcl_IncrRefCount(headerValuePtr);
+    Tcl_DString header_value_ds;
+    Tcl_DStringInit(&header_value_ds);
 
     // append cookie name and value to headerValuePtr
-    Tcl_AppendObjToObj(headerValuePtr, remObjv[2]);
-    Tcl_AppendToObj(headerValuePtr, "=", 1);
+    Tcl_Size cookie_name_length;
+    const char *cookie_name = Tcl_GetStringFromObj(remObjv[2], &cookie_name_length);
+    Tcl_DStringAppend(&header_value_ds, cookie_name, cookie_name_length);
+    Tcl_DStringAppend(&header_value_ds, "=", 1);
 
     // encode the cookie value
     int enc_flags = CHAR_COMPONENT;
@@ -1088,75 +1089,83 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incom
     const char *cookie_value = Tcl_GetStringFromObj(remObjv[3], &cookie_value_length);
     if (TCL_OK != tws_UrlEncode(interp, enc_flags, cookie_value, cookie_value_length, &cookieValuePtr)) {
         ckfree(remObjv);
-        Tcl_DecrRefCount(headerValuePtr);
-        Tcl_DecrRefCount(headerNamePtr);
+        Tcl_DStringFree(&header_value_ds);
         return TCL_ERROR;
     }
-    Tcl_AppendObjToObj(headerValuePtr, cookieValuePtr);
+    Tcl_Size ue_cookie_value_length;
+    const char *ue_cookie_value = Tcl_GetStringFromObj(cookieValuePtr, &ue_cookie_value_length);
+    Tcl_DStringAppend(&header_value_ds, ue_cookie_value, ue_cookie_value_length);
     Tcl_DecrRefCount(cookieValuePtr);
     // append Domain
     if (option_domain) {
-        Tcl_AppendToObj(headerValuePtr, "; Domain=", 9);
-        Tcl_AppendToObj(headerValuePtr, option_domain, -1);
+        Tcl_DStringAppend(&header_value_ds, "; Domain=", 9);
+        Tcl_DStringAppend(&header_value_ds, option_domain, -1);
     }
 
     // append Path
     if (option_path) {
-        Tcl_AppendToObj(headerValuePtr, "; Path=", 7);
-        Tcl_AppendToObj(headerValuePtr, option_path, -1);
+        Tcl_DStringAppend(&header_value_ds, "; Path=", 7);
+        Tcl_DStringAppend(&header_value_ds, option_path, -1);
     } else {
-        Tcl_AppendToObj(headerValuePtr, "; Path=/", 8);
+        Tcl_DStringAppend(&header_value_ds, "; Path=/", 8);
     }
 
     // append SameSite
     if (option_samesite) {
-        Tcl_AppendToObj(headerValuePtr, "; SameSite=", 11);
-        Tcl_AppendToObj(headerValuePtr, option_samesite, -1);
+        Tcl_DStringAppend(&header_value_ds, "; SameSite=", 11);
+        Tcl_DStringAppend(&header_value_ds, option_samesite, -1);
     }
 
     // append Expires
     if (option_expires) {
-        Tcl_AppendToObj(headerValuePtr, "; Expires=", 10);
-        Tcl_AppendToObj(headerValuePtr, option_expires, -1);
+        Tcl_DStringAppend(&header_value_ds, "; Expires=", 10);
+        Tcl_DStringAppend(&header_value_ds, option_expires, -1);
     }
 
     // append Secure
     if (!option_insecure) {
-        Tcl_AppendToObj(headerValuePtr, "; Secure", 8);
+        Tcl_DStringAppend(&header_value_ds, "; Secure", 8);
     }
 
     // append HttpOnly
     if (option_httponly) {
-        Tcl_AppendToObj(headerValuePtr, "; HttpOnly", 10);
+        Tcl_DStringAppend(&header_value_ds, "; HttpOnly", 10);
     }
 
     // append Partitioned
     if (option_partitioned) {
-        Tcl_AppendToObj(headerValuePtr, "; Partitioned", 12);
+        Tcl_DStringAppend(&header_value_ds, "; Partitioned", 12);
     }
 
     // append Max-Age
     if (option_maxage >= 0) {
-        Tcl_AppendToObj(headerValuePtr, "; Max-Age=", 10);
+        Tcl_DStringAppend(&header_value_ds, "; Max-Age=", 10);
         Tcl_Obj *option_maxage_ptr = Tcl_NewIntObj(option_maxage);
         Tcl_IncrRefCount(option_maxage_ptr);
-        Tcl_AppendObjToObj(headerValuePtr, option_maxage_ptr);
+        Tcl_DStringAppend(&header_value_ds, Tcl_GetString(option_maxage_ptr), -1);
         Tcl_DecrRefCount(option_maxage_ptr);
     }
 
-    Tcl_Obj *responseDictPtr;
-    if (TCL_OK != tws_AddHeader(interp, remObjv[1], headerNamePtr, headerValuePtr, &responseDictPtr)) {
+    Tcl_Obj *header_value_ptr = Tcl_NewStringObj(Tcl_DStringValue(&header_value_ds), Tcl_DStringLength(&header_value_ds));
+    Tcl_IncrRefCount(header_value_ptr);
+    Tcl_DStringFree(&header_value_ds);
+
+    Tcl_Obj *header_name_ptr = Tcl_NewStringObj("Set-Cookie", 10);
+    Tcl_IncrRefCount(header_name_ptr);
+
+    Tcl_Obj *response_dict_ptr;
+    if (TCL_OK != tws_AddHeader(interp, remObjv[1], header_name_ptr, header_value_ptr, &response_dict_ptr)) {
         ckfree(remObjv);
-        Tcl_DecrRefCount(headerValuePtr);
-        Tcl_DecrRefCount(headerNamePtr);
+        Tcl_DecrRefCount(header_value_ptr);
+        Tcl_DecrRefCount(header_name_ptr);
         return TCL_ERROR;
     }
-    Tcl_DecrRefCount(headerValuePtr);
-    Tcl_DecrRefCount(headerNamePtr);
+    Tcl_DecrRefCount(header_value_ptr);
+    Tcl_DecrRefCount(header_name_ptr);
     ckfree(remObjv);
 
-    Tcl_SetObjResult(interp, responseDictPtr);
-    Tcl_DecrRefCount(responseDictPtr);
+    Tcl_SetObjResult(interp, response_dict_ptr);
+    Tcl_DecrRefCount(response_dict_ptr);
     return TCL_OK;
 }
 

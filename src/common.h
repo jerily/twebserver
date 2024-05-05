@@ -139,14 +139,14 @@ typedef struct tws_conn_t_ {
     int todelete;
     int ready;
     int handshaked;
-    int processed;
+    int inprogress;
     int shutdown;
     struct tws_conn_t_ *prevPtr;
     struct tws_conn_t_ *nextPtr;
     // On a 64-bit system, a pointer address can be up to 16 hexadecimal digits long
     // plus the 0x prefix plus the conn prefix "_TWS_CONN_" plus the null terminator
     // that gives us 28 characters. We are making it 30 just to be on the safe side.
-    char conn_handle[30];
+    char handle[30];
     char client_ip[INET6_ADDRSTRLEN];
 
     Tcl_DString ds;
@@ -198,11 +198,11 @@ typedef struct tws_route_s {
     int option_prefix;
     int option_nocase;
     int option_strict;
-    int http_method_len;
+    Tcl_Size http_method_len;
     char http_method[10];
-    int path_len;
+    Tcl_Size path_len;
     char path[1024];
-    int proc_name_len;
+    Tcl_Size proc_name_len;
     char proc_name[128];
     Tcl_Obj *keys;
     char *pattern;
@@ -262,6 +262,8 @@ int tws_IsBinaryType(const char *content_type, Tcl_Size content_type_length);
 long long current_time_in_millis();
 void tws_DecrRefCountUntilZero(Tcl_Obj *obj);
 void tws_FreeSslContexts();
+void tws_IncrRefCountObjv(int objc, Tcl_Obj *const objv[]);
+void tws_DecrRefCountObjv(int objc, Tcl_Obj *const objv[]);
 
 /*
  * Macros used to cast between pointers and integers (e.g. when storing an int

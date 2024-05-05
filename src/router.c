@@ -161,20 +161,22 @@ static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *r
 }
 
 static int tws_EvalRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *ctx_dict_ptr, Tcl_Obj *req_dict_ptr) {
-
+    DBG(fprintf(stderr, "eval route: %s\n", route_ptr->proc_name));
     Tcl_Obj *proc_name_ptr = Tcl_NewStringObj(route_ptr->proc_name, -1);
-    Tcl_IncrRefCount(proc_name_ptr);
     Tcl_Obj *const proc_objv[] = {proc_name_ptr, ctx_dict_ptr, req_dict_ptr};
+    tws_IncrRefCountObjv(3, proc_objv);
     if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
-        Tcl_DecrRefCount(proc_name_ptr);
+        tws_DecrRefCountObjv(3, proc_objv);
 //        SetResult("router_process_conn: eval failed");
         return TCL_ERROR;
     }
-    Tcl_DecrRefCount(proc_name_ptr);
+    tws_DecrRefCountObjv(3, proc_objv);
     return TCL_OK;
 }
 
 static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_t *conn, Tcl_Obj *req_dict_ptr) {
+    DBG(fprintf(stderr, "DoRouting\n"));
+
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
 
     Tcl_Obj *ctx_dict_ptr = Tcl_NewDictObj();
@@ -191,7 +193,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
         SetResult("router_process_conn: dict put failed");
         return TCL_ERROR;
     }
-    if (TCL_OK != Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("conn", -1), Tcl_NewStringObj(conn->conn_handle, -1))) {
+    if (TCL_OK != Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("conn", -1), Tcl_NewStringObj(conn->handle, -1))) {
         Tcl_DecrRefCount(ctx_dict_ptr);
         SetResult("router_process_conn: dict put failed");
         return TCL_ERROR;
@@ -349,7 +351,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
 
 static int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) {
 
-    DBG(fprintf(stderr, "HandleRouteEventInThread: %s\n", conn->conn_handle));
+    DBG(fprintf(stderr, "HandleRouteEventInThread: %s\n", conn->handle));
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(conn->dataKeyPtr, sizeof(tws_thread_data_t));
 
     // no need to decr ref count of req_dict_ptr because it is already decr ref counted in DoRouting
@@ -368,6 +370,7 @@ static int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) 
         fprintf(stderr, "DoRouting: errorInfo: %s\n", Tcl_GetString(errorinfo_ptr));
         return 1;
     }
+
 
     conn->requestDictPtr = NULL;
     DBG(fprintf(stderr, "DoRouting done\n"));
@@ -410,6 +413,7 @@ static int tws_DestroyRouter(Tcl_Interp *interp, const char *handle) {
     while(route) {
         tws_route_t *next = route->nextPtr;
         Tcl_DecrRefCount(route->keys);
+        Tcl_Free(route->pattern);
         Tcl_Free((char *) route);
         route = next;
     }

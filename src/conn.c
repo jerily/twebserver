@@ -46,6 +46,7 @@ enum {
 static int tws_HandleRecv(tws_conn_t *conn);
 static void tws_KeepaliveConnHandler(void *data, int mask);
 static int tws_AddConnToThreadList(tws_conn_t *conn);
+static int tws_HandleWrite(tws_conn_t *conn);
 
 tws_server_t *tws_GetCurrentServer() {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
@@ -293,7 +294,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->created_file_handler_p = 0;
     conn->ready = 0;
     conn->handshaked = 0;
-    conn->processed = 0;
+    conn->inprogress = 0;
     conn->todelete = 0;
     conn->shutdown = 0;
     conn->prevPtr = NULL;
@@ -445,7 +446,7 @@ static int tws_CleanupConnections(Tcl_Event *evPtr, int flags) {
         } else {
             long long elapsed = milliseconds - curr_conn->latest_millis;
             if (elapsed > curr_conn->accept_ctx->server->conn_timeout_millis) {
-                if (tws_UnregisterConnName(curr_conn->conn_handle)) {
+                if (tws_UnregisterConnName(curr_conn->handle)) {
                     DBG(fprintf(stderr, "CleanupConnections - mark connection for deletion\n"));
                     // ShutdownConn needed to trigger tws_DeleteFileHandlerForKeepaliveConn
                     tws_ShutdownConn(curr_conn, 2);
@@ -537,11 +538,11 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     conn->handle_conn_fn = tws_HandleRecv;
     conn->shutdown = 0;
     conn->ready = 0;
-    conn->processed = 0;
+    conn->inprogress = 0;
 //    conn->handshaked = 0;
 
     if (force) {
-        if (tws_UnregisterConnName(conn->conn_handle)) {
+        if (tws_UnregisterConnName(conn->handle)) {
             tws_ShutdownConn(conn, force);
             // if keepalive, then we need to delete the file handler
             // so, we free the connection there as well
@@ -551,7 +552,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
         }
     } else {
         if (!conn->keepalive) {
-            if (tws_UnregisterConnName(conn->conn_handle)) {
+            if (tws_UnregisterConnName(conn->handle)) {
                 tws_ShutdownConn(conn, 2);
                 tws_FreeConn(conn);
             }
@@ -576,51 +577,43 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
 }
 
 static int tws_HandleProcessing(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "HandleProcessing: %s\n", conn->conn_handle));
+    DBG(fprintf(stderr, ">>>>>>>>>>>>>>>>> HandleProcessing: %s\n", conn->handle));
 
     tws_accept_ctx_t *accept_ctx = conn->accept_ctx;
 
-    tws_thread_data_t *dataPtr;
-    Tcl_Interp *interp;
-    Tcl_Obj *cmdPtr;
-
     // Get a pointer to the thread data for the current thread
-    dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(&dataKey, sizeof(tws_thread_data_t));
     // Get the interp from the thread data
-    interp = dataPtr->interp;
-    cmdPtr = dataPtr->cmdPtr;
 
-    Tcl_Obj *const connPtr = Tcl_NewStringObj(conn->conn_handle, -1);
+    Tcl_Obj *const connPtr = Tcl_NewStringObj(conn->handle, -1);
     Tcl_Obj *const addrPtr = Tcl_NewStringObj(conn->client_ip, -1);
     Tcl_Obj *const portPtr = Tcl_NewIntObj(accept_ctx->port);
-    Tcl_Obj *const cmdobjv[] = {cmdPtr, connPtr, addrPtr, portPtr, NULL};
+    Tcl_Obj *const cmdobjv[] = {dataPtr->cmdPtr, connPtr, addrPtr, portPtr, NULL};
 
-    Tcl_IncrRefCount(connPtr);
-    Tcl_IncrRefCount(addrPtr);
-    Tcl_IncrRefCount(portPtr);
-    Tcl_ResetResult(interp);
-    if (TCL_OK != Tcl_EvalObjv(interp, 4, cmdobjv, TCL_EVAL_INVOKE)) {
+    tws_IncrRefCountObjv(4, cmdobjv);
+    Tcl_ResetResult(dataPtr->interp);
+    if (TCL_OK != Tcl_EvalObjv(dataPtr->interp, 4, cmdobjv, TCL_EVAL_INVOKE)) {
         fprintf(stderr, "error evaluating script sock=%d\n", conn->client);
-        fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(interp)));
-        Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(interp, TCL_ERROR);
+//        fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
+
+        tws_DecrRefCountObjv(4, cmdobjv);
+
+        Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(dataPtr->interp, TCL_ERROR);
         Tcl_Obj *errorinfo_key_ptr = Tcl_NewStringObj("-errorinfo", -1);
         Tcl_Obj *errorinfo_ptr;
         Tcl_IncrRefCount(errorinfo_key_ptr);
-        if (TCL_OK != Tcl_DictObjGet(interp, return_options_dict_ptr, errorinfo_key_ptr, &errorinfo_ptr)) {
+        if (TCL_OK != Tcl_DictObjGet(dataPtr->interp, return_options_dict_ptr, errorinfo_key_ptr, &errorinfo_ptr)) {
             fprintf(stderr, "error getting errorinfo\n");
             Tcl_DecrRefCount(errorinfo_key_ptr);
             return 1;
         }
         Tcl_DecrRefCount(errorinfo_key_ptr);
         fprintf(stderr, "HandleProcessing: errorinfo=%s\n", Tcl_GetString(errorinfo_ptr));
-        Tcl_DecrRefCount(connPtr);
-        Tcl_DecrRefCount(addrPtr);
-        Tcl_DecrRefCount(portPtr);
+        tws_DecrRefCountObjv(4, cmdobjv);
+        tws_CloseConn(conn, 1);
         return 1;
     }
-    Tcl_DecrRefCount(connPtr);
-    Tcl_DecrRefCount(addrPtr);
-    Tcl_DecrRefCount(portPtr);
+    tws_DecrRefCountObjv(4, cmdobjv);
 
     return 1;
 }
@@ -665,6 +658,7 @@ static int tws_ShouldReadMore(tws_conn_t *conn) {
 
 int
 tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const char *error_text, Tcl_Encoding encoding) {
+    DBG(fprintf(stderr, "ReturnError: %d %s\n", conn->client, conn->handle));
     if (conn->error) {
         return TCL_OK;
     }
@@ -682,7 +676,9 @@ tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const cha
 }
 
 static int tws_HandleRecv(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "HandleRecv: %s\n", conn->conn_handle));
+    DBG(fprintf(stderr, "HandleRecv: %d %s\n", conn->client, conn->handle));
+
+    // TODO: HERE - 2024-05-05
 
     if (conn->ready) {
         DBG(fprintf(stderr, "HandleRecv - already ready\n"));
@@ -692,15 +688,15 @@ static int tws_HandleRecv(tws_conn_t *conn) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(conn->dataKeyPtr, sizeof(tws_thread_data_t));
 
     if (tws_ShouldParseTopPart(conn)) {
-        DBG(fprintf(stderr, "parse top part after deferring reqdictptr=%p\n", conn->requestDictPtr));
+        DBG(fprintf(stderr, "parse top part (before rubicon) reqdictptr=%p\n", conn->requestDictPtr));
         // case when we have read as much as we could with deferring
         if (TCL_OK != tws_ParseTopPart(dataPtr->interp, conn)) {
+            fprintf(stderr, "ParseTopPart failed (before rubicon): %s conn: %s\n",
+                    Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)), conn->handle);
             Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
             if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
                 tws_CloseConn(conn, 1);
             }
-            fprintf(stderr, "ParseTopPart failed (before rubicon): %s\n",
-                    Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
             return 1;
         }
     }
@@ -763,7 +759,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
     if (tws_ShouldParseBottomPart(conn)) {
         if (TCL_OK != tws_ParseBottomPart(dataPtr->interp, conn, conn->requestDictPtr)) {
             fprintf(stderr, "ParseBottomPart failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
-            Tcl_DecrRefCount(conn->requestDictPtr);
+            tws_CloseConn(conn, 1);
             return 1;
         }
     } else {
@@ -781,14 +777,14 @@ static int tws_HandleRecv(tws_conn_t *conn) {
 
         if (TCL_OK !=
             Tcl_DictObjPut(dataPtr->interp, conn->requestDictPtr, Tcl_NewStringObj("isBase64Encoded", -1), Tcl_NewBooleanObj(0))) {
-            fprintf(stderr, "failed to write to dict");
-            Tcl_DecrRefCount(conn->requestDictPtr);
+            fprintf(stderr, "failed to write to dict 1\n");
+            tws_CloseConn(conn, 1);
             return 1;
         }
         if (TCL_OK !=
             Tcl_DictObjPut(dataPtr->interp, conn->requestDictPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj("", -1))) {
-            fprintf(stderr, "failed to write to dict");
-            Tcl_DecrRefCount(conn->requestDictPtr);
+            fprintf(stderr, "failed to write to dict 2\n");
+            tws_CloseConn(conn, 1);
             return 1;
         }
     }
@@ -796,7 +792,6 @@ static int tws_HandleRecv(tws_conn_t *conn) {
     DBG(fprintf(stderr, "HandleRecv done\n"));
 
     conn->ready = 1;
-//    conn->accept_ctx->handle_conn_fn = tws_HandleProcessing;
     return 1;
 }
 
@@ -853,15 +848,16 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
         return 1;
     }
 
-    DBG(fprintf(stderr, "HandleProcessEventInThread: %s\n", conn->conn_handle));
+    DBG(fprintf(stderr, "HandleProcessEventInThread: %s (%p)\n", conn->handle, conn->handle_conn_fn));
     conn->handle_conn_fn(conn);
-    DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d\n", conn->ready));
+    DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d (%p)\n", conn->ready, conn->handle_conn_fn));
 
-    // DoRouting closes the connection when done processing
-    // so, we keep the state of the ready flag to avoid processing it again
     int ready = conn->ready;
     if (ready) {
-        tws_HandleProcessing(conn);
+        if (!conn->inprogress) {
+            conn->inprogress = 1;
+            tws_HandleProcessing(conn);
+        }
     } else {
         Tcl_ThreadAlert(conn->threadId);
     }
@@ -879,11 +875,7 @@ static void tws_QueueProcessEvent(tws_conn_t *conn) {
     DBG(fprintf(stderr, "ThreadQueueProcessEvent done - threadId: %p\n", conn->threadId));
 }
 
-static int tws_HandleWriteEventInThread(Tcl_Event *evPtr, int flags) {
-    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
-    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
-
-    DBG(fprintf(stderr, "HandleWriteEventInThread: %s\n", conn->conn_handle));
+static int tws_HandleWrite(tws_conn_t *conn) {
 
     int reply_length = Tcl_DStringLength(&conn->ds);
     const char *reply = Tcl_DStringValue(&conn->ds);
@@ -902,12 +894,20 @@ static int tws_HandleWriteEventInThread(Tcl_Event *evPtr, int flags) {
     tws_CloseConn(conn, 0);
 
     DBG(fprintf(stderr, "------------done\n"));
-
     return 1;
 }
 
+static int tws_HandleWriteEventInThread(Tcl_Event *evPtr, int flags) {
+    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
+
+    DBG(fprintf(stderr, "HandleWriteEventInThread: %s\n", conn->handle));
+
+    return tws_HandleWrite(conn);
+}
+
 static void tws_QueueWriteEvent(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "ThreadQueueWriteEvent - threadId: %p\n", conn->threadId));
+    DBG(fprintf(stderr, "ThreadQueueWriteEvent - threadId: %p conn: %s\n", conn->threadId, conn->handle));
     conn->write_offset = 0;
     tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleWriteEventInThread;
@@ -1067,7 +1067,11 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
             // skip if "keyPtr" in "multiValueHeadersPtr" dictionary
             Tcl_Obj *listPtr;
             if (multiValueHeadersPtr) {
-                Tcl_DictObjGet(interp, multiValueHeadersPtr, keyPtr, &listPtr);
+                if (TCL_OK != Tcl_DictObjGet(interp, multiValueHeadersPtr, keyPtr, &listPtr)) {
+                    tws_CloseConn(conn, 1);
+                    SetResult("error reading from dict");
+                    return TCL_ERROR;
+                }
                 if (listPtr) {
                     continue;
                 }
@@ -1347,8 +1351,8 @@ void tws_AcceptConn(void *data, int mask) {
             return;
         }
 
-        CMD_CONN_NAME(conn->conn_handle, conn);
-        tws_RegisterConnName(conn->conn_handle, conn);
+        CMD_CONN_NAME(conn->handle, conn);
+        tws_RegisterConnName(conn->handle, conn);
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
         tws_ThreadQueueConnEvent(conn);
 #else
@@ -1536,7 +1540,7 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
         tws_ThreadQueueKeepaliveEvent(conn);
 #else
         tws_conn_t *conn = (tws_conn_t *) events[i].data.ptr;
-        DBG(fprintf(stderr, "KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->conn_handle));
+        DBG(fprintf(stderr, "KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->handle));
         conn->start_read_millis = current_time_in_millis();
         conn->latest_millis = conn->start_read_millis;
 

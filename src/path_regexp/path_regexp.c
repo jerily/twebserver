@@ -481,7 +481,7 @@ int tws_TokensToRegExp(Tcl_Interp *interp, Tcl_Obj *tokensListPtr, int flags, Tc
     return TCL_OK;
 }
 
-int tws_PathToRegExp(Tcl_Interp *interp, const char *path, int path_len, int flags, Tcl_Obj **keys, char **pattern) {
+int tws_PathToRegExp(Tcl_Interp *interp, const char *path, Tcl_Size path_len, int flags, Tcl_Obj **keys, char **pattern) {
 
     Tcl_Obj *tokensListPtr = Tcl_NewListObj(0, NULL);
     Tcl_IncrRefCount(tokensListPtr);

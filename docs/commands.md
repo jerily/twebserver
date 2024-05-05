@@ -113,10 +113,10 @@
 
 ### Low-level Commands
 
-* **::twebserver::return_response** *conn_handle* *response_dict* *?encoding?*
+* **::twebserver::return_response** *handle* *response_dict* *?encoding?*
     - sends a response to a connection (to be used without routing)
   ```tcl
-  ::twebserver::return_response $conn_handle $response_dict
+  ::twebserver::return_response $handle $response_dict
   ```
   
 ### Utility Commands
@@ -180,7 +180,7 @@ These commands are provided for convenience.
 * **::twebserver::get_rootdir** *?server_handle?*
     - returns the root directory of the current server or the specified server
 
-* **::twebserver::info_conn** *conn_handle*
+* **::twebserver::info_conn** *handle*
     - returns information about a connection:
       - ```request``` - the request dictionary
       - ```server``` - the server handle

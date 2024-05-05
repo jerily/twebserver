@@ -141,7 +141,7 @@ int tws_UrlEncode(Tcl_Interp *interp, int enc_flags, const char *value, Tcl_Size
 
 static int tws_AddQueryStringParameter(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_Obj *query_string_parameters_ptr,
                                        Tcl_Obj *multivalue_query_string_parameters_ptr, const char *key, const char *value,
-                                       int value_length) {
+                                       Tcl_Size value_length) {
 
     // check if "key" already exists in "queryStringParameters"
     Tcl_Obj *key_ptr = Tcl_NewStringObj(key, value - key - 1);
@@ -318,15 +318,21 @@ static int tws_ParsePathAndQueryString(Tcl_Interp *interp, Tcl_Encoding encoding
                 SetResult("queryString dict put error");
                 return TCL_ERROR;
             }
-            Tcl_DecrRefCount(queryStringPtr);
             tws_ParseQueryStringParameters(interp, encoding, queryStringPtr, resultPtr);
+            Tcl_DecrRefCount(queryStringPtr);
             break;
         }
         p2++;
     }
     if (p2 == url + url_length) {
-        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), Tcl_NewStringObj(url, url_length));
-        Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), Tcl_NewStringObj("", 0));
+        if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("path", -1), Tcl_NewStringObj(url, url_length))) {
+            SetResult("path dict put error");
+            return TCL_ERROR;
+        }
+        if (TCL_OK != Tcl_DictObjPut(interp, resultPtr, Tcl_NewStringObj("queryString", -1), Tcl_NewStringObj("", 0))) {
+            SetResult("queryString dict put error");
+            return TCL_ERROR;
+        }
     }
     return TCL_OK;
 }
@@ -555,7 +561,7 @@ static int tws_ParseHeaders(Tcl_Interp *interp, const char **currPtr, const char
         // mark the end of the token and remember as "value"
 //        curr++;
 
-        size_t valuelen = curr - p;
+        Tcl_Size valuelen = curr - p;
         char *value = tws_strndup(p, valuelen);
         Tcl_Obj *valuePtr = Tcl_NewStringObj(value, valuelen);
         Tcl_IncrRefCount(valuePtr);
@@ -713,7 +719,10 @@ int tws_ParseBody(Tcl_Interp *interp, const char *curr, const char *end, Tcl_Obj
                 // check if we have a boundary
                 if (p < content_type_end) {
                     // remember the boundary
-                    Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("multipartBoundary", -1), Tcl_NewStringObj(p, content_type_end - p));
+                    if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("multipartBoundary", -1), Tcl_NewStringObj(p, content_type_end - p))) {
+                        SetResult("dict put error");
+                        return TCL_ERROR;
+                    }
                 }
             }
         }
@@ -792,25 +801,25 @@ int tws_ParseRequest(Tcl_Interp *interp, Tcl_Encoding encoding, Tcl_DString *dsP
     if (TCL_OK != Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("headers", -1), headersPtr)) {
         Tcl_DecrRefCount(multiValueHeadersPtr);
         Tcl_DecrRefCount(headersPtr);
+        SetResult("put dict error 1");
         return TCL_ERROR;
     }
 
     if (TCL_OK != Tcl_DictObjPut(interp, dictPtr, Tcl_NewStringObj("multiValueHeaders", -1), multiValueHeadersPtr)) {
         Tcl_DecrRefCount(multiValueHeadersPtr);
         Tcl_DecrRefCount(headersPtr);
+        SetResult("put dict error 2");
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(multiValueHeadersPtr);
     Tcl_DecrRefCount(headersPtr);
-
-//    tws_ParseBody(interp, curr, end, dictPtr, contentLengthPtr, contentTypePtr);
 
     *offset = curr - request;
     return TCL_OK;
 }
 
 // gzip is enabled q-values greater than 0.001
-static int tws_GzipAcceptEncoding(const char *accept_encoding, int accept_encoding_length) {
+static int tws_GzipAcceptEncoding(const char *accept_encoding, Tcl_Size accept_encoding_length) {
     // check if "accept_encoding" contains "gzip"
     const char *p = accept_encoding;
     const char *end = accept_encoding + accept_encoding_length;
@@ -928,7 +937,7 @@ int tws_ParseAcceptEncoding(Tcl_Interp *interp, Tcl_Obj *headersPtr, tws_compres
 }
 
 int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
-
+    DBG(fprintf(stderr, "parse top part: start %d\n", conn->client));
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
     Tcl_Obj *req_dict_ptr = Tcl_NewDictObj();
     Tcl_IncrRefCount(req_dict_ptr);
