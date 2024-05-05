@@ -81,8 +81,6 @@ set init_script {
     }
 
     proc post_example_handler {ctx req} {
-        return [::twebserver::build_response 200 text/plain \
-            "test message POST addr=[dict get $ctx addr] headers=[dict get $req headers]"]
 
         set form [::twebserver::get_form $req]
         #puts form=$form
