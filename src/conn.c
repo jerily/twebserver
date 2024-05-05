@@ -1460,7 +1460,19 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->server->scriptPtr)) {
         fprintf(stderr, "error evaluating init script\n");
         fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
-        fprintf(stderr, "%s\n", Tcl_GetVar2(dataPtr->interp, "::errorInfo", NULL, TCL_GLOBAL_ONLY));
+        Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(dataPtr->interp, TCL_ERROR);
+        Tcl_Obj *errorinfo_ptr;
+        Tcl_Obj *errorinfo_key_ptr = Tcl_NewStringObj("-errorinfo", -1);
+        Tcl_IncrRefCount(errorinfo_key_ptr);
+        if (TCL_OK == Tcl_DictObjGet(dataPtr->interp, return_options_dict_ptr, Tcl_NewStringObj("-errorinfo", -1),
+                                     &errorinfo_ptr)) {
+            Tcl_DecrRefCount(errorinfo_key_ptr);
+            Tcl_FinalizeThread();
+            Tcl_ExitThread(TCL_ERROR);
+            TCL_THREAD_CREATE_RETURN;
+        }
+        Tcl_DecrRefCount(errorinfo_key_ptr);
+        fprintf(stderr, "HandleConnThread: errorInfo: %s\n", Tcl_GetString(errorinfo_ptr));
         Tcl_FinalizeThread();
         Tcl_ExitThread(TCL_ERROR);
         TCL_THREAD_CREATE_RETURN;
