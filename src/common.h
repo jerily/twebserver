@@ -255,6 +255,7 @@ char *tws_strndup(const char *s, size_t n);
 int tws_IsBinaryType(const char *content_type, Tcl_Size content_type_length);
 long long current_time_in_millis();
 void tws_DecrRefCountUntilZero(Tcl_Obj *obj);
+void tws_FreeSslContexts();
 
 /*
  * Macros used to cast between pointers and integers (e.g. when storing an int

@@ -318,3 +318,15 @@ void tws_DecrRefCountUntilZero(Tcl_Obj *obj) {
     }
     Tcl_DecrRefCount(obj);
 }
+
+void tws_FreeSslContexts() {
+    Tcl_MutexLock(&tws_HostNameToInternal_HT_Mutex);
+    Tcl_HashSearch search;
+    Tcl_HashEntry *entryPtr = Tcl_FirstHashEntry(&tws_HostNameToInternal_HT, &search);
+    while (entryPtr != NULL) {
+        SSL_CTX *ctx = (SSL_CTX *) Tcl_GetHashValue(entryPtr);
+        SSL_CTX_free(ctx);
+        entryPtr = Tcl_NextHashEntry(&search);
+    }
+    Tcl_MutexUnlock(&tws_HostNameToInternal_HT_Mutex);
+}

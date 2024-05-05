@@ -802,7 +802,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
 
 int tws_HandleSslHandshake(tws_conn_t *conn) {
     if (conn->handshaked) {
-        DBG(fprintf(stderr, "HandleSslHandshake: already handshaked\n"));
+        fprintf(stderr, "HandleSslHandshake: already handshaked\n");
         return 1;
     }
     ERR_clear_error();

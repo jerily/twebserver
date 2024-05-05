@@ -79,13 +79,15 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
         listener = next_listener;
     }
 
-    Tcl_DecrRefCount(server->cmdPtr);
+    tws_DecrRefCountUntilZero(server->cmdPtr);
     if (server->scriptPtr != NULL) {
-        Tcl_DecrRefCount(server->scriptPtr);
+        tws_DecrRefCountUntilZero(server->scriptPtr);
     }
     if (server->rootdir_ptr != NULL) {
-        Tcl_DecrRefCount(server->rootdir_ptr);
+        tws_DecrRefCountUntilZero(server->rootdir_ptr);
     }
+
+    tws_FreeSslContexts();
 
     Tcl_DeleteCommand(interp, handle);
     Tcl_Free((char *) server);
