@@ -347,7 +347,7 @@ static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *data
     Tcl_DStringFree(&conn->ds);
     Tcl_Free((char *) conn);
 
-    dataPtr->numConns--;
+    dataPtr->num_conns--;
 }
 
 static void tws_FreeConn(tws_conn_t *conn) {
@@ -1290,7 +1290,7 @@ static int tws_AddConnToThreadList(tws_conn_t *conn) {
     // prefer to refuse connection if we are over the limit
     // this is to cap memory usage
     int thread_limit = conn->accept_ctx->server->thread_max_concurrent_conns;
-    if (thread_limit > 0 && dataPtr->numConns >= thread_limit) {
+    if (thread_limit > 0 && dataPtr->num_conns >= thread_limit) {
         fprintf(stderr, "thread limit reached, close client: %d\n", conn->client);
         shutdown(conn->client, SHUT_RDWR);
         close(conn->client);
@@ -1308,9 +1308,9 @@ static int tws_AddConnToThreadList(tws_conn_t *conn) {
         conn->prevPtr = dataPtr->lastConnPtr;
         dataPtr->lastConnPtr = conn;
     }
-    dataPtr->numConns++;
+    dataPtr->num_conns++;
 
-    DBG(fprintf(stderr, "AddConnToThreatList - numConns: %d FD_SETSIZE: %d thread_limit: %d\n", dataPtr->numConns, FD_SETSIZE, thread_limit));
+    DBG(fprintf(stderr, "AddConnToThreatList - numConns: %d FD_SETSIZE: %d thread_limit: %d\n", dataPtr->num_conns, FD_SETSIZE, thread_limit));
 
     Tcl_MutexUnlock(&tws_Thread_Mutex);
 
@@ -1372,7 +1372,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     dataPtr->terminate = 0;
     dataPtr->numRequests = 0;
     dataPtr->thread_pivot = dataPtr->thread_index * (ctrl->server->garbage_collection_cleanup_threshold / ctrl->server->num_threads);
-    dataPtr->numConns = 0;
+    dataPtr->num_conns = 0;
     dataPtr->firstConnPtr = NULL;
     dataPtr->lastConnPtr = NULL;
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -1479,12 +1479,12 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     }
 
     // notify the main thread that we are done initializing
-    Tcl_ConditionNotify(&ctrl->condWait);
+    Tcl_ConditionNotify(&ctrl->cond_wait);
 
     DBG(fprintf(stderr, "HandleConnThread: in (%p)\n", Tcl_GetCurrentThread()));
     do {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
-    } while (!dataPtr->terminate && !dataPtr->numConns);
+    } while (!dataPtr->terminate && !dataPtr->num_conns);
 
     fprintf(stderr, "HandleConnThread: out (%p)\n", Tcl_GetCurrentThread());
 
@@ -1613,7 +1613,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
         Tcl_MutexLock(&tws_Thread_Mutex);
         Tcl_ThreadId id;
         tws_thread_ctrl_t ctrl;
-        ctrl.condWait = NULL;
+        ctrl.cond_wait = NULL;
         ctrl.server = server;
         ctrl.thread_index = i;
         ctrl.host = host;
@@ -1637,9 +1637,9 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
         listener->conn_thread_ids[i] = id;
 
         // Wait for the thread to start because it is using something on our stack!
-        Tcl_ConditionWait(&ctrl.condWait, &tws_Thread_Mutex, NULL);
+        Tcl_ConditionWait(&ctrl.cond_wait, &tws_Thread_Mutex, NULL);
         Tcl_MutexUnlock(&tws_Thread_Mutex);
-        Tcl_ConditionFinalize(&ctrl.condWait);
+        Tcl_ConditionFinalize(&ctrl.cond_wait);
         DBG(fprintf(stderr, "Listen - created thread: %p\n", id));
     }
 

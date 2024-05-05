@@ -173,7 +173,7 @@ typedef struct {
     tws_conn_t *firstConnPtr;
     tws_conn_t *lastConnPtr;
     int thread_index;
-    int numConns;
+    int num_conns;
     int numRequests;
     int thread_pivot;
     int terminate;
@@ -182,7 +182,7 @@ typedef struct {
 } tws_thread_data_t;
 
 typedef struct {
-    Tcl_Condition condWait;
+    Tcl_Condition cond_wait;
     tws_server_t *server;
     int thread_index;
     const char *host;
