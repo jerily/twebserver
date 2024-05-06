@@ -3,8 +3,10 @@
 
 ### High-Level Commands
 
-* **::twebserver::create_server** *config_dict* *request_processor_proc* *thread_init_script*
+* **::twebserver::create_server** *?with_router?* *config_dict* *request_processor_proc* *thread_init_script*
     - returns a handle to a server, see [Server Configuration](config.md) for configuration parameters
+    - when ```with_router``` option is specified, it skips the execution of the ```request_processor_proc``` and directly
+  invokes the router
   ```tcl
   set server_handle [::twebserver::create_server [dict create] process_conn]
   ```
