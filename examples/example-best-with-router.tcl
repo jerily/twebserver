@@ -122,7 +122,6 @@ set init_script {
 # use threads and gzip compression
 set config_dict [dict create \
     rootdir [file dirname [info script]] \
-    backlog 4096 \
     gzip on \
     gzip_types [list text/html text/plain application/json] \
     gzip_min_length 8192]
