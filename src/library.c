@@ -36,7 +36,7 @@ static void tws_StopServer(tws_server_t *server) {
     tws_listener_t *listener = server->first_listener_ptr;
     while(listener) {
         for (int i = 0; i < listener->option_num_threads; i++) {
-            fprintf(stderr, "Stopping thread %p\n", listener->conn_thread_ids[i]);
+            DBG(fprintf(stderr, "Stopping thread %p\n", listener->conn_thread_ids[i]));
             tws_ThreadQueueTermEvent(listener->conn_thread_ids[i]);
         }
         listener = listener->nextPtr;
@@ -45,18 +45,18 @@ static void tws_StopServer(tws_server_t *server) {
     listener = server->first_listener_ptr;
     while(listener) {
         for (int i = 0; i < listener->option_num_threads; i++) {
-            fprintf(stderr, "Waiting for thread %p\n", listener->conn_thread_ids[i]);
+            DBG(fprintf(stderr, "Waiting for thread %p\n", listener->conn_thread_ids[i]));
             if (TCL_OK != Tcl_JoinThread(listener->conn_thread_ids[i], NULL)) {
                 fprintf(stderr, "Error joining thread %p\n", listener->conn_thread_ids[i]);
             }
-            fprintf(stderr, "Thread %p exited\n", listener->conn_thread_ids[i]);
+            DBG(fprintf(stderr, "Thread %p exited\n", listener->conn_thread_ids[i]));
         }
         listener = listener->nextPtr;
     }
 }
 
 int tws_Destroy(Tcl_Interp *interp, const char *handle) {
-    fprintf(stderr, "Destroy\n");
+    DBG(fprintf(stderr, "Destroy\n"));
 
     tws_server_t *server = tws_GetInternalFromServerName(handle);
     if (!server) {
@@ -73,7 +73,7 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
 
     tws_listener_t *listener = server->first_listener_ptr;
     while(listener) {
-        fprintf(stderr, "deleting listener\n");
+        DBG(fprintf(stderr, "deleting listener\n"));
         Tcl_Free((char *) listener->conn_thread_ids);
         tws_listener_t *next_listener = listener->nextPtr;
         Tcl_Free((char *) listener);
@@ -1821,7 +1821,7 @@ static int tws_GetRootdirCmd(ClientData clientData, Tcl_Interp *interp, int objc
 }
 
 static void tws_ExitHandler(ClientData unused) {
-    fprintf(stderr, "Exit Handler\n");
+    DBG(fprintf(stderr, "Exit Handler\n"));
     tws_DeleteServerNameHT();
     tws_DeleteConnNameHT();
     tws_DeleteHostNameHT();

@@ -930,7 +930,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     Tcl_DeleteInterp(dataPtr->interp);
     Tcl_Free(accept_ctx);
 
-    fprintf(stderr, "HandleConnThread: out (%p)\n", Tcl_GetCurrentThread());
+    DBG(fprintf(stderr, "HandleConnThread: out (%p)\n", Tcl_GetCurrentThread()));
 
     Tcl_FinalizeThread();
     Tcl_ExitThread(TCL_OK);
