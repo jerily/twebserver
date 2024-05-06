@@ -127,7 +127,7 @@ set config_dict [dict create \
     gzip_min_length 8192]
 
 # create the server
-set server_handle [::twebserver::create_server $config_dict process_conn $init_script]
+set server_handle [::twebserver::create_server -with_router $config_dict process_conn $init_script]
 
 # add SSL context to the server
 set dir [file dirname [info script]]

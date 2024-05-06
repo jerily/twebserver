@@ -330,7 +330,19 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
     // Get the interp from the thread data
 
     if (accept_ctx->server->option_router) {
-        tws_router_t *router = tws_GetInternalFromRouterName(Tcl_GetString(accept_ctx->server->cmdPtr));
+        Tcl_Interp *targetInterpPtr;
+        const char *targetCmdPtr;
+        int objc;
+        Tcl_Obj **objv;
+        if (TCL_OK != Tcl_GetAliasObj(dataPtr->interp, Tcl_GetString(accept_ctx->server->cmdPtr), &targetInterpPtr, &targetCmdPtr, &objc, &objv)) {
+            fprintf(stderr, "error getting alias\n");
+            tws_CloseConn(conn, 1);
+            return 1;
+        }
+
+        fprintf(stderr, "targetCmdPtr=%s\n", targetCmdPtr);
+
+        tws_router_t *router = tws_GetInternalFromRouterName(targetCmdPtr);
         if (router == NULL) {
             fprintf(stderr, "error getting router\n");
             tws_CloseConn(conn, 1);

@@ -350,7 +350,7 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
 }
 
 static int tws_DestroyRouter(Tcl_Interp *interp, const char *handle) {
-    fprintf(stderr, "DestroyRouter: %s\n", handle);
+    DBG(fprintf(stderr, "DestroyRouter: %s\n", handle));
     tws_router_t *router_ptr = tws_GetInternalFromRouterName(handle);
     if (!router_ptr) {
         SetResult("DestroyRouter: router handle not found");
