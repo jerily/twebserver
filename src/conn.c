@@ -340,7 +340,7 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
             return 1;
         }
 
-        fprintf(stderr, "targetCmdPtr=%s\n", targetCmdPtr);
+        DBG(fprintf(stderr, "targetCmdPtr=%s\n", targetCmdPtr));
 
         tws_router_t *router = tws_GetInternalFromRouterName(targetCmdPtr);
         if (router == NULL) {
