@@ -38,16 +38,19 @@ static void tws_ThreadQueueTermEvent(Tcl_ThreadId threadId) {
 static void tws_StopServer(tws_server_t *server) {
     tws_listener_t *listener = server->first_listener_ptr;
     while(listener) {
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+        fprintf(stderr, "closing listener->server_fd %d\n", listener->server_fd);
+        Tcl_DeleteFileHandler(listener->server_fd);
+        close(listener->server_fd);
+#endif
         for (int i = 0; i < listener->option_num_threads; i++) {
             DBG(fprintf(stderr, "Stopping thread %p\n", listener->conn_thread_ids[i]));
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    Tcl_DeleteFileHandler(listener->server_fd);
-    close(listener->server_fd);
-#endif
             tws_ThreadQueueTermEvent(listener->conn_thread_ids[i]);
         }
         listener = listener->nextPtr;
     }
+
+    fprintf(stderr, "Waiting for threads to exit\n");
 
     listener = server->first_listener_ptr;
     while(listener) {
