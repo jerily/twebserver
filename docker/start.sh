@@ -17,4 +17,4 @@ $PROJECT_LOCAL_DIR/bin/openssl req -x509 \
         -nodes \
         -subj "/C=CY/ST=Cyprus/L=Home/O=none/OU=CompanySectionName/CN=localhost/CN=www.example.com"
 cd ..
-$PROJECT_LOCAL_DIR/bin/tclsh9.0 $PROJECT_DIR/examples/example-best-with-router.tcl
+exec $PROJECT_LOCAL_DIR/bin/tclsh9.0 $PROJECT_DIR/examples/example-best-with-router.tcl

@@ -22,10 +22,10 @@ set init_script {
     ::twebserver::create_router router
 
     # add middleware to the router
-#    ::twebserver::add_middleware \
-#        -enter_proc simple_session_manager::enter \
-#        -leave_proc simple_session_manager::leave \
-#        $router
+    ::twebserver::add_middleware \
+        -enter_proc simple_session_manager::enter \
+        -leave_proc simple_session_manager::leave \
+        $router
 
     # add a route that will be called if the request method is GET and the path is "/"
     ::twebserver::add_route -strict $router GET / get_index_page_handler
@@ -122,7 +122,7 @@ set init_script {
 # use threads and gzip compression
 set config_dict [dict create \
     rootdir [file dirname [info script]] \
-    gzip off \
+    gzip on \
     gzip_types [list text/html text/plain application/json] \
     gzip_min_length 8192]
 
