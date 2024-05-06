@@ -619,6 +619,11 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
         return 1;
     }
 
+    if (!conn->handle_conn_fn) {
+        DBG(fprintf(stderr, "HandleProcessEventInThread: no handle_conn_fn\n"));
+        return 1;
+    }
+
     DBG(fprintf(stderr, "HandleProcessEventInThread: %s (%p)\n", conn->handle, conn->handle_conn_fn));
     conn->handle_conn_fn(conn);
     DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d (%p)\n", conn->ready, conn->handle_conn_fn));
