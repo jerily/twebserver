@@ -22,6 +22,8 @@
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
 #include <sys/event.h>
+#include <assert.h>
+
 #else
 
 #include <sys/epoll.h>
