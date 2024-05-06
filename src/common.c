@@ -353,3 +353,9 @@ void tws_DecrRefCountObjv(int objc, Tcl_Obj *const objv[]) {
         Tcl_DecrRefCount(objv[i]);
     }
 }
+
+int valid_conn_handle(tws_conn_t *conn) {
+    char generated_handle[30];
+    CMD_CONN_NAME(generated_handle, conn);
+    return strncmp(conn->handle, generated_handle, strlen(generated_handle)) == 0;
+}

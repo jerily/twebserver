@@ -15,6 +15,7 @@
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <signal.h>
+#include <assert.h>
 
 #endif
 
@@ -31,6 +32,8 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force);
 static int tws_HandleCleanupEventInThread(Tcl_Event *evPtr, int flags);
 
 static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *dataPtr) {
+    assert(valid_conn_handle(conn));
+
     DBG(fprintf(stderr, "FreeConnWithThreadData - dataKey: %p thread: %p - client: %d - num_conns: %d\n", tws_GetThreadDataKey(), Tcl_GetCurrentThread(), conn->client, dataPtr->num_conns));
 
     if (conn->prevPtr == NULL) {
@@ -61,8 +64,8 @@ static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *data
 }
 
 static void tws_FreeConn(tws_conn_t *conn) {
-    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
     Tcl_MutexLock(tws_GetThreadMutex());
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
     tws_FreeConnWithThreadData(conn, dataPtr);
     Tcl_MutexUnlock(tws_GetThreadMutex());
 }
@@ -76,12 +79,12 @@ int tws_CleanupConnections() {
     int count = 0;
     int count_mark_for_deletion = 0;
 
-    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
     Tcl_MutexLock(tws_GetThreadMutex());
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
     tws_conn_t *curr_conn = dataPtr->firstConnPtr;
     while (curr_conn != NULL) {
 
-        if (curr_conn->todelete || curr_conn->shutdown) {
+        if (curr_conn->todelete) {
             DBG(fprintf(stderr, "CleanupConnections - deleting conn - client: %d\n", curr_conn->client));
 
             tws_FreeConnWithThreadData(curr_conn, dataPtr);
@@ -151,11 +154,29 @@ static int tws_HandleCreateFileHandlerEventInThread(Tcl_Event *evPtr, int flags)
 
 void tws_QueueCleanupEvent() {
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
-    DBG(fprintf(stderr, "ThreadQueueCleanupEvent: %p\n", currentThreadId));
+    DBG(fprintf(stderr, "QueueCleanupEvent: %p\n", currentThreadId));
     Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
     evPtr->proc = tws_HandleCleanupEventInThread;
     evPtr->nextPtr = NULL;
     Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
+    Tcl_ThreadAlert(currentThreadId);
+}
+
+static int tws_HandleFreeConnEventInThread(Tcl_Event *evPtr, int flags) {
+    tws_event_t *connEvPtr = (tws_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
+    tws_FreeConn(conn);
+    return 1;
+}
+
+void tws_QueueFreeConnEvent(tws_conn_t *conn) {
+    Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
+    DBG(fprintf(stderr, "QueueFreeConnEvent: %p\n", currentThreadId));
+    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    connEvPtr->proc = tws_HandleFreeConnEventInThread;
+    connEvPtr->nextPtr = NULL;
+    connEvPtr->clientData = (ClientData *) conn;
+    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(currentThreadId);
 }
 
@@ -233,8 +254,15 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
 }
 
 int tws_CloseConn(tws_conn_t *conn, int force) {
+    assert(valid_conn_handle(conn));
+
+    if (conn->shutdown) {
+        return TCL_OK;
+    }
+
     DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force,
                 conn->keepalive, conn->created_file_handler_p));
+
 
     Tcl_DStringSetLength(&conn->ds, 0);
     Tcl_DStringFree(&conn->ds);
@@ -256,17 +284,13 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     if (force) {
         if (tws_UnregisterConnName(conn->handle)) {
             tws_ShutdownConn(conn, force);
-            // if keepalive, then we need to delete the file handler
-            // so, we free the connection there as well
-            if (!conn->keepalive) {
-                tws_FreeConn(conn);
-            }
+            tws_QueueFreeConnEvent(conn);
         }
     } else {
         if (!conn->keepalive) {
             if (tws_UnregisterConnName(conn->handle)) {
                 tws_ShutdownConn(conn, 2);
-                tws_FreeConn(conn);
+                tws_QueueFreeConnEvent(conn);
             }
         } else {
             if (!conn->created_file_handler_p) {
@@ -288,8 +312,9 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     return TCL_OK;
 }
 static int tws_HandleWrite(tws_conn_t *conn) {
+    assert(valid_conn_handle(conn));
 
-    int reply_length = Tcl_DStringLength(&conn->ds);
+    Tcl_Size reply_length = Tcl_DStringLength(&conn->ds);
     const char *reply = Tcl_DStringValue(&conn->ds);
 
     int rc = conn->accept_ctx->write_fn(conn, reply + conn->write_offset, reply_length - conn->write_offset);
@@ -313,13 +338,17 @@ static int tws_HandleWriteEventInThread(Tcl_Event *evPtr, int flags) {
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
 
+    assert(valid_conn_handle(conn));
+
     DBG(fprintf(stderr, "HandleWriteEventInThread: %s\n", conn->handle));
 
     return tws_HandleWrite(conn);
 }
 
 static void tws_QueueWriteEvent(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "ThreadQueueWriteEvent - threadId: %p conn: %s\n", conn->threadId, conn->handle));
+    assert(valid_conn_handle(conn));
+
+    DBG(fprintf(stderr, "QueueWriteEvent - threadId: %p conn: %s\n", conn->threadId, conn->handle));
     conn->write_offset = 0;
     tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleWriteEventInThread;
@@ -327,11 +356,12 @@ static void tws_QueueWriteEvent(tws_conn_t *conn) {
     connEvPtr->clientData = (ClientData *) conn;
     Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(conn->threadId);
-    DBG(fprintf(stderr, "ThreadQueueWriteEvent done - threadId: %p\n", conn->threadId));
+    DBG(fprintf(stderr, "QueueWriteEvent done - threadId: %p\n", conn->threadId));
 
 }
 
 int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr, Tcl_Encoding encoding) {
+    assert(valid_conn_handle(conn));
 
     if (!conn->accept_ctx) {
         SetResult("ReturnConn called on deleted conn");

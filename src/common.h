@@ -268,6 +268,7 @@ void tws_DecrRefCountUntilZero(Tcl_Obj *obj);
 void tws_FreeSslContexts();
 void tws_IncrRefCountObjv(int objc, Tcl_Obj *const objv[]);
 void tws_DecrRefCountObjv(int objc, Tcl_Obj *const objv[]);
+int valid_conn_handle(tws_conn_t *conn);
 
 Tcl_Mutex *tws_GetThreadMutex();
 Tcl_ThreadDataKey *tws_GetThreadDataKey();

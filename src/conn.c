@@ -27,6 +27,7 @@
 #include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <signal.h>
+#include <assert.h>
 
 #endif
 
@@ -442,10 +443,11 @@ tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const cha
     return TCL_OK;
 }
 
+
 static int tws_HandleRecv(tws_conn_t *conn) {
     DBG(fprintf(stderr, "HandleRecv: %d %s\n", conn->client, conn->handle));
 
-    // TODO: HERE - 2024-05-05
+    assert(valid_conn_handle(conn));
 
     if (conn->ready) {
         DBG(fprintf(stderr, "HandleRecv - already ready\n"));
@@ -563,6 +565,9 @@ static int tws_HandleRecv(tws_conn_t *conn) {
 }
 
 int tws_HandleSslHandshake(tws_conn_t *conn) {
+
+    assert(valid_conn_handle(conn));
+
     if (conn->handshaked) {
         fprintf(stderr, "HandleSslHandshake: already handshaked\n");
         return 1;
@@ -614,6 +619,9 @@ int tws_HandleTermEventInThread(Tcl_Event *evPtr, int flags) {
 static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
+
+    assert(valid_conn_handle(conn));
+
     if (conn->ready || conn->shutdown) {
         DBG(fprintf(stderr, "HandleProcessEventInThread: ready: %d shutdown: %d\n", conn->ready, conn->shutdown));
         return 1;
@@ -641,6 +649,9 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
 }
 
 static void tws_QueueProcessEvent(tws_conn_t *conn) {
+
+    assert(valid_conn_handle(conn));
+
     DBG(fprintf(stderr, "ThreadQueueProcessEvent - threadId: %p\n", conn->threadId));
     tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleProcessEventInThread;
@@ -737,8 +748,10 @@ int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
 
 static int tws_AddConnToThreadList(tws_conn_t *conn) {
 
-    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
+    assert(valid_conn_handle(conn));
+
     Tcl_MutexLock(tws_GetThreadMutex());
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
 
     // prefer to refuse connection if we are over the limit
     // this is to cap memory usage
