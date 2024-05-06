@@ -21,6 +21,9 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <stdlib.h>
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#include <unistd.h>
+#endif
 
 static int tws_ModuleInitialized;
 static int signal_flag = 0;
