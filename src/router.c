@@ -362,7 +362,7 @@ static int tws_DestroyRouter(Tcl_Interp *interp, const char *handle) {
         return TCL_ERROR;
     }
 
-//    Tcl_DeleteCommand(interp, router_ptr->handle);
+    Tcl_DeleteCommand(interp, router_ptr->handle);
 
     tws_route_t *route = router_ptr->firstRoutePtr;
     while(route) {
@@ -435,7 +435,7 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
     CMD_ROUTER_NAME(router_ptr->handle, router_ptr);
     tws_RegisterRouterName(router_ptr->handle, router_ptr);
     DBG(fprintf(stderr, "creating obj cmd\n"));
-//    Tcl_CreateObjCommand(interp, router_ptr->handle, tws_RouterProcessConnCmd, (ClientData) router_ptr, NULL);
+    Tcl_CreateObjCommand(interp, router_ptr->handle, tws_RouterProcessConnCmd, (ClientData) router_ptr, NULL);
     DBG(fprintf(stderr, "done creating obj cmd\n"));
 
     if (objc == 2) {
