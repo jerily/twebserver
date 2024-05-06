@@ -28,7 +28,7 @@ void tws_QueueCleanupEvent();
 static int tws_HandleCreateFileHandlerEventInThread(Tcl_Event *evPtr, int flags);
 static void tws_CreateFileHandler(int fd, ClientData clientData);
 static void tws_ShutdownConn(tws_conn_t *conn, int force);
-static int tws_CleanupConnections(Tcl_Event *evPtr, int flags);
+static int tws_HandleCleanupEventInThread(Tcl_Event *evPtr, int flags);
 
 static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *dataPtr) {
     DBG(fprintf(stderr, "FreeConnWithThreadData - dataKey: %p thread: %p - client: %d - num_conns: %d\n", tws_GetThreadDataKey(), Tcl_GetCurrentThread(), conn->client, dataPtr->num_conns));
@@ -67,7 +67,7 @@ static void tws_FreeConn(tws_conn_t *conn) {
     Tcl_MutexUnlock(tws_GetThreadMutex());
 }
 
-static int tws_CleanupConnections(Tcl_Event *evPtr, int flags) {
+int tws_CleanupConnections() {
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
     DBG(fprintf(stderr, "CleanupConnections currentThreadId=%p\n", currentThreadId));
 
@@ -113,6 +113,10 @@ static int tws_CleanupConnections(Tcl_Event *evPtr, int flags) {
     return 1;
 }
 
+static int tws_HandleCleanupEventInThread(Tcl_Event *evPtr, int flags) {
+    return tws_CleanupConnections();
+}
+
 static void tws_CreateFileHandler(int fd, ClientData clientData) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
 
@@ -149,7 +153,7 @@ void tws_QueueCleanupEvent() {
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
     DBG(fprintf(stderr, "ThreadQueueCleanupEvent: %p\n", currentThreadId));
     Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
-    evPtr->proc = tws_CleanupConnections;
+    evPtr->proc = tws_HandleCleanupEventInThread;
     evPtr->nextPtr = NULL;
     Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(currentThreadId);

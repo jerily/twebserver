@@ -187,7 +187,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     Tcl_DecrRefCount(connTimeoutMillisKeyPtr);
     if (connTimeoutMillisPtr) {
         if (TCL_OK != Tcl_GetIntFromObj(interp, connTimeoutMillisPtr, &server_ctx->conn_timeout_millis)) {
-            SetResult("max_conn_lifetime_millis must be an integer");
+            SetResult("conn_timeout_millis must be an integer");
             return TCL_ERROR;
         }
     }
@@ -204,12 +204,12 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     Tcl_DecrRefCount(readTimeoutMillisKeyPtr);
     if (readTimeoutMillisPtr) {
         if (TCL_OK != Tcl_GetIntFromObj(interp, readTimeoutMillisPtr, &server_ctx->read_timeout_millis)) {
-            SetResult("max_conn_lifetime_millis must be an integer");
+            SetResult("read_timeout_millis must be an integer");
             return TCL_ERROR;
         }
     }
 
-    // check that max_conn_lifetime_millis is between 1 and 1 hour
+    // check that conn_timeout_millis is between 1 and 1 hour
     if (server_ctx->conn_timeout_millis < 1 || server_ctx->conn_timeout_millis > 60 * 60 * 1000) {
         SetResult("conn_timeout_millis must be between 1 millisecond and 1 hour");
         return TCL_ERROR;

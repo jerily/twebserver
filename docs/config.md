@@ -3,7 +3,7 @@
 * **max_request_read_bytes** - the maximum number of bytes to read from a request (Default: 10485760)
 * **max_read_buffer_size** - the maximum size of the read buffer (Default: 32768)
 * **backlog** - the maximum number of connections to queue (Default: SOMAXCONN)
-* **conn_timeout_millis** - the timeout for a connection in milliseconds (Default: 900000)
+* **conn_timeout_millis** - the timeout for a connection in milliseconds (Default: 180000)
 * **read_timeout_millis** - the timeout for reading from a connection in milliseconds (Default: 30000)
 * **garbage_collection_cleanup_threshold** - how often to attempt cleanup of timed out connections in number of requests (Default: 10000)
 * **garbage_collection_interval_millis** - the interval for garbage collection in milliseconds (Default: 60000)

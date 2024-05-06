@@ -590,6 +590,7 @@ int tws_HandleTermEventInThread(Tcl_Event *evPtr, int flags) {
     Tcl_DeleteFileHandler(dataPtr->server_fd);
     Tcl_DeleteFileHandler(dataPtr->epoll_fd);
 
+    close(dataPtr->server_fd);
 
     dataPtr->terminate = 1;
     Tcl_ThreadAlert(Tcl_GetCurrentThread());
@@ -919,9 +920,17 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     do {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
         if (dataPtr->terminate && dataPtr->num_conns) {
-            fprintf(stderr, "Draining connections %p: %d\n", Tcl_GetCurrentThread(), dataPtr->num_conns);
+            fprintf(stderr, "Draining connections - thread: %p num_conns: %d conn_timeout_millis: %d\n", Tcl_GetCurrentThread(), dataPtr->num_conns, accept_ctx->server->conn_timeout_millis);
+            while (dataPtr->num_conns) {
+                Tcl_DoOneEvent(TCL_DONT_WAIT);
+                tws_CleanupConnections();
+            }
         }
-    } while (!dataPtr->terminate || dataPtr->num_conns);
+    } while (!dataPtr->terminate);
+
+    // we did not close this in HandleTermEventInThread
+    // because we wanted to drain keepalive connections
+    close(dataPtr->epoll_fd);
 
     if (accept_ctx->ssl_ctx) {
         SSL_CTX_free(accept_ctx->ssl_ctx);
