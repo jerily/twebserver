@@ -67,6 +67,9 @@ typedef struct tws_listener_t_ {
     int port;
     int option_http;
     int option_num_threads;
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    int server_fd;
+#endif
     Tcl_ThreadId *conn_thread_ids;
     Tcl_Condition cond_wait;
     struct tws_listener_t_ *nextPtr;

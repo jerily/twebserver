@@ -587,10 +587,12 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
 int tws_HandleTermEventInThread(Tcl_Event *evPtr, int flags) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#else
     Tcl_DeleteFileHandler(dataPtr->server_fd);
-    Tcl_DeleteFileHandler(dataPtr->epoll_fd);
-
     close(dataPtr->server_fd);
+#endif
+    Tcl_DeleteFileHandler(dataPtr->epoll_fd);
 
     dataPtr->terminate = 1;
     Tcl_ThreadAlert(Tcl_GetCurrentThread());
@@ -921,8 +923,10 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
         if (dataPtr->terminate && dataPtr->num_conns) {
             fprintf(stderr, "Draining connections - thread: %p num_conns: %d conn_timeout_millis: %d\n", Tcl_GetCurrentThread(), dataPtr->num_conns, accept_ctx->server->conn_timeout_millis);
+            Tcl_Time block_time = {0, 10000};
             while (dataPtr->num_conns) {
                 Tcl_DoOneEvent(TCL_DONT_WAIT);
+                Tcl_WaitForEvent(&block_time);
                 tws_CleanupConnections();
             }
         }
@@ -1068,6 +1072,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
     DBG(fprintf(stderr, "port: %s - created listening socket (%d) on main thread\n", port, server_fd));
 
     accept_ctx->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(option_num_threads * sizeof(Tcl_ThreadId));
+    listener->server_fd = server_fd;
 #else
 #endif
 

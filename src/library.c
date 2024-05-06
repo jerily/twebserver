@@ -37,6 +37,10 @@ static void tws_StopServer(tws_server_t *server) {
     while(listener) {
         for (int i = 0; i < listener->option_num_threads; i++) {
             DBG(fprintf(stderr, "Stopping thread %p\n", listener->conn_thread_ids[i]));
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    Tcl_DeleteFileHandler(listener->server_fd);
+    close(listener->server_fd);
+#endif
             tws_ThreadQueueTermEvent(listener->conn_thread_ids[i]);
         }
         listener = listener->nextPtr;
