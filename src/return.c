@@ -247,7 +247,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
         Tcl_DecrRefCount(conn->requestDictPtr);
     }
     conn->requestDictPtr = NULL;
-    conn->handle_conn_fn = NULL;
+//    conn->handle_conn_fn = NULL;
     conn->shutdown = 0;
     conn->ready = 0;
     conn->inprogress = 0;
