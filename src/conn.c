@@ -592,6 +592,7 @@ int tws_HandleTermEventInThread(Tcl_Event *evPtr, int flags) {
 
 
     dataPtr->terminate = 1;
+    Tcl_ThreadAlert(Tcl_GetCurrentThread());
     return 1;
 }
 
