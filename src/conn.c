@@ -865,6 +865,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+        accept_ctx->ssl_ctx = NULL;
 #else
         // it is an https server, so we need to create an SSL_CTX
         if (TCL_OK != tws_CreateSslContext(dataPtr->interp, &accept_ctx->ssl_ctx)) {
@@ -936,9 +937,12 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     // because we wanted to drain keepalive connections
     close(dataPtr->epoll_fd);
 
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#else
     if (accept_ctx->ssl_ctx) {
         SSL_CTX_free(accept_ctx->ssl_ctx);
     }
+#endif
     tws_DecrRefCountUntilZero(dataPtr->cmdPtr);
     Tcl_DeleteInterp(dataPtr->interp);
     Tcl_Free(accept_ctx);
