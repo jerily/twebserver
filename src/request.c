@@ -940,10 +940,8 @@ int tws_ParseAcceptEncoding(Tcl_Interp *interp, Tcl_Obj *headersPtr, tws_compres
 int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
     DBG(fprintf(stderr, "parse top part: start %d\n", conn->client));
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
-    Tcl_Obj *req_dict_ptr = Tcl_NewDictObj();
-    Tcl_IncrRefCount(req_dict_ptr);
-    if (TCL_OK != tws_ParseRequest(interp, encoding, &conn->ds, req_dict_ptr, &conn->read_offset)) {
-        Tcl_DecrRefCount(req_dict_ptr);
+    conn->requestDictPtr = Tcl_NewDictObj();
+    if (TCL_OK != tws_ParseRequest(interp, encoding, &conn->ds, conn->requestDictPtr, &conn->read_offset)) {
         return TCL_ERROR;
     }
 
@@ -952,8 +950,7 @@ int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
     Tcl_Obj *headersPtr;
     Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
     Tcl_IncrRefCount(headersKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, req_dict_ptr, headersKeyPtr, &headersPtr)) {
-        Tcl_DecrRefCount(req_dict_ptr);
+    if (TCL_OK != Tcl_DictObjGet(interp, conn->requestDictPtr, headersKeyPtr, &headersPtr)) {
         Tcl_DecrRefCount(headersKeyPtr);
         return TCL_ERROR;
     }
@@ -965,7 +962,6 @@ int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
         Tcl_Obj *contentLengthKeyPtr = Tcl_NewStringObj("content-length", -1);
         Tcl_IncrRefCount(contentLengthKeyPtr);
         if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentLengthKeyPtr, &contentLengthPtr)) {
-            Tcl_DecrRefCount(req_dict_ptr);
             Tcl_DecrRefCount(contentLengthKeyPtr);
             return TCL_ERROR;
         }
@@ -973,27 +969,23 @@ int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
 
         if (contentLengthPtr) {
             if (TCL_OK != Tcl_GetSizeIntFromObj(interp, contentLengthPtr, &conn->content_length)) {
-                Tcl_DecrRefCount(req_dict_ptr);
                 return TCL_ERROR;
             }
         }
 
         if (conn->accept_ctx->server->keepalive) {
             if (TCL_OK != tws_ParseConnectionKeepalive(interp, headersPtr, &conn->keepalive)) {
-                Tcl_DecrRefCount(req_dict_ptr);
                 return TCL_ERROR;
             }
         }
 
         if (conn->accept_ctx->server->gzip) {
             if (TCL_OK != tws_ParseAcceptEncoding(interp, headersPtr, &conn->compression)) {
-                Tcl_DecrRefCount(req_dict_ptr);
                 return TCL_ERROR;
             }
         }
 
     }
-    conn->requestDictPtr = req_dict_ptr;
     return TCL_OK;
 }
 
