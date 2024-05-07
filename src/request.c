@@ -941,6 +941,7 @@ int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
     DBG(fprintf(stderr, "parse top part: start %d\n", conn->client));
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
     conn->requestDictPtr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(conn->requestDictPtr);
     if (TCL_OK != tws_ParseRequest(interp, encoding, &conn->ds, conn->requestDictPtr, &conn->read_offset)) {
         return TCL_ERROR;
     }
