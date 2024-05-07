@@ -97,13 +97,9 @@ int tws_CleanupConnections() {
             if (elapsed > curr_conn->accept_ctx->server->conn_timeout_millis) {
                 if (tws_UnregisterConnName(curr_conn->handle)) {
                     DBG(fprintf(stderr, "CleanupConnections - mark connection for deletion\n"));
-                    // ShutdownConn needed to trigger tws_DeleteFileHandlerForKeepaliveConn
                     tws_ShutdownConn(curr_conn, 2);
-                    // if keepalive, tws_DeleteFileHandlerForKeepaliveConn will free the connection
-                    if (!curr_conn->keepalive) {
-                        curr_conn->todelete = 1;
-                        count_mark_for_deletion++;
-                    }
+                    curr_conn->todelete = 1;
+                    count_mark_for_deletion++;
                 }
             }
         }
