@@ -43,6 +43,9 @@ set init_script {
     # add a route that will be called if the request method is GET and the path is "/logo"
     ::twebserver::add_route -strict $router GET /logo get_logo_handler
 
+    # add a route that fails with internal server error for testing purposes
+    ::twebserver::add_route -strict $router GET /someerror get_someerror_handler
+
     # add a catchall route that will be called if no other route matches a GET request
     ::twebserver::add_route $router GET "*" get_catchall_handler
 
@@ -117,6 +120,9 @@ set init_script {
         return $res
     }
 
+    proc get_someerror_handler {ctx req} {
+        someerror
+    }
 }
 
 # use threads and gzip compression

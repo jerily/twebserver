@@ -645,3 +645,22 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     return TCL_OK;
 }
 
+
+int
+tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const char *error_text, Tcl_Encoding encoding) {
+    DBG(fprintf(stderr, "ReturnError: %d %s\n", conn->client, conn->handle));
+    if (conn->error) {
+        return TCL_OK;
+    }
+
+    Tcl_Obj *responseDictPtr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(responseDictPtr);
+    Tcl_DictObjPut(interp, responseDictPtr, Tcl_NewStringObj("statusCode", -1), Tcl_NewIntObj(status_code));
+    Tcl_DictObjPut(interp, responseDictPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(error_text, -1));
+    if (TCL_OK != tws_ReturnConn(interp, conn, responseDictPtr, encoding)) {
+        Tcl_DecrRefCount(responseDictPtr);
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(responseDictPtr);
+    return TCL_OK;
+}

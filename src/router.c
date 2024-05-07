@@ -322,18 +322,26 @@ int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) {
 
     // no need to decr ref count of req_dict_ptr because it is already decr ref counted in DoRouting
     if (TCL_OK != tws_DoRouting(dataPtr->interp, router, conn, conn->requestDictPtr)) {
-        fprintf(stderr, "DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
+        DBG(fprintf(stderr, "DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp))));
         Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(dataPtr->interp, TCL_ERROR);
         Tcl_Obj *errorinfo_ptr;
         Tcl_Obj *errorinfo_key_ptr = Tcl_NewStringObj("-errorinfo", -1);
         Tcl_IncrRefCount(errorinfo_key_ptr);
-        if (TCL_OK == Tcl_DictObjGet(dataPtr->interp, return_options_dict_ptr, Tcl_NewStringObj("-errorinfo", -1),
+        if (TCL_OK != Tcl_DictObjGet(dataPtr->interp, return_options_dict_ptr, Tcl_NewStringObj("-errorinfo", -1),
                                      &errorinfo_ptr)) {
             Tcl_DecrRefCount(errorinfo_key_ptr);
+            tws_CloseConn(conn, 1);
             return 1;
         }
         Tcl_DecrRefCount(errorinfo_key_ptr);
-        fprintf(stderr, "DoRouting: errorInfo: %s\n", Tcl_GetString(errorinfo_ptr));
+
+        fprintf(stderr, "DoRouting: errorinfo: %s\n", Tcl_GetString(errorinfo_ptr));
+        // todo: return error to user
+//        if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 500, "Internal Server Error", Tcl_GetEncoding(dataPtr->interp, "utf-8"))) {
+//            tws_CloseConn(conn, 1);
+//            return 1;
+//        }
+
         tws_CloseConn(conn, 1);
         return 1;
     }
