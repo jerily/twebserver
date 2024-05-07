@@ -915,7 +915,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         Tcl_Obj *errorinfo_ptr;
         Tcl_Obj *errorinfo_key_ptr = Tcl_NewStringObj("-errorinfo", -1);
         Tcl_IncrRefCount(errorinfo_key_ptr);
-        if (TCL_OK == Tcl_DictObjGet(dataPtr->interp, return_options_dict_ptr, Tcl_NewStringObj("-errorinfo", -1),
+        if (TCL_OK != Tcl_DictObjGet(dataPtr->interp, return_options_dict_ptr, Tcl_NewStringObj("-errorinfo", -1),
                                      &errorinfo_ptr)) {
             Tcl_DecrRefCount(errorinfo_key_ptr);
             Tcl_FinalizeThread();
