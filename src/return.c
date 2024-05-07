@@ -244,7 +244,9 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     DBG(fprintf(stderr, "shutdown_client: %d\n", shutdown_client));
     if (shutdown_client) {
         if (shutdown(conn->client, SHUT_RDWR)) {
-            fprintf(stderr, "failed to shutdown client: %d error=%d\n", conn->client, errno);
+            if (errno != ENOTCONN) {
+                fprintf(stderr, "failed to shutdown client: %d error=%d\n", conn->client, errno);
+            }
         }
     }
 
