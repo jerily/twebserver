@@ -651,10 +651,22 @@ tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const cha
         return TCL_OK;
     }
 
+    // to stop HandleProcessEventInThread from calling anything
+    conn->ready = 1;
+    conn->inprogress = 1;
+
     Tcl_Obj *responseDictPtr = Tcl_NewDictObj();
     Tcl_IncrRefCount(responseDictPtr);
-    Tcl_DictObjPut(interp, responseDictPtr, Tcl_NewStringObj("statusCode", -1), Tcl_NewIntObj(status_code));
-    Tcl_DictObjPut(interp, responseDictPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(error_text, -1));
+    if (TCL_OK != Tcl_DictObjPut(interp, responseDictPtr, Tcl_NewStringObj("statusCode", -1), Tcl_NewIntObj(status_code))) {
+        Tcl_DecrRefCount(responseDictPtr);
+        return TCL_ERROR;
+
+    }
+    if (TCL_OK != Tcl_DictObjPut(interp, responseDictPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(error_text, -1))) {
+        Tcl_DecrRefCount(responseDictPtr);
+        return TCL_ERROR;
+    }
+
     if (TCL_OK != tws_ReturnConn(interp, conn, responseDictPtr, encoding)) {
         Tcl_DecrRefCount(responseDictPtr);
         return TCL_ERROR;
