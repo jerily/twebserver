@@ -337,13 +337,12 @@ int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) {
 
         fprintf(stderr, "DoRouting: errorinfo: %s\n", Tcl_GetString(errorinfo_ptr));
 
-        // todo: return error response
-//        if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 500, "Internal Server Error", Tcl_GetEncoding(dataPtr->interp, "utf-8"))) {
-//            tws_CloseConn(conn, 1);
-//            return 1;
-//        }
+        if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 500, "Internal Server Error", Tcl_GetEncoding(dataPtr->interp, "utf-8"))) {
+            tws_CloseConn(conn, 1);
+            return 1;
+        }
 
-        tws_CloseConn(conn, 1);
+        // close not needed here as ReturnError will close the connection after it writes the response
         return 1;
     }
 
