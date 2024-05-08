@@ -352,7 +352,7 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
             return 1;
         }
         tws_HandleRouteEventInThread(router, conn);
-        return TCL_OK;
+        return 1;
     }
 
     Tcl_Obj *const connPtr = Tcl_NewStringObj(conn->handle, -1);
@@ -369,17 +369,20 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
         tws_DecrRefCountObjv(4, cmdobjv);
 
         Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(dataPtr->interp, TCL_ERROR);
+        Tcl_IncrRefCount(return_options_dict_ptr);
         Tcl_Obj *errorinfo_key_ptr = Tcl_NewStringObj("-errorinfo", -1);
         Tcl_Obj *errorinfo_ptr;
         Tcl_IncrRefCount(errorinfo_key_ptr);
         if (TCL_OK != Tcl_DictObjGet(dataPtr->interp, return_options_dict_ptr, errorinfo_key_ptr, &errorinfo_ptr)) {
             fprintf(stderr, "error getting errorinfo\n");
             Tcl_DecrRefCount(errorinfo_key_ptr);
+            Tcl_DecrRefCount(return_options_dict_ptr);
             return 1;
         }
         Tcl_DecrRefCount(errorinfo_key_ptr);
         fprintf(stderr, "HandleProcessing: errorinfo=%s\n", Tcl_GetString(errorinfo_ptr));
-        tws_DecrRefCountObjv(4, cmdobjv);
+        Tcl_DecrRefCount(return_options_dict_ptr);
+
         tws_CloseConn(conn, 1);
         return 1;
     }
@@ -605,17 +608,18 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
 
     assert(valid_conn_handle(conn));
 
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
+//    if (dataPtr->firstConnPtr != conn) {
+//        return 0;
+//    }
+
     if (conn->ready || conn->shutdown) {
         DBG(fprintf(stderr, "HandleProcessEventInThread: ready: %d shutdown: %d\n", conn->ready, conn->shutdown));
         return 1;
     }
 
-    if (!conn->handle_conn_fn) {
-        DBG(fprintf(stderr, "HandleProcessEventInThread: no handle_conn_fn\n"));
-        return 1;
-    }
-
     DBG(fprintf(stderr, "HandleProcessEventInThread: %s (%p)\n", conn->handle, conn->handle_conn_fn));
+    Tcl_InterpState interp_state = Tcl_SaveInterpState(dataPtr->interp, TCL_OK);
     conn->handle_conn_fn(conn);
     DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d (%p)\n", conn->ready, conn->handle_conn_fn));
 
@@ -628,6 +632,7 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
     } else {
         Tcl_ThreadAlert(conn->threadId);
     }
+    Tcl_RestoreInterpState(dataPtr->interp, interp_state);
     return ready;
 }
 
@@ -912,19 +917,24 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->server->scriptPtr)) {
         fprintf(stderr, "error evaluating init script\n");
         fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
+
         Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(dataPtr->interp, TCL_ERROR);
+        Tcl_IncrRefCount(return_options_dict_ptr);
         Tcl_Obj *errorinfo_ptr;
         Tcl_Obj *errorinfo_key_ptr = Tcl_NewStringObj("-errorinfo", -1);
         Tcl_IncrRefCount(errorinfo_key_ptr);
-        if (TCL_OK != Tcl_DictObjGet(dataPtr->interp, return_options_dict_ptr, Tcl_NewStringObj("-errorinfo", -1),
+        if (TCL_OK != Tcl_DictObjGet(dataPtr->interp, return_options_dict_ptr, errorinfo_key_ptr,
                                      &errorinfo_ptr)) {
             Tcl_DecrRefCount(errorinfo_key_ptr);
+            Tcl_DecrRefCount(return_options_dict_ptr);
             Tcl_FinalizeThread();
             Tcl_ExitThread(TCL_ERROR);
             TCL_THREAD_CREATE_RETURN;
         }
         Tcl_DecrRefCount(errorinfo_key_ptr);
         fprintf(stderr, "HandleConnThread: errorInfo: %s\n", Tcl_GetString(errorinfo_ptr));
+        Tcl_DecrRefCount(return_options_dict_ptr);
+
         Tcl_FinalizeThread();
         Tcl_ExitThread(TCL_ERROR);
         TCL_THREAD_CREATE_RETURN;

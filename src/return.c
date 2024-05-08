@@ -645,9 +645,11 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
 
 int
 tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const char *error_text, Tcl_Encoding encoding) {
+    assert(valid_conn_handle(conn));
+
     DBG(fprintf(stderr, "ReturnError: %d %s\n", conn->client, conn->handle));
     if (conn->error) {
-        return TCL_OK;
+        return TCL_ERROR;
     }
 
     // to stop HandleProcessEventInThread from calling anything
