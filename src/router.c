@@ -310,6 +310,10 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
         route_ptr = route_ptr->nextPtr;
     }
 
+    if (route_ptr == NULL) {
+        tws_CloseConn(conn, 1);
+    }
+
     tws_DecrRefCountUntilZero(ctx_dict_ptr);
 
     return TCL_OK;
