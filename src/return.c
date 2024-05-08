@@ -265,10 +265,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force,
                 conn->keepalive, conn->created_file_handler_p));
 
-
     Tcl_DStringSetLength(&conn->ds, 0);
-    Tcl_DStringFree(&conn->ds);
-    Tcl_DStringInit(&conn->ds);
     conn->top_part_offset = 0;
     conn->write_offset = 0;
     conn->blank_line_offset = 0;
