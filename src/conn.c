@@ -746,7 +746,7 @@ static int tws_AddConnToThreadList(tws_conn_t *conn) {
         SSL_free(conn->ssl);
         Tcl_Free((char *) conn);
         Tcl_MutexUnlock(tws_GetThreadMutex());
-        return 1;
+        return 0;
     }
 
     if (dataPtr->firstConnPtr == NULL) {
@@ -801,8 +801,9 @@ void tws_AcceptConn(void *data, int mask) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
         tws_ThreadQueueConnEvent(conn);
 #else
-        tws_AddConnToThreadList(conn);
-        tws_QueueProcessEvent(conn);
+        if (tws_AddConnToThreadList(conn)) {
+            tws_QueueProcessEvent(conn);
+        }
 #endif
 
 }
