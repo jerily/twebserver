@@ -107,8 +107,8 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
     DBG(fprintf(stderr, "ReadConn client: %d\n", conn->client));
 
     long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes - Tcl_DStringLength(&conn->ds);
-    Tcl_Size max_buffer_size =
-            size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size);
+    int max_buffer_size = MIN(INT_MAX,
+            size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size));
 
     char *buf = (char *) Tcl_Alloc(max_buffer_size);
     long total_read = 0;
@@ -179,7 +179,8 @@ int tws_WriteSslConnAsync(tws_conn_t *conn, const char *buf, Tcl_Size len) {
     Tcl_Size total_written = 0;
     int rc;
     for (;;) {
-        rc = SSL_write(conn->ssl, buf + total_written, len - total_written);
+        int towrite = MIN(INT_MAX, len - total_written);
+        rc = SSL_write(conn->ssl, buf + total_written, towrite);
         if (rc > 0) {
             // The write operation was successful, the return value is the number
             // of bytes actually written to the TLS/SSL connection.

@@ -942,7 +942,7 @@ int tws_ParseTopPart(Tcl_Interp *interp, tws_conn_t *conn) {
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
     conn->requestDictPtr = Tcl_NewDictObj();
     Tcl_IncrRefCount(conn->requestDictPtr);
-    if (TCL_OK != tws_ParseRequest(interp, encoding, &conn->ds, conn->requestDictPtr, &conn->read_offset)) {
+    if (TCL_OK != tws_ParseRequest(interp, encoding, &conn->ds, conn->requestDictPtr, &conn->top_part_offset)) {
         return TCL_ERROR;
     }
 
@@ -1004,7 +1004,7 @@ int tws_ParseBottomPart(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *req_dict_
 
     if (headersPtr) {
         if (conn->content_length > 0) {
-            const char *remaining_unprocessed_ptr = Tcl_DStringValue(&conn->ds) + conn->read_offset;
+            const char *remaining_unprocessed_ptr = Tcl_DStringValue(&conn->ds) + conn->top_part_offset;
             const char *end = Tcl_DStringValue(&conn->ds) + Tcl_DStringLength(&conn->ds);
             if (TCL_OK != tws_ParseBody(interp, remaining_unprocessed_ptr, end, headersPtr, req_dict_ptr)) {
                 return TCL_ERROR;

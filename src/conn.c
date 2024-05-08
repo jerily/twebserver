@@ -303,7 +303,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     Tcl_DStringInit(&conn->ds);
     conn->dataKeyPtr = tws_GetThreadDataKey();
     conn->requestDictPtr = NULL;
-    conn->read_offset = 0;
+    conn->top_part_offset = 0;
     conn->write_offset = 0;
     conn->content_length = 0;
     conn->error = 0;
@@ -420,8 +420,8 @@ static int tws_ShouldParseBottomPart(tws_conn_t *conn) {
 
 static int tws_ShouldReadMore(tws_conn_t *conn) {
     if (conn->content_length > 0) {
-        int unprocessed = Tcl_DStringLength(&conn->ds) - conn->read_offset;
-        return conn->content_length - unprocessed > 0;
+        int content_read_but_not_processed = Tcl_DStringLength(&conn->ds) - conn->top_part_offset;
+        return conn->content_length - content_read_but_not_processed > 0;
     }
     return !tws_FoundBlankLine(conn);
 }
@@ -466,14 +466,14 @@ static int tws_HandleRecv(tws_conn_t *conn) {
 
     int ret = TWS_DONE;
     if (tws_ShouldReadMore(conn)) {
-        Tcl_Size remaining_unprocessed = Tcl_DStringLength(&conn->ds) - conn->read_offset;
-        Tcl_Size bytes_to_read = conn->content_length == 0 ? 0 : conn->content_length - remaining_unprocessed;
+        Tcl_Size content_read_but_not_processed = Tcl_DStringLength(&conn->ds) - conn->top_part_offset;
+        Tcl_Size bytes_to_read = conn->content_length == 0 ? 0 : conn->content_length - content_read_but_not_processed;
         ret = conn->accept_ctx->read_fn(conn, &conn->ds, bytes_to_read);
     }
 
     if (TWS_AGAIN == ret) {
         if (tws_ShouldParseTopPart(conn) || tws_ShouldReadMore(conn)) {
-            DBG(fprintf(stderr, "retry dslen=%zd offset=%zd reqdictptr=%p\n", Tcl_DStringLength(&conn->ds), conn->read_offset, conn->requestDictPtr));
+            DBG(fprintf(stderr, "retry dslen=%zd offset=%zd reqdictptr=%p\n", Tcl_DStringLength(&conn->ds), conn->top_part_offset, conn->requestDictPtr));
             return 0;
         }
     } else if (TWS_ERROR == ret) {

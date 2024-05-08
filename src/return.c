@@ -58,7 +58,9 @@ static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *data
         conn->nextPtr->prevPtr = conn->prevPtr;
     }
 
-    SSL_free(conn->ssl);
+    if (!conn->accept_ctx->option_http) {
+        SSL_free(conn->ssl);
+    }
     Tcl_DStringFree(&conn->ds);
     Tcl_Free((char *) conn);
 
@@ -267,7 +269,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     Tcl_DStringSetLength(&conn->ds, 0);
     Tcl_DStringFree(&conn->ds);
     Tcl_DStringInit(&conn->ds);
-    conn->read_offset = 0;
+    conn->top_part_offset = 0;
     conn->write_offset = 0;
     conn->blank_line_offset = 0;
     conn->content_length = 0;

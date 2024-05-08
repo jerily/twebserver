@@ -156,7 +156,7 @@ typedef struct tws_conn_t_ {
     Tcl_DString ds;
     Tcl_ThreadDataKey *dataKeyPtr;
     Tcl_Obj *requestDictPtr;
-    Tcl_Size read_offset;
+    Tcl_Size top_part_offset;
     Tcl_Size write_offset;
     Tcl_Size content_length;
     Tcl_Size blank_line_offset;
