@@ -652,8 +652,9 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
 
     DBG(fprintf(stderr, "current thread: %p conn->threadId: %p\n", Tcl_GetCurrentThread(), conn->threadId));
 
-    tws_AddConnToThreadList(conn);
-    tws_QueueProcessEvent(conn);
+    if (tws_AddConnToThreadList(conn)) {
+        tws_QueueProcessEvent(conn);
+    }
     return 1;
 }
 
