@@ -8,6 +8,7 @@
 #include "path_regexp/path_regexp.h"
 #include "return.h"
 #include <string.h>
+#include <assert.h>
 
 enum {
     ROUTE_TYPE_EXACT,
@@ -162,7 +163,7 @@ static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *r
 static int tws_EvalRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *ctx_dict_ptr, Tcl_Obj *req_dict_ptr) {
     DBG(fprintf(stderr, "eval route: %s\n", route_ptr->proc_name));
     Tcl_Obj *proc_name_ptr = Tcl_NewStringObj(route_ptr->proc_name, -1);
-    Tcl_Obj *const proc_objv[] = {proc_name_ptr, ctx_dict_ptr, req_dict_ptr};
+    Tcl_Obj *const proc_objv[] = {proc_name_ptr, ctx_dict_ptr, Tcl_DuplicateObj(req_dict_ptr)};
     tws_IncrRefCountObjv(3, proc_objv);
     if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
         tws_DecrRefCountObjv(3, proc_objv);
@@ -174,6 +175,7 @@ static int tws_EvalRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *ct
 }
 
 static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *router_ptr, tws_route_t *route_ptr, Tcl_Obj *ctx_dict_ptr, Tcl_Obj *req_dict_ptr) {
+    assert(valid_conn_handle(conn));
 
     Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
 
@@ -187,7 +189,7 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
     tws_middleware_t *middleware_ptr = router_ptr->firstMiddlewarePtr;
     while (middleware_ptr != NULL) {
         if (middleware_ptr->enter_proc_ptr) {
-            Tcl_Obj *const proc_objv[] = {middleware_ptr->enter_proc_ptr, ctx_dict_ptr, dup_req_dict_ptr};
+            Tcl_Obj *const proc_objv[] = {middleware_ptr->enter_proc_ptr, ctx_dict_ptr, Tcl_DuplicateObj(dup_req_dict_ptr)};
             tws_IncrRefCountObjv(3, proc_objv);
             if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
                 tws_DecrRefCountObjv(3, proc_objv);
@@ -208,7 +210,7 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
     // eval route proc
     if (TCL_OK != tws_EvalRoute(interp, route_ptr, ctx_dict_ptr, dup_req_dict_ptr)) {
         DBG(fprintf(stderr, "router_process_conn: eval route failed path: %s\n", route_ptr->path));
-        Tcl_DecrRefCount(dup_req_dict_ptr);
+        tws_DecrRefCountUntilZero(dup_req_dict_ptr);
         return TCL_ERROR;
     }
 
@@ -226,7 +228,7 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
             if (TCL_OK != Tcl_EvalObjv(interp, 4, proc_objv, TCL_EVAL_GLOBAL)) {
                 tws_DecrRefCountObjv(4, proc_objv);
                 tws_DecrRefCountUntilZero(res_dict_ptr);
-                Tcl_DecrRefCount(dup_req_dict_ptr);
+                tws_DecrRefCountUntilZero(dup_req_dict_ptr);
                 return TCL_ERROR;
             }
             tws_DecrRefCountObjv(4, proc_objv);
@@ -242,12 +244,12 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
     // return response
     if (TCL_OK != tws_ReturnConn(interp, conn, res_dict_ptr, encoding)) {
         tws_DecrRefCountUntilZero(res_dict_ptr);
-        Tcl_DecrRefCount(dup_req_dict_ptr);
+        tws_DecrRefCountUntilZero(dup_req_dict_ptr);
         return TCL_ERROR;
     }
     Tcl_ResetResult(interp);
     tws_DecrRefCountUntilZero(res_dict_ptr);
-    Tcl_DecrRefCount(dup_req_dict_ptr);
+    tws_DecrRefCountUntilZero(dup_req_dict_ptr);
 
     return TCL_OK;
 }
@@ -312,6 +314,11 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
 
     tws_DecrRefCountUntilZero(ctx_dict_ptr);
 
+    if (route_ptr == NULL) {
+        // TODO: return not found
+//        tws_CloseConn(conn, 1);
+    }
+
     return TCL_OK;
 }
 
@@ -320,22 +327,25 @@ int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) {
     DBG(fprintf(stderr, "HandleRouteEventInThread: %s\n", conn->handle));
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(conn->dataKeyPtr, sizeof(tws_thread_data_t));
 
-    // no need to decr ref count of req_dict_ptr because it is already decr ref counted in DoRouting
     if (TCL_OK != tws_DoRouting(dataPtr->interp, router, conn, conn->requestDictPtr)) {
         DBG(fprintf(stderr, "DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp))));
+
         Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(dataPtr->interp, TCL_ERROR);
+        Tcl_IncrRefCount(return_options_dict_ptr);
         Tcl_Obj *errorinfo_ptr;
         Tcl_Obj *errorinfo_key_ptr = Tcl_NewStringObj("-errorinfo", -1);
         Tcl_IncrRefCount(errorinfo_key_ptr);
-        if (TCL_OK != Tcl_DictObjGet(dataPtr->interp, return_options_dict_ptr, Tcl_NewStringObj("-errorinfo", -1),
+        if (TCL_OK != Tcl_DictObjGet(dataPtr->interp, return_options_dict_ptr, errorinfo_key_ptr,
                                      &errorinfo_ptr)) {
             Tcl_DecrRefCount(errorinfo_key_ptr);
+            Tcl_DecrRefCount(return_options_dict_ptr);
             tws_CloseConn(conn, 1);
             return 1;
         }
         Tcl_DecrRefCount(errorinfo_key_ptr);
 
         fprintf(stderr, "DoRouting: errorinfo: %s\n", Tcl_GetString(errorinfo_ptr));
+        Tcl_DecrRefCount(return_options_dict_ptr);
 
         if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 500, "Internal Server Error", Tcl_GetEncoding(dataPtr->interp, "utf-8"))) {
             tws_CloseConn(conn, 1);
@@ -346,7 +356,6 @@ int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) {
         return 1;
     }
 
-//    conn->requestDictPtr = NULL;
     DBG(fprintf(stderr, "DoRouting done\n"));
     return 1;
 }

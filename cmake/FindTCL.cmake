@@ -32,11 +32,20 @@ library is.  This code sets the following variables:
       and dig from there.
 #]=======================================================================]
 
-set(TCL_POSSIBLE_LIB_PATHS
-        ${TCL_LIBRARY_DIR}
-        "/usr/local/lib"
-        "/usr/lib"
-)
+# if (TCL_LIBRARY_DIR) is set, we assume that the user knows what he is doing
+# and we don't try to find the library in the standard locations
+
+if (TCL_LIBRARY_DIR)
+  set(TCL_POSSIBLE_LIB_PATHS
+          "${TCL_LIBRARY_DIR}"
+  )
+else()
+  set(TCL_POSSIBLE_LIB_PATHS
+          "/usr/local/lib"
+          "/usr/lib"
+  )
+endif()
+
 
 set(TCL_POSSIBLE_LIB_PATH_SUFFIXES
         tcl9.0

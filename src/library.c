@@ -711,14 +711,17 @@ static int tws_DecodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
         encoding = Tcl_GetEncoding(interp, "utf-8");
     }
 
-    Tcl_Obj *valuePtr = Tcl_NewStringObj("", 0);
-    Tcl_IncrRefCount(valuePtr);
-    if (TCL_OK != tws_UrlDecode(interp, encoding, encoded_text, length, valuePtr)) {
-        Tcl_DecrRefCount(valuePtr);
+    Tcl_DString value_ds;
+    Tcl_DStringInit(&value_ds);
+
+    int error_num = 0;
+    if (TCL_OK != tws_UrlDecode(encoding, encoded_text, length, &value_ds, &error_num)) {
+        Tcl_DStringFree(&value_ds);
+        SetResult(tws_parse_error_messages[error_num]);
         return TCL_ERROR;
     }
-    Tcl_SetObjResult(interp, valuePtr);
-    Tcl_DecrRefCount(valuePtr);
+    Tcl_DStringResult(interp, &value_ds);
+    Tcl_DStringFree(&value_ds);
     return TCL_OK;
 }
 
@@ -730,7 +733,7 @@ static int tws_Base64EncodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
     const char *input = (const char *) Tcl_GetByteArrayFromObj(objv[1], &input_length);
 
     char *output = Tcl_Alloc(input_length * 2);
-    size_t output_length;
+    Tcl_Size output_length;
     if (base64_encode(input, input_length, output, &output_length)) {
         Tcl_Free(output);
         SetResult("base64_encode failed");
@@ -991,26 +994,29 @@ static int tws_ParseCookieCmd(ClientData clientData, Tcl_Interp *interp, int obj
         Tcl_Obj *keyPtr = Tcl_NewStringObj(start, r - start);
         Tcl_IncrRefCount(keyPtr);
 
-        Tcl_Obj *valuePtr = Tcl_NewStringObj("", 0);
-        Tcl_IncrRefCount(valuePtr);
+        Tcl_DString value_ds;
+        Tcl_DStringInit(&value_ds);
         if (s != t) {
-            if (TCL_OK != tws_UrlDecode(interp, encoding, s + 1, t - s - 1, valuePtr)) {
+
+            int error_num = 0;
+            if (TCL_OK != tws_UrlDecode(encoding, s + 1, t - s - 1, &value_ds, &error_num)) {
                 Tcl_DecrRefCount(keyPtr);
-                Tcl_DecrRefCount(valuePtr);
                 Tcl_DecrRefCount(cookie_dict);
+                Tcl_DStringFree(&value_ds);
+                SetResult(tws_parse_error_messages[error_num]);
                 return TCL_ERROR;
             }
         }
 
-        if (TCL_OK != Tcl_DictObjPut(interp, cookie_dict, keyPtr, valuePtr)) {
+        if (TCL_OK != Tcl_DictObjPut(interp, cookie_dict, keyPtr, Tcl_NewStringObj(Tcl_DStringValue(&value_ds), Tcl_DStringLength(&value_ds)))) {
             Tcl_DecrRefCount(keyPtr);
-            Tcl_DecrRefCount(valuePtr);
             Tcl_DecrRefCount(cookie_dict);
+            Tcl_DStringFree(&value_ds);
             SetResult("error adding key-value pair to cookie_dict");
             return TCL_ERROR;
         }
         Tcl_DecrRefCount(keyPtr);
-        Tcl_DecrRefCount(valuePtr);
+        Tcl_DStringFree(&value_ds);
 
         // skip the semicolon and spaces
         while (p < end && (*p == ';' || *p == ' ')) {
@@ -1030,25 +1036,26 @@ static int tws_ParseQueryCmd(ClientData clientData, Tcl_Interp *interp, int objc
     DBG(fprintf(stderr, "ParseCookieCmd\n"));
     CheckArgs(2, 3, 1, "query_string ?encoding?");
 
-    Tcl_Size cookie_header_len;
-    const char *cookie_header = Tcl_GetStringFromObj(objv[1], &cookie_header_len);
-
-    Tcl_Obj *query_dict = Tcl_NewDictObj();
-    Tcl_IncrRefCount(query_dict);
+    Tcl_Size query_string_len;
+    const char *query_string = Tcl_GetStringFromObj(objv[1], &query_string_len);
 
     const char *encoding_name = "utf-8";
     if (objc == 3) {
         encoding_name = Tcl_GetString(objv[2]);
     }
 
-    if (TCL_OK != tws_ParseQueryStringParameters(interp, Tcl_GetEncoding(interp, encoding_name), objv[1], query_dict)) {
-        Tcl_DecrRefCount(query_dict);
-        SetResult("error parsing query string");
+    Tcl_DString parse_ds;
+    Tcl_DStringInit(&parse_ds);
+
+    int error_num = 0;
+    if (TCL_OK != tws_ParseQueryStringParameters(Tcl_GetEncoding(interp, encoding_name), query_string, query_string_len, &parse_ds, &error_num)) {
+        Tcl_DStringFree(&parse_ds);
+        SetResult(tws_parse_error_messages[error_num]);
         return TCL_ERROR;
     }
 
-    Tcl_SetObjResult(interp, query_dict);
-    Tcl_DecrRefCount(query_dict);
+    Tcl_DStringResult(interp, &parse_ds);
+    Tcl_DStringFree(&parse_ds);
     return TCL_OK;
 
 }

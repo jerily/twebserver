@@ -60,7 +60,7 @@ test check-headers-parsing-1 {} -setup setup -cleanup cleanup -body {
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
     escape $response
-} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 131\n\ntest message POST headers=content-type application/x-www-form-urlencoded content-length 15 fields=msg hello to me multiValueFields=}
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 131\n\ntest message POST headers=content-length 15 content-type application/x-www-form-urlencoded fields=msg hello to me multiValueFields=}
 
 test check-headers-parsing-2 {} -setup setup -cleanup cleanup -body {
     global cmd
@@ -68,7 +68,7 @@ test check-headers-parsing-2 {} -setup setup -cleanup cleanup -body {
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
     escape $response
-} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 131\n\ntest message POST headers=content-type application/x-www-form-urlencoded content-length 15 fields=msg hello to me multiValueFields=}
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 131\n\ntest message POST headers=content-length 15 content-type application/x-www-form-urlencoded fields=msg hello to me multiValueFields=}
 
 test urlencoded-form-with-multi-value-fields-1 {} -setup setup -cleanup cleanup -body {
     global cmd
@@ -76,7 +76,7 @@ test urlencoded-form-with-multi-value-fields-1 {} -setup setup -cleanup cleanup 
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
     escape $response
-} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 143\n\ntest message POST headers=content-type application/x-www-form-urlencoded content-length 22 fields=msg hello to you multiValueFields=to {me you}}
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 143\n\ntest message POST headers=content-length 22 content-type application/x-www-form-urlencoded fields=msg hello to you multiValueFields=to {me you}}
 
 test multipart-form-1 {} -setup setup -cleanup cleanup -body {
     global cmd
@@ -84,4 +84,4 @@ test multipart-form-1 {} -setup setup -cleanup cleanup -body {
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
     escape $response
-} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 215\n\ntest message POST headers=content-type {multipart/form-data; boundary=---------------------------9051914041544843365972754266} content-length 476 fields=text {text default} file1 a.txt file2 a.html multiValueFields=}
+} -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 215\n\ntest message POST headers=content-length 476 content-type {multipart/form-data; boundary=---------------------------9051914041544843365972754266} fields=text {text default} file1 a.txt file2 a.html multiValueFields=}
