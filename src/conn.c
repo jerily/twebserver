@@ -518,11 +518,13 @@ static int tws_HandleRecv(tws_conn_t *conn) {
             return 1;
         }
     } else {
-        DBG(fprintf(stderr, "conn->requestDictPtr: %p\n", conn->requestDictPtr));
+        DBG(fprintf(stderr, "conn->parse_ds len: %ld\n", Tcl_DStringLength(&conn->parse_ds)));
 
-        if (!Tcl_DStringValue(&conn->parse_ds)) {
+        if (!Tcl_DStringLength(&conn->parse_ds)) {
             DBG(fprintf(stderr, "parse ds is empty, inout_ds: %s\n", Tcl_DStringValue(&conn->inout_ds)));
-            tws_CloseConn(conn, 1);
+            conn->ready = 1;
+            // ProcessEventInThread will return Bad Request and close the connection
+//            tws_CloseConn(conn, 1);
             return 1;
         }
     }
@@ -626,6 +628,15 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
             tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
             Tcl_InterpState interp_state = Tcl_SaveInterpState(dataPtr->interp, TCL_OK);
 
+            if (!Tcl_DStringLength(&conn->parse_ds)) {
+                Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
+                if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
+                    tws_CloseConn(conn, 1);
+                }
+                Tcl_RestoreInterpState(dataPtr->interp, interp_state);
+                return 1;
+            }
+
 #if TCL_MAJOR_VERSION > 8
             conn->requestDictPtr = Tcl_DStringToObj(&conn->parse_ds);
 #else
@@ -640,9 +651,8 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
             tws_HandleProcessing(conn);
             Tcl_RestoreInterpState(dataPtr->interp, interp_state);
         }
-    } else {
-        Tcl_ThreadAlert(conn->threadId);
     }
+    Tcl_ThreadAlert(conn->threadId);
     return ready;
 }
 
