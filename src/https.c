@@ -106,7 +106,7 @@ int tws_ConfigureSslContext(Tcl_Interp *interp, SSL_CTX *ctx, const char *key_fi
 int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
     DBG(fprintf(stderr, "ReadConn client: %d\n", conn->client));
 
-    long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes - Tcl_DStringLength(&conn->ds);
+    long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes - Tcl_DStringLength(&conn->inout_ds);
     int max_buffer_size = MIN(INT_MAX,
             size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size));
 

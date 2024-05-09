@@ -61,7 +61,8 @@ static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *data
     if (!conn->accept_ctx->option_http) {
         SSL_free(conn->ssl);
     }
-    Tcl_DStringFree(&conn->ds);
+    Tcl_DStringFree(&conn->inout_ds);
+    Tcl_DStringFree(&conn->parse_ds);
     Tcl_Free((char *) conn);
 
     dataPtr->num_conns--;
@@ -265,7 +266,8 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force,
                 conn->keepalive, conn->created_file_handler_p));
 
-    Tcl_DStringSetLength(&conn->ds, 0);
+    Tcl_DStringSetLength(&conn->inout_ds, 0);
+    Tcl_DStringSetLength(&conn->parse_ds, 0);
     conn->top_part_offset = 0;
     conn->write_offset = 0;
     conn->blank_line_offset = 0;
@@ -313,8 +315,8 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
 static int tws_HandleWrite(tws_conn_t *conn) {
     assert(valid_conn_handle(conn));
 
-    Tcl_Size reply_length = Tcl_DStringLength(&conn->ds);
-    const char *reply = Tcl_DStringValue(&conn->ds);
+    Tcl_Size reply_length = Tcl_DStringLength(&conn->inout_ds);
+    const char *reply = Tcl_DStringValue(&conn->inout_ds);
 
     int rc = conn->accept_ctx->write_fn(conn, reply + conn->write_offset, reply_length - conn->write_offset);
 
@@ -438,12 +440,12 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     }
     Tcl_DecrRefCount(isBase64EncodedKeyPtr);
 
-    Tcl_DStringSetLength(&conn->ds, 0);
-    Tcl_DStringAppend(&conn->ds, "HTTP/1.1 ", 9);
+    Tcl_DStringSetLength(&conn->inout_ds, 0);
+    Tcl_DStringAppend(&conn->inout_ds, "HTTP/1.1 ", 9);
 
     Tcl_Size status_code_length;
     const char *status_code = Tcl_GetStringFromObj(statusCodePtr, &status_code_length);
-    Tcl_DStringAppend(&conn->ds, status_code, status_code_length);
+    Tcl_DStringAppend(&conn->inout_ds, status_code, status_code_length);
 
     // write each "header" from the "headers" dictionary to the ssl connection
     Tcl_Obj *keyPtr;
@@ -466,14 +468,14 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
                     continue;
                 }
             }
-            Tcl_DStringAppend(&conn->ds, "\r\n", 2);
+            Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
             Tcl_Size key_length;
             const char *key = Tcl_GetStringFromObj(keyPtr, &key_length);
-            Tcl_DStringAppend(&conn->ds, key, key_length);
-            Tcl_DStringAppend(&conn->ds, ": ", 2);
+            Tcl_DStringAppend(&conn->inout_ds, key, key_length);
+            Tcl_DStringAppend(&conn->inout_ds, ": ", 2);
             Tcl_Size value_length;
             const char *value = Tcl_GetStringFromObj(valuePtr, &value_length);
-            Tcl_DStringAppend(&conn->ds, value, value_length);
+            Tcl_DStringAppend(&conn->inout_ds, value, value_length);
         }
         Tcl_DictObjDone(&headersSearch);
     }
@@ -485,11 +487,11 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
              !done;
              Tcl_DictObjNext(&mvHeadersSearch, &keyPtr, &valuePtr, &done)) {
 
-            Tcl_DStringAppend(&conn->ds, "\r\n", 2);
+            Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
             Tcl_Size key_length;
             const char *key = Tcl_GetStringFromObj(keyPtr, &key_length);
-            Tcl_DStringAppend(&conn->ds, key, key_length);
-            Tcl_DStringAppend(&conn->ds, ": ", 2);
+            Tcl_DStringAppend(&conn->inout_ds, key, key_length);
+            Tcl_DStringAppend(&conn->inout_ds, ": ", 2);
 
             // "valuePtr" is a list, iterate over its elements
             Tcl_Size list_length;
@@ -499,9 +501,9 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
                 Tcl_ListObjIndex(interp, valuePtr, i, &elemPtr);
                 Tcl_Size value_length;
                 const char *value = Tcl_GetStringFromObj(elemPtr, &value_length);
-                Tcl_DStringAppend(&conn->ds, value, value_length);
+                Tcl_DStringAppend(&conn->inout_ds, value, value_length);
                 if (i < value_length - 1) {
-                    Tcl_DStringAppend(&conn->ds, ", ", 2);
+                    Tcl_DStringAppend(&conn->inout_ds, ", ", 2);
                 }
             }
 
@@ -585,8 +587,8 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
 
     if (gzip_p) {
         // set the Content-Encoding header to "gzip"
-        Tcl_DStringAppend(&conn->ds, "\r\n", 2);
-        Tcl_DStringAppend(&conn->ds, "Content-Encoding: gzip", 22);
+        Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
+        Tcl_DStringAppend(&conn->inout_ds, "Content-Encoding: gzip", 22);
     }
 
     Tcl_Obj *compressed = NULL;
@@ -619,14 +621,14 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(contentLengthPtr);
     Tcl_Size content_length_str_len;
     const char *content_length_str = Tcl_GetStringFromObj(contentLengthPtr, &content_length_str_len);
-    Tcl_DStringAppend(&conn->ds, "\r\n", 2);
-    Tcl_DStringAppend(&conn->ds, "Content-Length: ", 16);
-    Tcl_DStringAppend(&conn->ds, content_length_str, content_length_str_len);
-    Tcl_DStringAppend(&conn->ds, "\r\n\r\n", 4);
+    Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
+    Tcl_DStringAppend(&conn->inout_ds, "Content-Length: ", 16);
+    Tcl_DStringAppend(&conn->inout_ds, content_length_str, content_length_str_len);
+    Tcl_DStringAppend(&conn->inout_ds, "\r\n\r\n", 4);
     Tcl_DecrRefCount(contentLengthPtr);
 
     if (body_length > 0) {
-        Tcl_DStringAppend(&conn->ds, body, body_length);
+        Tcl_DStringAppend(&conn->inout_ds, body, body_length);
     }
 
     if (compressed != NULL) {

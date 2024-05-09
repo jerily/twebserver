@@ -129,6 +129,8 @@ typedef enum tws_CompressionMethod {
     BROTLI_COMPRESSION
 } tws_compression_method_t;
 
+#define MAX_CONTENT_TYPE_SIZE 100
+
 typedef struct tws_conn_t_ {
     tws_accept_ctx_t *accept_ctx;
     SSL *ssl;
@@ -153,13 +155,16 @@ typedef struct tws_conn_t_ {
     char handle[30];
     char client_ip[INET6_ADDRSTRLEN];
 
-    Tcl_DString ds;
+    Tcl_Encoding encoding;
+    Tcl_DString inout_ds;
+    Tcl_DString parse_ds;
     Tcl_ThreadDataKey *dataKeyPtr;
     Tcl_Obj *requestDictPtr;
     Tcl_Size top_part_offset;
     Tcl_Size write_offset;
     Tcl_Size content_length;
     Tcl_Size blank_line_offset;
+    char content_type[MAX_CONTENT_TYPE_SIZE];
 
     int error;
     int (*handle_conn_fn)(tws_conn_t *conn);
@@ -262,7 +267,7 @@ int tws_RegisterRouterName(const char *name, tws_router_t *internal);
 int tws_UnregisterRouterName(const char *name);
 tws_router_t *tws_GetInternalFromRouterName(const char *name);
 char *tws_strndup(const char *s, size_t n);
-int tws_IsBinaryType(const char *content_type, Tcl_Size content_type_length);
+int tws_IsBinaryType(const char *content_type, size_t content_type_length);
 long long current_time_in_millis();
 void tws_DecrRefCountUntilZero(Tcl_Obj *obj);
 void tws_FreeSslContexts();

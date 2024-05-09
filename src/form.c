@@ -186,9 +186,9 @@ static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const cha
 
     Tcl_Obj *field_value_ptr = NULL;
     if (filename_length > 0) {
-        int block_length = be - bs;
+        Tcl_Size block_length = be - bs;
         char *block_body = Tcl_Alloc(block_length * 2);
-        size_t block_body_length;
+        Tcl_Size block_body_length;
         if (base64_encode(bs, block_length, block_body, &block_body_length)) {
             Tcl_Free(block_body);
             SetResult("tws_ParseMultipartForm: base64_encode failed");
@@ -358,10 +358,13 @@ tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *mul
 
     Tcl_Obj *key_ptr = Tcl_NewStringObj(key, value - key - 1);
     Tcl_IncrRefCount(key_ptr);
-    Tcl_Obj *value_ptr = Tcl_NewStringObj("", 0);
-    Tcl_IncrRefCount(value_ptr);
-    if (TCL_OK != tws_UrlDecode(interp, encoding, value, value_length, value_ptr)) {
-        Tcl_DecrRefCount(value_ptr);
+
+    Tcl_DString value_ds;
+    Tcl_DStringInit(&value_ds);
+
+    int error_num = 0;
+    if (TCL_OK != tws_UrlDecode(encoding, value, value_length, &value_ds, &error_num)) {
+        Tcl_DStringFree(&value_ds);
         Tcl_DecrRefCount(key_ptr);
         SetResult("AddUrlEncodedFormField: urldecode error");
         return TCL_ERROR;
@@ -369,7 +372,7 @@ tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *mul
 
     Tcl_Obj *existing_value_ptr;
     if (TCL_OK != Tcl_DictObjGet(interp, fields_ptr, key_ptr, &existing_value_ptr)) {
-        Tcl_DecrRefCount(value_ptr);
+        Tcl_DStringFree(&value_ds);
         Tcl_DecrRefCount(key_ptr);
         SetResult("AddUrlEncodedFormField: dict get error");
         return TCL_ERROR;
@@ -378,7 +381,7 @@ tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *mul
         // check if "key" already exists in "multiValueFields"
         Tcl_Obj *multi_value_ptr;
         if (TCL_OK != Tcl_DictObjGet(interp, multivalue_fields_ptr, key_ptr, &multi_value_ptr)) {
-            Tcl_DecrRefCount(value_ptr);
+            Tcl_DStringFree(&value_ds);
             Tcl_DecrRefCount(key_ptr);
             SetResult("AddUrlEncodedFormField: dict get error");
             return TCL_ERROR;
@@ -389,7 +392,7 @@ tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *mul
             multi_value_ptr = Tcl_NewListObj(0, NULL);
             Tcl_IncrRefCount(multi_value_ptr);
             if (TCL_OK != Tcl_ListObjAppendElement(interp, multi_value_ptr, existing_value_ptr)) {
-                Tcl_DecrRefCount(value_ptr);
+                Tcl_DStringFree(&value_ds);
                 Tcl_DecrRefCount(key_ptr);
                 Tcl_DecrRefCount(multi_value_ptr);
                 SetResult("AddUrlEncodedFormField: list append error");
@@ -398,8 +401,9 @@ tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *mul
             should_decr_ref_count = 1;
         }
         // append the new value to the list
-        if (TCL_OK != Tcl_ListObjAppendElement(interp, multi_value_ptr, value_ptr)) {
-            Tcl_DecrRefCount(value_ptr);
+        if (TCL_OK != Tcl_ListObjAppendElement(interp, multi_value_ptr, Tcl_NewStringObj(Tcl_DStringValue(&value_ds),
+                                                                                         Tcl_DStringLength(&value_ds)))) {
+            Tcl_DStringFree(&value_ds);
             Tcl_DecrRefCount(key_ptr);
             if (should_decr_ref_count) {
                 Tcl_DecrRefCount(multi_value_ptr);
@@ -408,7 +412,7 @@ tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *mul
             return TCL_ERROR;
         }
         if (TCL_OK != Tcl_DictObjPut(interp, multivalue_fields_ptr, key_ptr, multi_value_ptr)) {
-            Tcl_DecrRefCount(value_ptr);
+            Tcl_DStringFree(&value_ds);
             Tcl_DecrRefCount(key_ptr);
             if (should_decr_ref_count) {
                 Tcl_DecrRefCount(multi_value_ptr);
@@ -421,10 +425,14 @@ tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *mul
         }
     }
 
-    if (TCL_OK != Tcl_DictObjPut(interp, fields_ptr, key_ptr, value_ptr)) {
+    if (TCL_OK != Tcl_DictObjPut(interp, fields_ptr, key_ptr, Tcl_NewStringObj(Tcl_DStringValue(&value_ds),
+                                                                               Tcl_DStringLength(&value_ds)))) {
         SetResult("AddUrlEncodedFormField: dict write error");
         return TCL_ERROR;
     }
+
+    Tcl_DStringFree(&value_ds);
+    return TCL_OK;
 }
 
 static int tws_ParseUrlEncodedForm(Tcl_Interp *interp, Tcl_Obj *body_ptr, Tcl_Obj *result_ptr) {
@@ -463,6 +471,8 @@ static int tws_ParseUrlEncodedForm(Tcl_Interp *interp, Tcl_Obj *body_ptr, Tcl_Ob
         if (TCL_OK != tws_AddUrlEncodedFormField(interp, fields_ptr, multivalue_fields_ptr, key, value, p - value)) {
             Tcl_DecrRefCount(fields_ptr);
             Tcl_DecrRefCount(multivalue_fields_ptr);
+            fprintf(stderr, "AddUrlEncodedFormField failed\n");
+
 //            SetResult("ParseUrlEncodedForm: dict write error");
             return TCL_ERROR;
         }
