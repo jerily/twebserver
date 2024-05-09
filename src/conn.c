@@ -303,7 +303,6 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->encoding = Tcl_GetEncoding(accept_ctx->interp, "utf-8");
     Tcl_DStringInit(&conn->inout_ds);
     Tcl_DStringInit(&conn->parse_ds);
-    conn->dataKeyPtr = tws_GetThreadDataKey();
     conn->requestDictPtr = NULL;
     conn->top_part_offset = 0;
     conn->write_offset = 0;
@@ -442,7 +441,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
         return 1;
     }
 
-    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(conn->dataKeyPtr, sizeof(tws_thread_data_t));
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
 
     if (tws_ShouldParseTopPart(conn)) {
         // case when we have read as much as we could after retry

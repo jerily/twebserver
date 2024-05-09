@@ -334,7 +334,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
 int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) {
 
     DBG(fprintf(stderr, "HandleRouteEventInThread: %s\n", conn->handle));
-    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(conn->dataKeyPtr, sizeof(tws_thread_data_t));
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
 
     if (TCL_OK != tws_DoRouting(dataPtr->interp, router, conn, conn->requestDictPtr)) {
         DBG(fprintf(stderr, "DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp))));
