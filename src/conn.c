@@ -614,10 +614,10 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
     }
 
     DBG(fprintf(stderr, "HandleProcessEventInThread: %s (%p)\n", conn->handle, conn->handle_conn_fn));
-    conn->handle_conn_fn(conn);
+    int rc = conn->handle_conn_fn(conn);
     DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d (%p)\n", conn->ready, conn->handle_conn_fn));
 
-    int ready = conn->ready;
+    int ready = rc && conn->ready;
     if (ready) {
         if (!conn->inprogress) {
             conn->inprogress = 1;
