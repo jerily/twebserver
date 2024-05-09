@@ -449,8 +449,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
         if (TCL_OK != tws_ParseTopPart(conn, &error_num)) {
             fprintf(stderr, "ParseTopPart failed (before rubicon): %s conn: %s\n",
                     tws_parse_error_messages[error_num], conn->handle);
-            Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
-            if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
+            if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request")) {
                 tws_CloseConn(conn, 1);
             }
             return 1;
@@ -461,8 +460,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
     long long elapsed = current_time_in_millis() - conn->start_read_millis;
     if (elapsed > conn->accept_ctx->server->read_timeout_millis) {
         DBG(fprintf(stderr, "exceeded read timeout: %lld\n", elapsed));
-        Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
-        if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
+        if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request")) {
             tws_CloseConn(conn, 1);
         }
         return 1;
@@ -499,8 +497,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
         // case when we have read as much as we could without deferring
         int error_num = 0;
         if (TCL_OK != tws_ParseTopPart(conn, &error_num)) {
-            Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
-            if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
+            if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request")) {
                 tws_CloseConn(conn, 1);
             }
             fprintf(stderr, "ParseTopPart failed (after rubicon): %s\n",
@@ -628,8 +625,7 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
             Tcl_InterpState interp_state = Tcl_SaveInterpState(dataPtr->interp, TCL_OK);
 
             if (!Tcl_DStringLength(&conn->parse_ds)) {
-                Tcl_Encoding encoding = Tcl_GetEncoding(dataPtr->interp, "utf-8");
-                if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request", encoding)) {
+                if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request")) {
                     tws_CloseConn(conn, 1);
                 }
                 Tcl_RestoreInterpState(dataPtr->interp, interp_state);

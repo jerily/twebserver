@@ -178,8 +178,6 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
                             Tcl_Obj *ctx_dict_ptr, Tcl_Obj *req_dict_ptr) {
     assert(valid_conn_handle(conn));
 
-    Tcl_Encoding encoding = Tcl_GetEncoding(interp, "utf-8");
-
     Tcl_ResetResult(interp);
 
     Tcl_Obj *dup_req_dict_ptr = req_dict_ptr;
@@ -245,7 +243,7 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
     }
 
     // return response
-    if (TCL_OK != tws_ReturnConn(interp, conn, res_dict_ptr, encoding)) {
+    if (TCL_OK != tws_ReturnConn(interp, conn, res_dict_ptr)) {
         Tcl_DecrRefCount(res_dict_ptr);
         Tcl_DecrRefCount(dup_req_dict_ptr);
         return TCL_ERROR;
@@ -356,8 +354,7 @@ int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) {
         fprintf(stderr, "DoRouting: errorinfo: %s\n", Tcl_GetString(errorinfo_ptr));
         Tcl_DecrRefCount(return_options_dict_ptr);
 
-        if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 500, "Internal Server Error",
-                                      Tcl_GetEncoding(dataPtr->interp, "utf-8"))) {
+        if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 500, "Internal Server Error")) {
             tws_CloseConn(conn, 1);
             return 1;
         }

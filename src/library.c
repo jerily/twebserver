@@ -1770,7 +1770,7 @@ int tws_ReturnResponseCmd(ClientData clientData, Tcl_Interp *interp, int objc, T
         encoding_name = Tcl_GetStringFromObj(objv[3], &encoding_name_length);
     }
 
-    if (TCL_OK != tws_ReturnConn(interp, conn, objv[2], Tcl_GetEncoding(interp, encoding_name))) {
+    if (TCL_OK != tws_ReturnConn(interp, conn, objv[2])) {
         return TCL_ERROR;
     }
 

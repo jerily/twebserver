@@ -361,7 +361,7 @@ static void tws_QueueWriteEvent(tws_conn_t *conn) {
 
 }
 
-int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr, Tcl_Encoding encoding) {
+int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr) {
     assert(valid_conn_handle(conn));
 
     if (!conn->accept_ctx) {
@@ -646,7 +646,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
 
 
 int
-tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const char *error_text, Tcl_Encoding encoding) {
+tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const char *error_text) {
     assert(valid_conn_handle(conn));
 
     DBG(fprintf(stderr, "ReturnError: %d %s\n", conn->client, conn->handle));
@@ -670,7 +670,7 @@ tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const cha
         return TCL_ERROR;
     }
 
-    if (TCL_OK != tws_ReturnConn(interp, conn, responseDictPtr, encoding)) {
+    if (TCL_OK != tws_ReturnConn(interp, conn, responseDictPtr)) {
         Tcl_DecrRefCount(responseDictPtr);
         return TCL_ERROR;
     }
