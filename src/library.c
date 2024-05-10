@@ -98,6 +98,14 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
         tws_DecrRefCountUntilZero(server->rootdir_ptr);
     }
 
+    if (server->cafile != NULL) {
+        Tcl_Free((char *) server->cafile);
+    }
+
+    if (server->cadir != NULL) {
+        Tcl_Free((char *) server->cadir);
+    }
+
     tws_FreeSslContexts();
 
     Tcl_DeleteCommand(interp, handle);
@@ -474,6 +482,23 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         return TCL_ERROR;
     }
 
+
+    Tcl_Obj *verifyClientSslPtr;
+    Tcl_Obj *verifyClientSslKeyPtr = Tcl_NewStringObj("verify_client_ssl", -1);
+    Tcl_IncrRefCount(verifyClientSslKeyPtr);
+    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, verifyClientSslKeyPtr, &verifyClientSslPtr)) {
+        Tcl_DecrRefCount(verifyClientSslKeyPtr);
+        SetResult("error reading dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(verifyClientSslKeyPtr);
+    if (verifyClientSslPtr) {
+        if (TCL_OK != Tcl_GetBooleanFromObj(interp, verifyClientSslPtr, &server_ctx->verify_client_ssl)) {
+            SetResult("verify_client_ssl must be a boolean");
+            return TCL_ERROR;
+        }
+    }
+
     return TCL_OK;
 }
 
@@ -530,6 +555,9 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
     server_ptr->gzip = 1;
     server_ptr->gzip_min_length = 8192;
     Tcl_InitHashTable(&server_ptr->gzip_types_HT, TCL_STRING_KEYS);
+    server_ptr->verify_client_ssl = 0;
+    server_ptr->cafile = NULL;
+    server_ptr->cadir = NULL;
 
     Tcl_HashEntry *entryPtr;
     int newEntry;
@@ -616,49 +644,102 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int incoming
 
 }
 
-static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "AddContextCmd\n"));
-    CheckArgs(5, 5, 1, "server_handle hostname key cert");
+
+    int option_verify_client = 0;
+    char *cafile = NULL;
+    char *cadir = NULL;
+    Tcl_ArgvInfo ArgTable[] = {
+            {TCL_ARGV_CONSTANT, "-verify_client", INT2PTR(1), &option_verify_client, "enables client verification"},
+            {TCL_ARGV_STRING, "-cafile", NULL, &cafile, "CA file for client verification"},
+            {TCL_ARGV_STRING, "-cadir", NULL, &cadir, "CA directory for client verification"},
+            {TCL_ARGV_END, NULL,         NULL, NULL, NULL}
+    };
+
+    Tcl_Obj **remObjv;
+    Tcl_Size objc = incoming_objc;
+    Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
+
+    if ((objc < 5) || (objc > 5)) {
+        ckfree(remObjv);
+        Tcl_WrongNumArgs(interp, 1, remObjv, "server_handle hostname key cert");
+        return TCL_ERROR;
+    }
 
     Tcl_Size handle_len;
-    const char *handle = Tcl_GetStringFromObj(objv[1], &handle_len);
+    const char *handle = Tcl_GetStringFromObj(remObjv[1], &handle_len);
 
     tws_server_t *server = tws_GetInternalFromServerName(handle);
     if (!server) {
+        ckfree(remObjv);
         SetResult("server handle not found");
         return TCL_ERROR;
     }
 
     Tcl_Size hostname_len;
-    const char *hostname = Tcl_GetStringFromObj(objv[2], &hostname_len);
+    const char *hostname = Tcl_GetStringFromObj(remObjv[2], &hostname_len);
     if (hostname_len == 0) {
+        ckfree(remObjv);
         SetResult("hostname must not be empty");
         return TCL_ERROR;
     }
 
     Tcl_Size keyfile_len;
-    const char *keyfile = Tcl_GetStringFromObj(objv[3], &keyfile_len);
+    const char *keyfile = Tcl_GetStringFromObj(remObjv[3], &keyfile_len);
     if (keyfile_len == 0) {
+        ckfree(remObjv);
         SetResult("keyfile must not be empty");
         return TCL_ERROR;
     }
 
     Tcl_Size certfile_len;
-    const char *certfile = Tcl_GetStringFromObj(objv[4], &certfile_len);
+    const char *certfile = Tcl_GetStringFromObj(remObjv[4], &certfile_len);
     if (certfile_len == 0) {
+        ckfree(remObjv);
         SetResult("certfile must not be empty");
         return TCL_ERROR;
     }
 
+    if (option_verify_client) {
+        if (cafile == NULL || cadir == NULL) {
+            ckfree(remObjv);
+            SetResult("CA file or CA directory not set - required when verify_client is set");
+            return TCL_ERROR;
+        }
+    }
+
     SSL_CTX *ctx;
     if (TCL_OK != tws_CreateSslContext(interp, &ctx)) {
+        ckfree(remObjv);
         return TCL_ERROR;
     }
     if (TCL_OK != tws_ConfigureSslContext(interp, ctx, keyfile, certfile)) {
+        SSL_CTX_free(ctx);
+        ckfree(remObjv);
         return TCL_ERROR;
     }
+
+    if (option_verify_client) {
+
+        // Require client certificate verification
+        SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
+        SSL_CTX_set_verify_depth(ctx, 1);
+
+        // Load CA certificate to verify client
+        if (!SSL_CTX_load_verify_locations(ctx, cafile, cadir)) {
+            SSL_CTX_free(ctx);
+            ERR_print_errors_fp(stderr);
+            ckfree(remObjv);
+            SetResult("Unable to load CA certificate");
+            return TCL_ERROR;
+        }
+
+    }
+
     tws_RegisterHostName(hostname, ctx);
 
+    ckfree(remObjv);
     return TCL_OK;
 }
 

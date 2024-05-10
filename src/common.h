@@ -97,6 +97,9 @@ typedef struct {
     Tcl_Size thread_stacksize; // the stack size for each thread in bytes
     int thread_max_concurrent_conns; // the maximum number of concurrent connections per thread
     int gzip; // whether gzip compression is on or off
+    int verify_client_ssl;
+    char *cafile;
+    char *cadir;
     Tcl_Size gzip_min_length; // the minimum length of the response body to apply gzip compression
     Tcl_HashTable gzip_types_HT; // the list of mime types to apply gzip compression
     tws_listener_t *first_listener_ptr;

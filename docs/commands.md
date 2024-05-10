@@ -8,10 +8,13 @@
     - when ```with_router``` option is specified, it skips the execution of the ```request_processor_proc``` and directly
   invokes the router
   ```tcl
-  set server_handle [::twebserver::create_server [dict create] process_conn]
+  set server_handle [::twebserver::create_server [dict create] process_conn {...}]
   ```
-* **::twebserver::add_context** *handle* *hostname* *key_file* *cert_file*
+* **::twebserver::add_context** *?-verify_client?* *?-cafile file?* *?-cadir path?* *handle* *hostname* *key_file* *cert_file*
     - adds an SSL context to a server (supports multiple certificates for different hosts)
+    - the flag ```-verify_client``` can be used to enable client verification
+    - the flag ```-cafile``` should be used to specify a CA file when client verification is enabled
+    - the flag ```-cadir``` should be used to specify a CA directory when client verification is enabled
   ```tcl
   ::twebserver::add_context $server_handle localhost "../certs/host1/key.pem" "../certs/host1/cert.pem"
   ::twebserver::add_context $server_handle www.example.com "../certs/host2/key.pem" "../certs/host2/cert.pem"

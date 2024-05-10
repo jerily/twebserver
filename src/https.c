@@ -54,8 +54,8 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
         goto abort;
     }
 
-//    SSL_set_verify(ssl, SSL_CTX_get_verify_mode(ctx), NULL);
-//    SSL_set_client_CA_list(ssl, SSL_dup_CA_list(SSL_CTX_get_client_CA_list(ctx)));
+    SSL_set_verify(ssl, SSL_CTX_get_verify_mode(ctx), NULL);
+    SSL_set_client_CA_list(ssl, SSL_dup_CA_list(SSL_CTX_get_client_CA_list(ctx)));
     SSL_set_SSL_CTX(ssl, ctx);
 
     return SSL_CLIENT_HELLO_SUCCESS;
