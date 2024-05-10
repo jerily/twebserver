@@ -116,6 +116,12 @@
   set response_dict [::twebserver::build_response -return_file 200 image/png plume.png]
   ```
 
+* **::twebserver::wait_signal**
+    - an alternative to vwait that waits for a signal (SIGINT or SIGTERM) to be sent to the server
+  ```tcl
+  ::twebserver::wait_signal
+  ```
+
 ### Low-level Commands
 
 * **::twebserver::return_response** *handle* *response_dict* *?encoding?*
