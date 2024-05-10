@@ -158,7 +158,6 @@ typedef struct tws_conn_t_ {
     Tcl_Encoding encoding;
     Tcl_DString inout_ds;
     Tcl_DString parse_ds;
-    Tcl_ThreadDataKey *dataKeyPtr;
     Tcl_Obj *requestDictPtr;
     Tcl_Size top_part_offset;
     Tcl_Size write_offset;
