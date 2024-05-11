@@ -40,6 +40,7 @@ TCL Web Server Extension
 * [Server Configuration](docs/config.md)
 * [Routing](docs/routing.md)
 * [Middleware](docs/middleware.md)
+* [Context, Request, and Response Dictionaries](docs/ctx_req_res_dict.md)
 
 ## Examples
 
