@@ -333,12 +333,12 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
     return TCL_OK;
 }
 
-int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) {
+int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn, Tcl_Obj *req_dict_ptr) {
 
     DBG(fprintf(stderr, "HandleRouteEventInThread: %s\n", conn->handle));
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
 
-    if (TCL_OK != tws_DoRouting(dataPtr->interp, router, conn, conn->req_dict_ptr)) {
+    if (TCL_OK != tws_DoRouting(dataPtr->interp, router, conn, req_dict_ptr)) {
         DBG(fprintf(stderr, "DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp))));
 
         Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(dataPtr->interp, TCL_ERROR);
@@ -399,7 +399,7 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
         return TCL_ERROR;
     }
 
-    tws_HandleRouteEventInThread(router_ptr, conn);
+    tws_HandleRouteEventInThread(router_ptr, conn, Tcl_DuplicateObj(objv[2]));
     return TCL_OK;
 }
 

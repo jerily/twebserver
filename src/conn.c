@@ -351,7 +351,7 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
             tws_CloseConn(conn, 1);
             return 1;
         }
-        tws_HandleRouteEventInThread(router, conn);
+        tws_HandleRouteEventInThread(router, conn, conn->req_dict_ptr);
         return 1;
     }
 
