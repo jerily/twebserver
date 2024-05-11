@@ -98,14 +98,6 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
         tws_DecrRefCountUntilZero(server->rootdir_ptr);
     }
 
-    if (server->cafile != NULL) {
-        Tcl_Free((char *) server->cafile);
-    }
-
-    if (server->cadir != NULL) {
-        Tcl_Free((char *) server->cadir);
-    }
-
     tws_FreeSslContexts();
 
     Tcl_DeleteCommand(interp, handle);
@@ -482,23 +474,6 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
         return TCL_ERROR;
     }
 
-
-    Tcl_Obj *verifyClientSslPtr;
-    Tcl_Obj *verifyClientSslKeyPtr = Tcl_NewStringObj("verify_client_ssl", -1);
-    Tcl_IncrRefCount(verifyClientSslKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, verifyClientSslKeyPtr, &verifyClientSslPtr)) {
-        Tcl_DecrRefCount(verifyClientSslKeyPtr);
-        SetResult("error reading dict");
-        return TCL_ERROR;
-    }
-    Tcl_DecrRefCount(verifyClientSslKeyPtr);
-    if (verifyClientSslPtr) {
-        if (TCL_OK != Tcl_GetBooleanFromObj(interp, verifyClientSslPtr, &server_ctx->verify_client_ssl)) {
-            SetResult("verify_client_ssl must be a boolean");
-            return TCL_ERROR;
-        }
-    }
-
     return TCL_OK;
 }
 
@@ -555,9 +530,6 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
     server_ptr->gzip = 1;
     server_ptr->gzip_min_length = 8192;
     Tcl_InitHashTable(&server_ptr->gzip_types_HT, TCL_STRING_KEYS);
-    server_ptr->verify_client_ssl = 0;
-    server_ptr->cafile = NULL;
-    server_ptr->cadir = NULL;
 
     Tcl_HashEntry *entryPtr;
     int newEntry;
