@@ -1,0 +1,72 @@
+package require tcltest
+package require twebserver
+
+namespace import -force ::tcltest::test
+
+::tcltest::configure {*}$argv
+
+set server_file "setup_server_routing.tcl"
+set server_port 12345
+set client_port 54321
+set control_port 11111
+set dir [file dirname [info script]]
+
+proc sleep {ms} {
+    after $ms [list set ::sleep 1]
+    vwait ::sleep
+    unset ::sleep
+}
+
+proc setup {} {
+    global server_pid
+    global dir
+    global server_file
+    set TCLSH tclsh[info tclversion]
+    set server_pid [exec -ignorestderr -- $TCLSH [file join $dir ${server_file}] &]
+    sleep 100
+}
+
+proc cleanup {} {
+    global server_pid
+    exec -ignorestderr -- kill $server_pid 2> /dev/null
+    #global control_port
+    #set sock [socket localhost $control_port]
+    #close $sock
+}
+
+proc escape {str} {
+    return [string map {\r {\r} \n {\n}} $str]
+}
+
+test client-cert-1 {simple tls1_3 openssl s_client request} -setup setup -cleanup cleanup -body {
+    set dir [file dirname [info script]]
+    set certfilename [file join $dir "../certs/client/client.crt"]
+    set keyfilename [file join $dir "../certs/client/client.key"]
+    set request "GET / HTTP/1.1\n\n"
+    set cmd "openssl s_client -cert $certfilename -key $keyfilename -connect www.example.com:${server_port} -servername example.com -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
+    escape $response
+} -result {HTTP/1.1 404\nContent-Type: text/plain\nContent-Length: 9\n\nnot found}
+
+sleep 100
+
+test client-cert-2 {simple tls1_2 openssl s_client request} -setup setup -cleanup cleanup -body {
+    set dir [file dirname [info script]]
+    set certfilename [file join $dir "../certs/client/client.crt"]
+    set keyfilename [file join $dir "../certs/client/client.key"]
+    set request "GET /example HTTP/1.1\n\n"
+    set cmd "openssl s_client -cert $certfilename -key $keyfilename -connect www.example.com:${server_port} -servername example.com -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_2 << $request 2> /dev/null]
+    escape $response
+} -result {HTTP/1.1 404\nContent-Type: text/plain\nContent-Length: 9\n\nnot found}
+
+sleep 100
+
+test client-cert-3 {without client cert} -setup setup -cleanup cleanup -body {
+    set request "GET /example HTTP/1.1\n\n"
+    set cmd "openssl s_client -connect www.example.com:${server_port} -servername example.com -quiet"
+    set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_2 << $request 2> /dev/null]
+    escape $response
+} -returnCodes error -result {child process exited abnormally}
+
+sleep 100

@@ -82,7 +82,19 @@ set config_dict [dict create \
     gzip_types [list text/plain application/json] \
     gzip_min_length 20]
 set server_handle [::twebserver::create_server $config_dict process_conn $init_script]
-::twebserver::add_context $server_handle localhost "../certs/host1/key.pem" "../certs/host1/cert.pem"
+
+set dir [file dirname [info script]]
+set localhost_key [file join $dir "../certs/host1/key.pem"]
+set localhost_cert [file join $dir "../certs/host1/cert.pem"]
+::twebserver::add_context $server_handle localhost $localhost_key $localhost_cert
+
+# the following requires www.example.com to be in /etc/hosts
+set cafile [file join $dir "../certs/ca/ca.crt"]
+set cadir [file join $dir "../certs/ca"]
+set example_key [file join $dir "../certs/host2/key.pem"]
+set example_cert [file join $dir "../certs/host2/cert.pem"]
+::twebserver::add_context -verify_client -cafile $cafile -cadir $cadir $server_handle example.com $example_key $example_cert
+
 ::twebserver::listen_server -num_threads 4 $server_handle $server_port
 ::twebserver::listen_server -http -num_threads 2 $server_handle $http_server_port
 vwait forever
