@@ -7,6 +7,9 @@
     - returns a handle to a server, see [Server Configuration](config.md) for configuration parameters
     - when ```with_router``` option is specified, it skips the execution of the ```request_processor_proc``` and directly
   invokes the router
+    - the ```request_processor_proc``` should accept two arguments: ```context_dict``` and ```request_dict```.
+      See the [Dictionaries documentation](ctx_req_res_dict.md) for more information on the context and request dictionaries.
+
   ```tcl
   set server_handle [::twebserver::create_server [dict create] process_conn {...}]
   ```

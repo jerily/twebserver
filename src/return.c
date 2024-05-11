@@ -272,10 +272,10 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     conn->write_offset = 0;
     conn->blank_line_offset = 0;
     conn->content_length = 0;
-    if (conn->requestDictPtr) {
-        Tcl_DecrRefCount(conn->requestDictPtr);
+    if (conn->req_dict_ptr) {
+        Tcl_DecrRefCount(conn->req_dict_ptr);
     }
-    conn->requestDictPtr = NULL;
+    conn->req_dict_ptr = NULL;
 //    conn->handle_conn_fn = NULL;
     conn->shutdown = 0;
     conn->ready = 0;

@@ -303,7 +303,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->encoding = Tcl_GetEncoding(accept_ctx->interp, "utf-8");
     Tcl_DStringInit(&conn->inout_ds);
     Tcl_DStringInit(&conn->parse_ds);
-    conn->requestDictPtr = NULL;
+    conn->req_dict_ptr = NULL;
     conn->top_part_offset = 0;
     conn->write_offset = 0;
     conn->content_length = 0;
@@ -322,7 +322,6 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
 
     return conn;
 }
-
 
 static int tws_HandleProcessing(tws_conn_t *conn) {
     DBG(fprintf(stderr, ">>>>>>>>>>>>>>>>> HandleProcessing: %s\n", conn->handle));
@@ -356,18 +355,22 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
         return 1;
     }
 
-    Tcl_Obj *const connPtr = Tcl_NewStringObj(conn->handle, -1);
-    Tcl_Obj *const addrPtr = Tcl_NewStringObj(conn->client_ip, -1);
-    Tcl_Obj *const portPtr = Tcl_NewIntObj(accept_ctx->port);
-    Tcl_Obj *const cmdobjv[] = {dataPtr->cmdPtr, connPtr, addrPtr, portPtr, NULL};
+    Tcl_Obj *ctx_dict_ptr;
+    if (TCL_OK != tws_CreateContextDict(dataPtr->interp, conn, &ctx_dict_ptr)) {
+        fprintf(stderr, "error creating context dict\n");
+        tws_CloseConn(conn, 1);
+        return 1;
+    }
 
-    tws_IncrRefCountObjv(4, cmdobjv);
+    Tcl_Obj *const cmdobjv[] = {dataPtr->cmdPtr, ctx_dict_ptr, conn->req_dict_ptr, NULL};
+
+    tws_IncrRefCountObjv(3, cmdobjv);
     Tcl_ResetResult(dataPtr->interp);
-    if (TCL_OK != Tcl_EvalObjv(dataPtr->interp, 4, cmdobjv, TCL_EVAL_INVOKE)) {
+    if (TCL_OK != Tcl_EvalObjv(dataPtr->interp, 3, cmdobjv, TCL_EVAL_GLOBAL)) {
         fprintf(stderr, "error evaluating script sock=%d\n", conn->client);
-//        fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
 
-        tws_DecrRefCountObjv(4, cmdobjv);
+        tws_DecrRefCountObjv(3, cmdobjv);
+        Tcl_DecrRefCount(ctx_dict_ptr);
 
         Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(dataPtr->interp, TCL_ERROR);
         Tcl_IncrRefCount(return_options_dict_ptr);
@@ -387,7 +390,8 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
         tws_CloseConn(conn, 1);
         return 1;
     }
-    tws_DecrRefCountObjv(4, cmdobjv);
+    tws_DecrRefCountObjv(3, cmdobjv);
+    Tcl_DecrRefCount(ctx_dict_ptr);
 
     return 1;
 }
@@ -492,7 +496,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
                 Tcl_DStringLength(&conn->inout_ds), conn->content_length));
 
     if (tws_ShouldParseTopPart(conn)) {
-        DBG(fprintf(stderr, "parse top part after without defer reqdictptr=%p\n", conn->requestDictPtr));
+        DBG(fprintf(stderr, "parse top part after without defer reqdictptr=%p\n", conn->req_dict_ptr));
         // case when we have read as much as we could without deferring
         int error_num = 0;
         if (TCL_OK != tws_ParseTopPart(conn, &error_num)) {
@@ -584,14 +588,14 @@ int tws_HandleTermEventInThread(Tcl_Event *evPtr, int flags) {
 static int tws_SetDefaultBodyIfNeeded(Tcl_Interp *interp, tws_conn_t *conn) {
     if (!conn->content_length) {
         if (TCL_OK !=
-            Tcl_DictObjPut(interp, conn->requestDictPtr, Tcl_NewStringObj("isBase64Encoded", -1),
+            Tcl_DictObjPut(interp, conn->req_dict_ptr, Tcl_NewStringObj("isBase64Encoded", -1),
                            Tcl_NewBooleanObj(0))) {
             fprintf(stderr, "failed to write to dict 1\n");
             tws_CloseConn(conn, 1);
             return TCL_ERROR;
         }
         if (TCL_OK !=
-            Tcl_DictObjPut(interp, conn->requestDictPtr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj("", -1))) {
+            Tcl_DictObjPut(interp, conn->req_dict_ptr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj("", -1))) {
             fprintf(stderr, "failed to write to dict 2\n");
             tws_CloseConn(conn, 1);
             return TCL_ERROR;
@@ -635,12 +639,12 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
             }
 
 #if TCL_MAJOR_VERSION > 8
-            conn->requestDictPtr = Tcl_DStringToObj(&conn->parse_ds);
+            conn->req_dict_ptr = Tcl_DStringToObj(&conn->parse_ds);
 #else
             Tcl_DStringResult(dataPtr->interp, &conn->parse_ds);
             conn->requestDictPtr = Tcl_GetObjResult(dataPtr->interp);
 #endif
-            Tcl_IncrRefCount(conn->requestDictPtr);
+            Tcl_IncrRefCount(conn->req_dict_ptr);
             if (TCL_OK != tws_SetDefaultBodyIfNeeded(dataPtr->interp, conn)) {
                 Tcl_RestoreInterpState(dataPtr->interp, interp_state);
                 return 1;
@@ -733,8 +737,8 @@ int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj
     Tcl_Obj *result_ptr = Tcl_NewDictObj();
     Tcl_IncrRefCount(result_ptr);
 
-    if (conn->requestDictPtr) {
-        if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("request", -1), conn->requestDictPtr)) {
+    if (conn->req_dict_ptr) {
+        if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("request", -1), conn->req_dict_ptr)) {
             fprintf(stderr, "error writing to dict\n");
             Tcl_DecrRefCount(result_ptr);
             return TCL_ERROR;

@@ -21,6 +21,7 @@ Where:
 * ```HANDLER``` is the handler function executed when the route is matched e.g. ```get_example_handler```
 
 The following examples illustrate defining simple routes.
+See the [Dictionaries documentation](ctx_req_res_dict.md) for more information on the context, request, and response dictionaries.
 
 Respond with "hello world" for requests to the URL ```/example```
 ```tcl
@@ -96,27 +97,3 @@ proc example_handler {ctx req} {
     return $res
 }
 ```
-
-#### Request Dictionary
-
-The request ```req``` dictionary includes the following:
-- **httpMethod** - GET, POST, PUT, DELETE, etc
-- **url** - the url
-- **version** - HTTP/1.1
-- **path** - the path
-- **queryString** - the query string
-- **queryStringParameters** - a dictionary of query string parameters
-- **multiValueQueryStringParameters** - a dictionary of query string parameters (with multiple values)
-- **headers** - a dictionary of headers
-- **multiValueHeaders** - a dictionary of headers (with multiple values)
-- **isBase64Encoded** - whether the body is base64 encoded
-- **body** - the body
-
-#### Response Dictionary
-
-The response ```res``` dictionary should include the following:
-- **statusCode** - the status code
-- **headers** - a dictionary of headers
-- **multiValueHeaders** - a dictionary of headers (with multiple values)
-- **isBase64Encoded** - whether the body is base64 encoded
-- **body** - the body

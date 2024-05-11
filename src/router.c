@@ -255,19 +255,11 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
     return TCL_OK;
 }
 
-static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_t *conn, Tcl_Obj *const req_dict_ptr) {
-    DBG(fprintf(stderr, "DoRouting\n"));
+int tws_CreateContextDict(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj **result_ptr) {
 
     Tcl_Obj *ctx_dict_ptr = Tcl_NewDictObj();
     Tcl_IncrRefCount(ctx_dict_ptr);
 
-    if (TCL_OK != Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("router", -1),
-                                 Tcl_NewStringObj(router_ptr->handle, -1))) {
-        Tcl_DecrRefCount(ctx_dict_ptr);
-        SetResult("router_process_conn: dict put failed");
-        return TCL_ERROR;
-
-    }
     if (TCL_OK != Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("server", -1),
                                  Tcl_NewStringObj(conn->accept_ctx->server->handle, -1))) {
         Tcl_DecrRefCount(ctx_dict_ptr);
@@ -296,6 +288,18 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
                                  Tcl_NewBooleanObj(!conn->accept_ctx->option_http))) {
         Tcl_DecrRefCount(ctx_dict_ptr);
         SetResult("router_process_conn: dict put failed");
+        return TCL_ERROR;
+    }
+
+    *result_ptr = ctx_dict_ptr;
+    return TCL_OK;
+}
+
+static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_t *conn, Tcl_Obj *const req_dict_ptr) {
+    DBG(fprintf(stderr, "DoRouting\n"));
+
+    Tcl_Obj *ctx_dict_ptr;
+    if (TCL_OK != tws_CreateContextDict(interp, conn, &ctx_dict_ptr)) {
         return TCL_ERROR;
     }
 
@@ -334,7 +338,7 @@ int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) {
     DBG(fprintf(stderr, "HandleRouteEventInThread: %s\n", conn->handle));
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
 
-    if (TCL_OK != tws_DoRouting(dataPtr->interp, router, conn, conn->requestDictPtr)) {
+    if (TCL_OK != tws_DoRouting(dataPtr->interp, router, conn, conn->req_dict_ptr)) {
         DBG(fprintf(stderr, "DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp))));
 
         Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(dataPtr->interp, TCL_ERROR);
@@ -369,11 +373,26 @@ int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn) {
 
 static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "RouterProcessConnCmd\n"));
-    CheckArgs(4, 4, 1, "conn_handle addr port");
+    CheckArgs(3, 3, 1, "ctx_dict req_dict");
 
     tws_router_t *router_ptr = (tws_router_t *) clientData;
 
-    const char *conn_handle = Tcl_GetString(objv[1]);
+    Tcl_Obj *conn_key_ptr = Tcl_NewStringObj("conn", -1);
+    Tcl_IncrRefCount(conn_key_ptr);
+    Tcl_Obj *conn_ptr;
+    if (TCL_OK != Tcl_DictObjGet(interp, objv[1], conn_key_ptr, &conn_ptr)) {
+        Tcl_DecrRefCount(conn_key_ptr);
+        SetResult("router_process_conn: dict get failed");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(conn_key_ptr);
+
+    if (!conn_ptr) {
+        SetResult("router_process_conn: conn not found in ctx dict");
+        return TCL_ERROR;
+    }
+
+    const char *conn_handle = Tcl_GetString(conn_ptr);
     tws_conn_t *conn = tws_GetInternalFromConnName(conn_handle);
     if (!conn) {
         SetResult("router_process_conn: conn handle not found");

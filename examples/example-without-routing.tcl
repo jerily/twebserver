@@ -7,9 +7,11 @@ package require twebserver
 set init_script {
     package require twebserver
 
-    proc process_conn {conn client_ip port} {
-        set conn_info [::twebserver::info_conn $conn]
-        set req [dict get $conn_info request]
+    proc process_conn {ctx req} {
+        set conn [dict get $ctx conn]
+        set client_ip [dict get $ctx addr]
+        set port [dict get $ctx port]
+
         set http_method [dict get $req httpMethod]
         set path [dict get $req path]
         set query [dict get $req queryString]
