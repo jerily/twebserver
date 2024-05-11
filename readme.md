@@ -12,6 +12,7 @@ TCL Web Server Extension
 * Keepalive connections
 * Compression (gzip)
 * Routing & Middleware functionality
+* Client Certificate Verification
 
 
 ## Modules and Extensions
