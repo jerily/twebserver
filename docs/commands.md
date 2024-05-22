@@ -3,10 +3,10 @@
 
 ### High-Level Commands
 
-* **::twebserver::create_server** *?with_router?* *config_dict* *request_processor_proc* *thread_init_script*
+* **::twebserver::create_server** *?-with_router?* *config_dict* *request_processor_proc* *thread_init_script*
     - returns a handle to a server, see [Server Configuration](config.md) for configuration parameters
     - when ```with_router``` option is specified, it skips the execution of the ```request_processor_proc``` and directly
-  invokes the router
+  invokes the router by getting the defined interp alias
     - the ```request_processor_proc``` should accept two arguments: ```context_dict``` and ```request_dict```.
       See the [Dictionaries documentation](ctx_req_res_dict.md) for more information on the context and request dictionaries.
 
@@ -36,11 +36,11 @@
   ```tcl
   ::twebserver::destroy_server $server_handle
   ```
-* **::twebserver::create_router**
+* **::twebserver::create_router** *?trace_var?*
     - returns a handle to a router and creates a request_processor_proc
       like the one accepted in ```create_server``` command
   ```tcl
-  set router [::twebserver::create_router]
+  ::twebserver::create_router router
   ```
 * **::twebserver::add_route** *?-prefix?* *?-nocase?* *?-strict?* *router* *method* *path* *handler_proc*
     - adds a route to a router, the handler_proc should accept two arguments: ```context_dict``` and ```request_dict```.
