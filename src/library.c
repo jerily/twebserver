@@ -1748,7 +1748,7 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
     Tcl_Obj *result_ptr = NULL;
 
     if (check_all_p || option_path) {
-        if (TCL_OK != tws_GetPathParam(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
+        if (TCL_OK == tws_GetPathParam(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
             ckfree(remObjv);
             Tcl_SetObjResult(interp, result_ptr);
             return TCL_OK;
@@ -1756,7 +1756,7 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
     }
 
     if (check_all_p || option_query) {
-        if (TCL_OK != tws_GetQueryParam(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
+        if (TCL_OK == tws_GetQueryParam(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
             ckfree(remObjv);
             Tcl_SetObjResult(interp, result_ptr);
             return TCL_OK;
@@ -1764,7 +1764,7 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
     }
 
     if (check_all_p || option_header) {
-        if (TCL_OK != tws_GetHeader(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
+        if (TCL_OK == tws_GetHeader(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
             ckfree(remObjv);
             Tcl_SetObjResult(interp, result_ptr);
             return TCL_OK;
