@@ -25,9 +25,9 @@ To install TCL with threads from source:
 ```bash
 # Download and extract the source
 # https://www.tcl.tk/software/tcltk/download.html
-wget http://prdownloads.sourceforge.net/tcl/tcl9.0b1-src.tar.gz
-tar -xzvf tcl9.0b1-src.tar.gz
-cd tcl9.0b1/unix
+wget http://prdownloads.sourceforge.net/tcl/tcl9.0b2-src.tar.gz
+tar -xzvf tcl9.0b2-src.tar.gz
+cd tcl9.0b2/unix
 ./configure --enable-threads
 make
 make install
@@ -35,9 +35,9 @@ make install
 
 ### Build the twebserver extension
 ```
-wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.36.tar.gz
-tar -xzf v1.47.36.tar.gz
-cd twebserver-1.47.36
+wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.37.tar.gz
+tar -xzf v1.47.37.tar.gz
+cd twebserver-1.47.37
 mkdir build
 cd build
 cmake ..

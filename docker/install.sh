@@ -25,18 +25,18 @@ fi
 
 # tcl
 if true; then
-curl -L -O --output-dir $BUILD_DIR http://prdownloads.sourceforge.net/tcl/tcl9.0b1-src.tar.gz
-tar -xvf $BUILD_DIR/tcl9.0b1-src.tar.gz -C $BUILD_DIR
-cd $BUILD_DIR/tcl9.0b1/unix
+curl -L -O --output-dir $BUILD_DIR http://prdownloads.sourceforge.net/tcl/tcl9.0b2-src.tar.gz
+tar -xvf $BUILD_DIR/tcl9.0b2-src.tar.gz -C $BUILD_DIR
+cd $BUILD_DIR/tcl9.0b2/unix
 ./configure  --prefix=$INSTALL_DIR > $BUILD_LOG_DIR/tcl-configure.log 2>&1
 make install > $BUILD_LOG_DIR/tcl-install.log 2>&1
 fi
 
 # twebserver
 if true; then
-curl -L -o twebserver-1.47.36.tar.gz --output-dir $BUILD_DIR https://github.com/jerily/twebserver/archive/refs/tags/v1.47.36.tar.gz
-tar -xvf $BUILD_DIR/twebserver-1.47.36.tar.gz -C $BUILD_DIR
-cd $BUILD_DIR/twebserver-1.47.36
+curl -L -o twebserver-1.47.37.tar.gz --output-dir $BUILD_DIR https://github.com/jerily/twebserver/archive/refs/tags/v1.47.37.tar.gz
+tar -xvf $BUILD_DIR/twebserver-1.47.37.tar.gz -C $BUILD_DIR
+cd $BUILD_DIR/twebserver-1.47.37
 mkdir build
 cd build
 # change "TCL_LIBRARY_DIR" and "TCL_INCLUDE_DIR" to the correct paths
