@@ -783,7 +783,12 @@ static int tws_Base64EncodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
     CheckArgs(2, 2, 1, "bytes");
 
     Tcl_Size input_length;
-    const char *input = (const char *) Tcl_GetByteArrayFromObj(objv[1], &input_length);
+    const unsigned char *input = Tcl_GetByteArrayFromObj(objv[1], &input_length);
+
+    if (input_length == 0) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("", 0));
+        return TCL_OK;
+    }
 
     char *output = Tcl_Alloc(input_length * 2);
     Tcl_Size output_length;
