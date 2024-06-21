@@ -936,7 +936,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     // create a file handler for the epoll fd for this thread
     Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
 
-    if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->server->scriptPtr)) {
+    if (TCL_OK != Tcl_EvalObj(dataPtr->interp, Tcl_DuplicateObj(ctrl->server->scriptPtr))) {
         fprintf(stderr, "error evaluating init script\n");
         fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
 

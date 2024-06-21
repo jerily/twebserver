@@ -1885,7 +1885,7 @@ static int tws_GetRootdirCmd(ClientData clientData, Tcl_Interp *interp, int objc
     }
 
     if (server->rootdir_ptr != NULL) {
-        Tcl_SetObjResult(interp, server->rootdir_ptr);
+        Tcl_SetObjResult(interp, Tcl_DuplicateObj(server->rootdir_ptr));
     }
     return TCL_OK;
 }
