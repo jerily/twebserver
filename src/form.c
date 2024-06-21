@@ -163,7 +163,7 @@ static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const cha
 
 //        fprintf(stderr, "filename=%.*s\n", (int) (filename_end - filename), filename);
 
-    int filename_length = filename_end - filename;
+    Tcl_Size filename_length = filename_end == NULL || filename == NULL ? 0 : filename_end - filename;
 
     // extract and save the part body as base64-encoded string in "multipart_form_data_ptr" as key-value pairs
 
@@ -187,22 +187,23 @@ static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const cha
     Tcl_Obj *field_value_ptr = NULL;
     if (filename_length > 0) {
         Tcl_Size block_length = be - bs;
-        char *block_body = Tcl_Alloc(block_length * 2);
-        Tcl_Size block_body_length;
-        if (base64_encode(bs, block_length, block_body, &block_body_length)) {
-            Tcl_Free(block_body);
-            SetResult("tws_ParseMultipartForm: base64_encode failed");
-            return TCL_ERROR;
-        }
+        if (block_length > 0) {
+            char *block_body = Tcl_Alloc(block_length * 2);
+            Tcl_Size block_body_length;
+            if (base64_encode(bs, block_length, block_body, &block_body_length)) {
+                Tcl_Free(block_body);
+                SetResult("tws_ParseMultipartForm: base64_encode failed");
+                return TCL_ERROR;
+            }
 
-        if (TCL_OK != Tcl_DictObjPut(interp, mp_form_files_ptr, Tcl_NewStringObj(filename, filename_end - filename),
-                                     Tcl_NewStringObj(block_body, block_body_length))) {
+            if (TCL_OK != Tcl_DictObjPut(interp, mp_form_files_ptr, Tcl_NewStringObj(filename, filename_end - filename),
+                                         Tcl_NewStringObj(block_body, block_body_length))) {
+                Tcl_Free(block_body);
+                SetResult("tws_ParseMultipartForm: multipart/form-data dict write error");
+                return TCL_ERROR;
+            }
             Tcl_Free(block_body);
-            SetResult("tws_ParseMultipartForm: multipart/form-data dict write error");
-            return TCL_ERROR;
         }
-        Tcl_Free(block_body);
-
         field_value_ptr = Tcl_NewStringObj(filename, filename_length);
     } else {
         field_value_ptr = Tcl_NewStringObj(bs, be - bs);
