@@ -335,7 +335,7 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
     if (accept_ctx->server->option_router) {
         Tcl_Interp *targetInterpPtr;
         const char *targetCmdPtr;
-        int objc;
+        Tcl_Size objc;
         Tcl_Obj **objv;
         if (TCL_OK != Tcl_GetAliasObj(dataPtr->interp, Tcl_GetString(accept_ctx->server->cmdPtr), &targetInterpPtr, &targetCmdPtr, &objc, &objv)) {
             fprintf(stderr, "error getting alias\n");
