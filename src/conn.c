@@ -991,7 +991,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 #endif
     tws_DecrRefCountUntilZero(dataPtr->cmdPtr);
     Tcl_DeleteInterp(dataPtr->interp);
-    Tcl_Free(accept_ctx);
+    Tcl_Free((char *) accept_ctx);
 
     DBG(fprintf(stderr, "HandleConnThread: out (%p)\n", Tcl_GetCurrentThread()));
 
