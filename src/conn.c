@@ -643,6 +643,7 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
 #else
             Tcl_DStringResult(dataPtr->interp, &conn->parse_ds);
             conn->req_dict_ptr = Tcl_DuplicateObj(Tcl_GetObjResult(dataPtr->interp));
+            Tcl_ResetResult(dataPtr->interp);
 #endif
             Tcl_IncrRefCount(conn->req_dict_ptr);
             if (TCL_OK != tws_SetDefaultBodyIfNeeded(dataPtr->interp, conn)) {
