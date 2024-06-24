@@ -147,7 +147,7 @@ static int tws_AddQueryStringParameter(Tcl_Encoding encoding, Tcl_HashTable *que
         if (existing_mv_entry_ptr == NULL) {
             // it does not exist, create a new list and add the existing value from queryStringParameters
             Tcl_DString *existing_value_ds_ptr = Tcl_GetHashValue(existing_entry_ptr);
-            Tcl_DString *multi_value_ds_ptr = Tcl_Alloc(sizeof(Tcl_DString));
+            Tcl_DString *multi_value_ds_ptr = (Tcl_DString *) Tcl_Alloc(sizeof(Tcl_DString));
             Tcl_DStringInit(multi_value_ds_ptr);
             Tcl_DStringAppendElement(multi_value_ds_ptr, Tcl_DStringValue(existing_value_ds_ptr));
             // append the new value to the list
@@ -161,7 +161,7 @@ static int tws_AddQueryStringParameter(Tcl_Encoding encoding, Tcl_HashTable *que
             Tcl_DStringAppendElement(multi_value_ds_ptr, Tcl_DStringValue(&value_ds));
         }
     } else {
-        Tcl_DString *value_ds_ptr = Tcl_Alloc(sizeof(Tcl_DString));
+        Tcl_DString *value_ds_ptr = (Tcl_DString *) Tcl_Alloc(sizeof(Tcl_DString));
         Tcl_DStringInit(value_ds_ptr);
         Tcl_DStringAppend(value_ds_ptr, Tcl_DStringValue(&value_ds), Tcl_DStringLength(&value_ds));
         int newEntry = 0;
@@ -180,7 +180,7 @@ static void tws_FreeParseHashTable(Tcl_HashTable *ht_ptr) {
     for (entry = Tcl_FirstHashEntry(ht_ptr, &search); entry != NULL; entry = Tcl_NextHashEntry(&search)) {
         Tcl_DString *value_ds_ptr = Tcl_GetHashValue(entry);
         Tcl_DStringFree(value_ds_ptr);
-        Tcl_Free(value_ds_ptr);
+        Tcl_Free((char *) value_ds_ptr);
     }
     Tcl_DeleteHashTable(ht_ptr);
 }
@@ -542,7 +542,7 @@ static int tws_AddHeader(Tcl_HashTable *headers_HT_ptr, Tcl_HashTable *multi_val
             // it does not exist, create a new list and add the existing value from headers
 
             Tcl_DString *existing_value_ds_ptr = Tcl_GetHashValue(existing_entry_ptr);
-            Tcl_DString *multi_value_ds_ptr = Tcl_Alloc(sizeof(Tcl_DString));
+            Tcl_DString *multi_value_ds_ptr = (Tcl_DString *) Tcl_Alloc(sizeof(Tcl_DString));
             Tcl_DStringInit(multi_value_ds_ptr);
             Tcl_DStringAppendElement(multi_value_ds_ptr, Tcl_DStringValue(existing_value_ds_ptr));
             // append the new value to the list
@@ -556,7 +556,7 @@ static int tws_AddHeader(Tcl_HashTable *headers_HT_ptr, Tcl_HashTable *multi_val
             Tcl_DStringAppendElement(multi_value_ds_ptr, value);
         }
     } else {
-        Tcl_DString *value_ds_ptr = Tcl_Alloc(sizeof(Tcl_DString));
+        Tcl_DString *value_ds_ptr = (Tcl_DString *) Tcl_Alloc(sizeof(Tcl_DString));
         Tcl_DStringInit(value_ds_ptr);
         Tcl_DStringAppend(value_ds_ptr, value, strlen(value));
 
