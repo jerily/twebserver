@@ -26,6 +26,8 @@
 #define MAX_BUFFER_SIZE 1024
 #endif
 
+#define MAX_CHUNK_SIZE 10485760
+
 void tws_QueueCreateFileHandlerEvent(tws_conn_t *conn);
 void tws_QueueCleanupEvent();
 static int tws_HandleCreateFileHandlerEventInThread(Tcl_Event *evPtr, int flags);
@@ -281,6 +283,13 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     conn->ready = 0;
     conn->inprogress = 0;
 //    conn->handshaked = 0;
+    for (Tcl_Size i = 0; i < conn->n_chunks; i++) {
+        Tcl_DStringFree(&conn->chunks_ds[i]);
+    }
+    Tcl_Free(conn->chunks_ds);
+    conn->n_chunks = 0;
+    conn->chunk_offset = 0;
+
 
     if (force) {
         if (tws_UnregisterConnName(conn->handle)) {
@@ -315,17 +324,36 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
 static int tws_HandleWrite(tws_conn_t *conn) {
     assert(valid_conn_handle(conn));
 
-    Tcl_Size reply_length = Tcl_DStringLength(&conn->inout_ds);
-    const char *reply = Tcl_DStringValue(&conn->inout_ds);
+    Tcl_DString *ds_ptr = &conn->inout_ds;
+    if (conn->chunk_offset > 0) {
+        ds_ptr = &conn->chunks_ds[conn->chunk_offset - 1];
+    }
+
+    DBG(fprintf(stderr, "chunk_offset: %ld n_chunks: %ld write_offset: %ld\n", conn->chunk_offset, conn->n_chunks, conn->write_offset));
+
+    Tcl_Size reply_length = Tcl_DStringLength(ds_ptr);
+    const char *reply = Tcl_DStringValue(ds_ptr);
 
     int rc = conn->accept_ctx->write_fn(conn, reply + conn->write_offset, reply_length - conn->write_offset);
 
     if (rc == TWS_AGAIN) {
+        DBG(fprintf(stderr, "TWS_AGAIN write_offset: %ld reply_length: %ld n_chunks: %ld\n", conn->write_offset, reply_length, conn->n_chunks));
         return 0;
     } else if (rc == TWS_ERROR) {
+        DBG(fprintf(stderr, "TWS_ERROR\n"));
         conn->error = 1;
         tws_CloseConn(conn, 1);
         return 1;
+    }
+
+    DBG(fprintf(stderr, "TWS_DONE write_offset: %ld reply_length: %ld n_chunks: %ld\n", conn->write_offset, reply_length, conn->n_chunks));
+
+    if (conn->n_chunks > 0) {
+        conn->write_offset = 0;
+        conn->chunk_offset++;
+        if (conn->chunk_offset <= conn->n_chunks) {
+            return 0;
+        }
     }
 
     // TWS_DONE
@@ -343,7 +371,9 @@ static int tws_HandleWriteEventInThread(Tcl_Event *evPtr, int flags) {
 
     DBG(fprintf(stderr, "HandleWriteEventInThread: %s\n", conn->handle));
 
-    return tws_HandleWrite(conn);
+    int result = tws_HandleWrite(conn);
+    Tcl_ThreadAlert(conn->threadId);
+    return result;
 }
 
 static void tws_QueueWriteEvent(tws_conn_t *conn) {
@@ -624,12 +654,46 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
     Tcl_DStringAppend(&conn->inout_ds, "Content-Length: ", 16);
     Tcl_DStringAppend(&conn->inout_ds, content_length_str, content_length_str_len);
-    Tcl_DStringAppend(&conn->inout_ds, "\r\n\r\n", 4);
-    Tcl_DecrRefCount(contentLengthPtr);
 
-    if (body_length > 0) {
-        Tcl_DStringAppend(&conn->inout_ds, body, body_length);
+    if (body_length < MAX_CHUNK_SIZE) {
+        Tcl_DStringAppend(&conn->inout_ds, "\r\n\r\n", 4);
+        if (body_length > 0) {
+            Tcl_DStringAppend(&conn->inout_ds, body, body_length);
+        }
+    } else {
+        Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
+        Tcl_DStringAppend(&conn->inout_ds, "Transfer-Encoding: chunked", 26);
+        Tcl_DStringAppend(&conn->inout_ds, "\r\n\r\n", 4);
+
+        // chunk the body
+        // it should be:
+        // 1. chunk size in hex
+        // 2. \r\n
+        // 3. chunk data
+        // 4. \r\n
+        // 5. repeat 1-4 until all data is sent
+        // 6. 0
+        // 7. \r\n
+        // 8. \r\n
+
+        conn->n_chunks = (body_length / MAX_CHUNK_SIZE) + 1;
+        DBG(fprintf(stderr, "n_chunks: %ld\n", conn->n_chunks));
+        conn->chunks_ds = (Tcl_DString *) Tcl_Alloc(sizeof(Tcl_DString) * conn->n_chunks);
+        Tcl_Size chunk_index = 0;
+        for (Tcl_Size i = 0; i < body_length; i += MAX_CHUNK_SIZE) {
+            Tcl_DStringInit(&conn->chunks_ds[chunk_index]);
+            Tcl_Size chunk_size = MIN(body_length - i, MAX_CHUNK_SIZE);
+            char chunk_size_str[16];
+            snprintf(chunk_size_str, 16, "%lx", chunk_size);
+            Tcl_DStringAppend(&conn->chunks_ds[chunk_index], chunk_size_str, strlen(chunk_size_str));
+            Tcl_DStringAppend(&conn->chunks_ds[chunk_index], "\r\n", 2);
+            Tcl_DStringAppend(&conn->chunks_ds[chunk_index], body + i, chunk_size);
+            Tcl_DStringAppend(&conn->chunks_ds[chunk_index], "\r\n", 2);
+            chunk_index++;
+        }
+        Tcl_DStringAppend(&conn->chunks_ds[conn->n_chunks - 1], "0\r\n\r\n", -1);
     }
+    Tcl_DecrRefCount(contentLengthPtr);
 
     if (compressed != NULL) {
         Tcl_DecrRefCount(compressed);

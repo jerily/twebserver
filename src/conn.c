@@ -309,6 +309,9 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->content_length = 0;
     conn->error = 0;
     conn->blank_line_offset = 0;
+    conn->n_chunks = 0;
+    conn->chunks_ds = NULL;
+    conn->chunk_offset = 0;
 
 //        fprintf(stderr, "tws_NewConn - num_threads: %d\n", accept_ctx->server->num_threads);
 //        fprintf(stderr, "tws_NewConn - client: %d\n", client);

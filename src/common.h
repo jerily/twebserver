@@ -163,6 +163,9 @@ typedef struct tws_conn_t_ {
     Tcl_Size write_offset;
     Tcl_Size content_length;
     Tcl_Size blank_line_offset;
+    Tcl_DString *chunks_ds;
+    Tcl_Size n_chunks;
+    Tcl_Size chunk_offset;
     char content_type[MAX_CONTENT_TYPE_SIZE];
 
     int error;
