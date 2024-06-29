@@ -1454,6 +1454,75 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
     return TCL_OK;
 }
 
+static int tws_BuildRedirectCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "BuildRedirectCmd\n"));
+    CheckArgs(3, 3, 1, "status_code location");
+
+    // check status_code is 301 or 302
+    int status_code;
+    if (TCL_OK != Tcl_GetIntFromObj(interp, objv[1], &status_code)) {
+        return TCL_ERROR;
+    }
+
+    if (status_code != 301 && status_code != 302) {
+        SetResult("build_redirect: status_code must be 301 or 302");
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *response_dict_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(response_dict_ptr);
+
+    Tcl_Obj *status_code_key_ptr = Tcl_NewStringObj("statusCode", -1);
+    Tcl_IncrRefCount(status_code_key_ptr);
+    if (TCL_OK != Tcl_DictObjPut(interp, response_dict_ptr, status_code_key_ptr, objv[1])) {
+        Tcl_DecrRefCount(status_code_key_ptr);
+        Tcl_DecrRefCount(response_dict_ptr);
+        SetResult("build_redirect: error writing status_code to response_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(status_code_key_ptr);
+
+    Tcl_Obj *headers_key_ptr = Tcl_NewStringObj("headers", -1);
+    Tcl_IncrRefCount(headers_key_ptr);
+    Tcl_Obj *headers_dict_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(headers_dict_ptr);
+
+    Tcl_Obj *location_key_ptr = Tcl_NewStringObj("Location", -1);
+    Tcl_IncrRefCount(location_key_ptr);
+    if (TCL_OK != Tcl_DictObjPut(interp, headers_dict_ptr, location_key_ptr, objv[2])) {
+        Tcl_DecrRefCount(location_key_ptr);
+        Tcl_DecrRefCount(headers_dict_ptr);
+        Tcl_DecrRefCount(headers_key_ptr);
+        Tcl_DecrRefCount(response_dict_ptr);
+        SetResult("build_redirect: error writing Location to headers_dict");
+        return TCL_ERROR;
+    }
+
+    if (TCL_OK != Tcl_DictObjPut(interp, response_dict_ptr, headers_key_ptr, headers_dict_ptr)) {
+        Tcl_DecrRefCount(headers_key_ptr);
+        Tcl_DecrRefCount(headers_dict_ptr);
+        Tcl_DecrRefCount(response_dict_ptr);
+        SetResult("build_redirect: error writing headers to response_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(headers_key_ptr);
+    Tcl_DecrRefCount(headers_dict_ptr);
+
+    Tcl_Obj *body_key_ptr = Tcl_NewStringObj("body", -1);
+    Tcl_IncrRefCount(body_key_ptr);
+    if (TCL_OK != Tcl_DictObjPut(interp, response_dict_ptr, body_key_ptr, Tcl_NewStringObj("", -1))) {
+        Tcl_DecrRefCount(body_key_ptr);
+        Tcl_DecrRefCount(response_dict_ptr);
+        SetResult("build_response: error writing body to response_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(body_key_ptr);
+
+    Tcl_SetObjResult(interp, response_dict_ptr);
+    Tcl_DecrRefCount(response_dict_ptr);
+    return TCL_OK;
+}
+
 static int tws_GetQueryParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *param_name_ptr, int option_multi, Tcl_Obj **result_ptr) {
     // Check request_dict for the following keys:
     //    multiValueQueryStringParameters
@@ -1964,6 +2033,7 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::add_header", tws_AddHeaderCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_cookie", tws_AddCookieCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::build_response", tws_BuildResponseCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::build_redirect", tws_BuildRedirectCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::parse_query", tws_ParseQueryCmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::random_bytes", tws_RandomBytesCmd, NULL, NULL);

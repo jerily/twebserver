@@ -119,6 +119,13 @@
   set response_dict [::twebserver::build_response -return_file 200 image/png plume.png]
   ```
 
+* **::twebserver::build_redirect** *status_code* *location*
+    - builds a redirect response dictionary
+  ```tcl
+  set response_dict [::twebserver::build_redirect 301 "https://www.example.com"]
+  set response_dict [::twebserver::build_redirect 302 "/"]
+  ```
+
 * **::twebserver::wait_signal**
     - an alternative to vwait that waits for a signal (SIGINT or SIGTERM) to be sent to the server
   ```tcl

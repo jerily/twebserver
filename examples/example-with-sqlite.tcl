@@ -59,8 +59,7 @@ set init_script {
         set first_name [dict get $form fields first_name]
         set last_name [dict get $form fields last_name]
         db1 eval {INSERT INTO test_table (first_name, last_name) VALUES ($first_name, $last_name)}
-        set res [::twebserver::build_response 302 text/html ""]
-        return [::twebserver::add_header $res Location /]
+        return [::twebserver::build_redirect 302 "/"]
     }
 
     proc get_catchall_handler {ctx req} {
