@@ -77,9 +77,9 @@ typedef struct tws_listener_t_ {
 
 typedef struct {
     int option_router;
-    Tcl_Obj *cmdPtr;
-    Tcl_Obj *scriptPtr;
-    Tcl_Obj *rootdir_ptr;
+    Tcl_DString cmd_ds;
+    Tcl_DString script_ds;
+    Tcl_DString config_dict_ds;
     Tcl_ThreadId thread_id;
     char handle[30];
     Tcl_Size max_request_read_bytes;
@@ -180,7 +180,8 @@ typedef struct {
 
 typedef struct {
     Tcl_Interp *interp;
-    Tcl_Obj *cmdPtr;
+    Tcl_Obj *cmd_ptr;
+    Tcl_Obj *config_dict_ptr;
     tws_server_t *server;
     tws_conn_t *firstConnPtr;
     tws_conn_t *lastConnPtr;

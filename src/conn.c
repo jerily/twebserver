@@ -48,11 +48,6 @@ static void tws_KeepaliveConnHandler(void *data, int mask);
 static int tws_AddConnToThreadList(tws_conn_t *conn);
 static int tws_HandleWrite(tws_conn_t *conn);
 
-tws_server_t *tws_GetCurrentServer() {
-    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
-    return dataPtr->server;
-}
-
 static int tws_SetBlockingMode(
         int fd,
         int mode            /* Either TWS_MODE_BLOCKING or TWS_MODE_NONBLOCKING. */
@@ -340,7 +335,7 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
         const char *targetCmdPtr;
         Tcl_Size objc;
         Tcl_Obj **objv;
-        if (TCL_OK != Tcl_GetAliasObj(dataPtr->interp, Tcl_GetString(accept_ctx->server->cmdPtr), &targetInterpPtr, &targetCmdPtr, &objc, &objv)) {
+        if (TCL_OK != Tcl_GetAliasObj(dataPtr->interp, Tcl_GetString(dataPtr->cmd_ptr), &targetInterpPtr, &targetCmdPtr, &objc, &objv)) {
             fprintf(stderr, "error getting alias\n");
             tws_CloseConn(conn, 1);
             return 1;
@@ -365,7 +360,7 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
         return 1;
     }
 
-    Tcl_Obj *const cmdobjv[] = {dataPtr->cmdPtr, ctx_dict_ptr, conn->req_dict_ptr, NULL};
+    Tcl_Obj *const cmdobjv[] = {dataPtr->cmd_ptr, ctx_dict_ptr, conn->req_dict_ptr, NULL};
 
     tws_IncrRefCountObjv(3, cmdobjv);
     Tcl_ResetResult(dataPtr->interp);
@@ -839,6 +834,20 @@ void tws_AcceptConn(void *data, int mask) {
 
 }
 
+Tcl_Obj *tws_DStringToObj(Tcl_DString *ds_ptr) {
+    return Tcl_NewStringObj(Tcl_DStringValue(ds_ptr), Tcl_DStringLength(ds_ptr));
+}
+
+Tcl_Obj *tws_DStringToDict(Tcl_DString *ds_ptr) {
+    Tcl_Obj *dict_ptr = tws_DStringToObj(ds_ptr);
+    Tcl_Size size;
+    if (TCL_OK != Tcl_DictObjSize(NULL, dict_ptr, &size)) {
+        fprintf(stderr, "error getting dict size\n");
+        return NULL;
+    }
+    return dict_ptr;
+}
+
 Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 
     tws_thread_ctrl_t *ctrl = (tws_thread_ctrl_t *) clientData;
@@ -847,7 +856,11 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
     // Create a new interp for this thread and store it in the thread data
     dataPtr->interp = Tcl_CreateInterp();
-    dataPtr->cmdPtr = Tcl_DuplicateObj(ctrl->server->cmdPtr);
+    dataPtr->cmd_ptr = tws_DStringToObj(&ctrl->server->cmd_ds);
+    Tcl_IncrRefCount(dataPtr->cmd_ptr);
+    dataPtr->config_dict_ptr = tws_DStringToDict(&ctrl->server->config_dict_ds);
+    Tcl_IncrRefCount(dataPtr->config_dict_ptr);
+
     dataPtr->server = ctrl->server;
     dataPtr->thread_index = ctrl->thread_index;
     dataPtr->terminate = 0;
@@ -862,8 +875,6 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     dataPtr->epoll_fd = epoll_create1(0);
 #endif
     tws_SetBlockingMode(dataPtr->epoll_fd, TWS_MODE_NONBLOCKING);
-
-    Tcl_IncrRefCount(dataPtr->cmdPtr);
 
     DBG(fprintf(stderr, "created interp=%p\n", dataPtr->interp));
 
@@ -940,7 +951,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     // create a file handler for the epoll fd for this thread
     Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
 
-    Tcl_Obj *script_ptr = Tcl_DuplicateObj(ctrl->server->scriptPtr);
+    Tcl_Obj *script_ptr = tws_DStringToObj(&ctrl->server->script_ds);
     Tcl_IncrRefCount(script_ptr);
     if (TCL_OK != Tcl_EvalObj(dataPtr->interp, script_ptr)) {
         Tcl_DecrRefCount(script_ptr);
@@ -997,7 +1008,8 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         SSL_CTX_free(accept_ctx->ssl_ctx);
     }
 #endif
-    tws_DecrRefCountUntilZero(dataPtr->cmdPtr);
+    tws_DecrRefCountUntilZero(dataPtr->cmd_ptr);
+    tws_DecrRefCountUntilZero(dataPtr->config_dict_ptr);
     Tcl_DeleteInterp(dataPtr->interp);
     Tcl_Free((char *) accept_ctx);
 

@@ -198,8 +198,11 @@ These commands are provided for convenience.
 
 #### Info
 
-* **::twebserver::get_rootdir** *?server_handle?*
-    - returns the root directory of the current server or the specified server
+* **::twebserver::get_rootdir**
+  - returns the root directory of the current server
+
+* **::twebserver::get_config_dict**
+  - returns the config dict of the current server
 
 * **::twebserver::info_conn** *handle*
     - returns information about a connection:

@@ -34,9 +34,9 @@ fi
 
 # twebserver
 if true; then
-curl -L -o twebserver-1.47.39.tar.gz --output-dir $BUILD_DIR https://github.com/jerily/twebserver/archive/refs/tags/v1.47.39.tar.gz
-tar -xvf $BUILD_DIR/twebserver-1.47.39.tar.gz -C $BUILD_DIR
-cd $BUILD_DIR/twebserver-1.47.39
+curl -L -o twebserver-1.47.40.tar.gz --output-dir $BUILD_DIR https://github.com/jerily/twebserver/archive/refs/tags/v1.47.40.tar.gz
+tar -xvf $BUILD_DIR/twebserver-1.47.40.tar.gz -C $BUILD_DIR
+cd $BUILD_DIR/twebserver-1.47.40
 mkdir build
 cd build
 # change "TCL_LIBRARY_DIR" and "TCL_INCLUDE_DIR" to the correct paths

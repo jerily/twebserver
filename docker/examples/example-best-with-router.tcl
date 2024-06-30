@@ -68,8 +68,7 @@ set init_script {
     }
 
     proc get_logo_handler {ctx req} {
-        set server_handle [dict get $ctx server]
-        set dir [::twebserver::get_rootdir $server_handle]
+        set dir [::twebserver::get_rootdir]
         set filepath [file join $dir plume.png]
         set res [::twebserver::build_response -return_file 200 image/png $filepath]
         return $res

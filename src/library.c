@@ -90,14 +90,9 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
         listener = next_listener;
     }
 
-    tws_DecrRefCountUntilZero(server->cmdPtr);
-    if (server->scriptPtr != NULL) {
-        tws_DecrRefCountUntilZero(server->scriptPtr);
-    }
-    if (server->rootdir_ptr != NULL) {
-        tws_DecrRefCountUntilZero(server->rootdir_ptr);
-    }
-
+    Tcl_DStringFree(&server->cmd_ds);
+    Tcl_DStringFree(&server->script_ds);
+    Tcl_DStringFree(&server->config_dict_ds);
     tws_FreeSslContexts();
 
     Tcl_DeleteCommand(interp, handle);
@@ -106,20 +101,6 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
 }
 
 static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server_ctx, Tcl_Obj *const configDictPtr) {
-    Tcl_Obj *rootdirPtr;
-    Tcl_Obj *rootdirKeyPtr = Tcl_NewStringObj("rootdir", -1);
-    Tcl_IncrRefCount(rootdirKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, rootdirKeyPtr, &rootdirPtr)) {
-        Tcl_DecrRefCount(rootdirKeyPtr);
-        SetResult("error reading dict");
-        return TCL_ERROR;
-    }
-    Tcl_DecrRefCount(rootdirKeyPtr);
-    if (rootdirPtr) {
-        server_ctx->rootdir_ptr = rootdirPtr;
-        Tcl_IncrRefCount(server_ctx->rootdir_ptr);
-    }
-
     Tcl_Obj *maxRequestReadBytesPtr;
     Tcl_Obj *maxRequestReadBytesKeyPtr = Tcl_NewStringObj("max_request_read_bytes", -1);
     Tcl_IncrRefCount(maxRequestReadBytesKeyPtr);
@@ -506,13 +487,14 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
     DBG(fprintf(stderr, "option_router=%d\n", option_router));
 
     server_ptr->option_router = option_router;
-    server_ptr->cmdPtr = Tcl_DuplicateObj(remObjv[2]);
-    Tcl_IncrRefCount(server_ptr->cmdPtr);
-    server_ptr->scriptPtr = Tcl_DuplicateObj(remObjv[3]);
-    Tcl_IncrRefCount(server_ptr->scriptPtr);
+    Tcl_DStringInit(&server_ptr->config_dict_ds);
+    Tcl_DStringAppend(&server_ptr->config_dict_ds, Tcl_GetString(remObjv[1]), -1);
+    Tcl_DStringInit(&server_ptr->cmd_ds);
+    Tcl_DStringAppend(&server_ptr->cmd_ds, Tcl_GetString(remObjv[2]), -1);
+    Tcl_DStringInit(&server_ptr->script_ds);
+    Tcl_DStringAppend(&server_ptr->script_ds, Tcl_GetString(remObjv[3]), -1);
 
     server_ptr->thread_id = Tcl_GetCurrentThread();
-    server_ptr->rootdir_ptr = NULL;
     server_ptr->first_listener_ptr = NULL;
 
     // configuration
@@ -1940,27 +1922,51 @@ static int tws_WaitSignalCmd(ClientData clientData, Tcl_Interp *interp, int objc
     return TCL_OK;
 }
 
+Tcl_Obj *tws_GetConfigDict() {
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
+    return dataPtr->config_dict_ptr;
+}
+
 static int tws_GetRootdirCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "GetRootdirCmd\n"));
-    CheckArgs(1, 2, 1, "?server_handle?");
+    CheckArgs(1, 2, 1, "");
 
-    tws_server_t *server = NULL;
-    if (objc == 2) {
-        Tcl_Size handle_len;
-        const char *handle = Tcl_GetStringFromObj(objv[1], &handle_len);
-        server = tws_GetInternalFromServerName(handle);
-    } else {
-        server = tws_GetCurrentServer();
-    }
-
-    if (!server) {
-        SetResult("server handle not found");
+    Tcl_Obj *config_dict_ptr = tws_GetConfigDict();
+    if (config_dict_ptr == NULL) {
+        SetResult("get_rootdir: config_dict not found");
         return TCL_ERROR;
     }
 
-    if (server->rootdir_ptr != NULL) {
-        Tcl_SetObjResult(interp, Tcl_DuplicateObj(server->rootdir_ptr));
+    Tcl_Obj *rootdir_key_ptr = Tcl_NewStringObj("rootdir", -1);
+    Tcl_IncrRefCount(rootdir_key_ptr);
+    Tcl_Obj *rootdir_ptr;
+    if (TCL_OK != Tcl_DictObjGet(interp, config_dict_ptr, rootdir_key_ptr, &rootdir_ptr)) {
+        Tcl_DecrRefCount(rootdir_key_ptr);
+        SetResult("get_rootdir: error reading rootdir from config_dict");
+        return TCL_ERROR;
     }
+    Tcl_DecrRefCount(rootdir_key_ptr);
+
+    if (rootdir_ptr == NULL) {
+        SetResult("get_rootdir: rootdir not found in config_dict");
+        return TCL_ERROR;
+    }
+
+    Tcl_SetObjResult(interp, Tcl_DuplicateObj(rootdir_ptr));
+    return TCL_OK;
+}
+
+static int tws_GetConfigDictCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    DBG(fprintf(stderr, "GetConfigDictCmd\n"));
+    CheckArgs(1, 1, 1, "");
+
+    Tcl_Obj *config_dict_ptr = tws_GetConfigDict();
+    if (config_dict_ptr == NULL) {
+        SetResult("get_rootdir: config_dict not found");
+        return TCL_ERROR;
+    }
+
+    Tcl_SetObjResult(interp, Tcl_DuplicateObj(config_dict_ptr));
     return TCL_OK;
 }
 
@@ -2014,6 +2020,7 @@ int Twebserver_Init(Tcl_Interp *interp) {
 
     Tcl_CreateObjCommand(interp, "::twebserver::wait_signal", tws_WaitSignalCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::get_rootdir", tws_GetRootdirCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::get_config_dict", tws_GetConfigDictCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::info_conn", tws_InfoConnCmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::encode_uri_component", tws_EncodeURIComponentCmd, NULL, NULL);

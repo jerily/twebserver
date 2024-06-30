@@ -71,8 +71,7 @@ set init_script {
     }
 
     proc get_logo_handler {ctx req} {
-        set server_handle [dict get $ctx server]
-        set dir [::twebserver::get_rootdir $server_handle]
+        set dir [::twebserver::get_rootdir]
         set filepath [file join $dir plume.png]
         set res [::twebserver::build_response -return_file 200 image/png $filepath]
         return $res
@@ -127,7 +126,7 @@ set init_script {
 
 # use threads and gzip compression
 set config_dict [dict create \
-    rootdir [file dirname [info script]] \
+    rootdir [file normalize [file dirname [info script]]] \
     gzip on \
     gzip_types [list text/html text/plain application/json] \
     gzip_min_length 8192]
