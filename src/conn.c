@@ -485,6 +485,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
         tws_CloseConn(conn, 2);
         return 1;
     } else if (TWS_DONE == ret && Tcl_DStringLength(&conn->inout_ds) == 0) {
+        conn->error = 1;
         // peer closed connection?
         tws_CloseConn(conn, 1);
         return 1;
@@ -615,6 +616,14 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
 
     DBG(fprintf(stderr, "HandleProcessEventInThread: %s (%p)\n", conn->handle, conn->handle_conn_fn));
     int rc = conn->handle_conn_fn(conn);
+
+    // when conn is in error (e.g. peer closed connection), HandleRecv closes the connection and
+    // queues a free conn event. If we continue processing the conn, HandleProcessEventInThread will
+    // be called again (if ready=0) after QueueFreeConnEvent leading to a segfault.
+    if (conn->error) {
+        return 1;
+    }
+
     if (!rc) {
         Tcl_ThreadAlert(conn->threadId);
         return 0;
