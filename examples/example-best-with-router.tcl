@@ -46,6 +46,9 @@ set init_script {
     # add a route that fails with internal server error for testing purposes
     ::twebserver::add_route -strict $router GET /someerror get_someerror_handler
 
+    # add a route that fails with internal server error due to bad response dictionary
+    ::twebserver::add_route -strict $router GET /badresponse get_badresponse_handler
+
     # add a catchall route that will be called if no other route matches a GET request
     ::twebserver::add_route $router GET "*" get_catchall_handler
 
@@ -121,6 +124,10 @@ set init_script {
 
     proc get_someerror_handler {ctx req} {
         someerror
+    }
+
+    proc get_badresponse_handler {ctx req} {
+        return [dict create]
     }
 }
 
