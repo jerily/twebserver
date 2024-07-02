@@ -326,8 +326,9 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
     tws_DecrRefCountUntilZero(ctx_dict_ptr);
 
     if (route_ptr == NULL) {
-        // TODO: return not found
-//        tws_CloseConn(conn, 1);
+        if (TCL_OK != tws_ReturnError(interp, conn, 404, "Not Found")) {
+            return TCL_ERROR;
+        }
     }
 
     return TCL_OK;
