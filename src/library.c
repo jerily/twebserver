@@ -805,15 +805,14 @@ static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
 
 static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *const responseDictPtr, Tcl_Obj *headerNamePtr, Tcl_Obj *headerValuePtr,
                          Tcl_Obj **resultPtr) {
-    Tcl_Obj *dupResponseDictPtr = Tcl_IsShared(responseDictPtr) ? Tcl_DuplicateObj(responseDictPtr) : responseDictPtr;
-//    Tcl_Obj *dupResponseDictPtr = responseDictPtr;
+    Tcl_Obj *dupResponseDictPtr = Tcl_DuplicateObj(responseDictPtr);
     Tcl_IncrRefCount(dupResponseDictPtr);
 
     // check if the header exists in "multiValueHeaders" first
     Tcl_Obj *multiValueHeadersPtr;
     Tcl_Obj *multiValueHeadersKeyPtr = Tcl_NewStringObj("multiValueHeaders", -1);
     Tcl_IncrRefCount(multiValueHeadersKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, multiValueHeadersKeyPtr, &multiValueHeadersPtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, dupResponseDictPtr, multiValueHeadersKeyPtr, &multiValueHeadersPtr)) {
         Tcl_DecrRefCount(multiValueHeadersKeyPtr);
         Tcl_DecrRefCount(dupResponseDictPtr);
         SetResult("add_header: error reading response dict for multiValueHeaders");
@@ -845,7 +844,7 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *const responseDictPtr, Tcl
             return TCL_ERROR;
         }
 
-        if (TCL_OK != Tcl_DictObjPut(interp, responseDictPtr, multiValueHeadersKeyPtr, multiValueHeadersPtr)) {
+        if (TCL_OK != Tcl_DictObjPut(interp, dupResponseDictPtr, multiValueHeadersKeyPtr, multiValueHeadersPtr)) {
             Tcl_DecrRefCount(multiValueHeadersKeyPtr);
             Tcl_DecrRefCount(dupResponseDictPtr);
             SetResult("add_header: error writing multiValueHeaders back to response dict");
@@ -860,7 +859,7 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *const responseDictPtr, Tcl
     Tcl_Obj *headersPtr;
     Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
     Tcl_IncrRefCount(headersKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, headersKeyPtr, &headersPtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, dupResponseDictPtr, headersKeyPtr, &headersPtr)) {
         Tcl_DecrRefCount(headersKeyPtr);
         Tcl_DecrRefCount(multiValueHeadersKeyPtr);
         Tcl_DecrRefCount(dupResponseDictPtr);
@@ -907,7 +906,7 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *const responseDictPtr, Tcl
             Tcl_DecrRefCount(listValuePtr);
 
             // write "multiValueHeaders" dict to response dict
-            if (TCL_OK != Tcl_DictObjPut(interp, responseDictPtr, multiValueHeadersKeyPtr, newMultiValueHeadersPtr)) {
+            if (TCL_OK != Tcl_DictObjPut(interp, dupResponseDictPtr, multiValueHeadersKeyPtr, newMultiValueHeadersPtr)) {
                 Tcl_DecrRefCount(headersKeyPtr);
                 Tcl_DecrRefCount(multiValueHeadersKeyPtr);
                 Tcl_DecrRefCount(dupResponseDictPtr);
