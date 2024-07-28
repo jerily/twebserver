@@ -99,7 +99,7 @@ int tws_CleanupConnections() {
 
             tws_FreeConnWithThreadData(curr_conn, dataPtr);
 
-            DBG(fprintf(stderr, "CleanupConnections - deleted conn - client: %d\n", curr_conn->client));
+            DBG(fprintf(stderr, "CleanupConnections - deleted conn\n"));
         } else {
             long long elapsed = milliseconds - curr_conn->latest_millis;
             if (elapsed > curr_conn->accept_ctx->server->conn_timeout_millis) {
