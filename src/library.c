@@ -90,13 +90,19 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
         listener = next_listener;
     }
 
+    DBG(fprintf(stderr, "listeners freed\n"));
+
     Tcl_DStringFree(&server->cmd_ds);
     Tcl_DStringFree(&server->script_ds);
     Tcl_DStringFree(&server->config_dict_ds);
+
+    DBG(fprintf(stderr, "dstrings freed\n"));
     tws_FreeSslContexts();
+    DBG(fprintf(stderr, "ssl contexts freed\n"));
 
     Tcl_DeleteCommand(interp, handle);
     Tcl_Free((char *) server);
+    DBG(fprintf(stderr, "server destroyed\n"));
     return TCL_OK;
 }
 
@@ -1918,6 +1924,9 @@ static int tws_WaitSignalCmd(ClientData clientData, Tcl_Interp *interp, int objc
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
     } while (!signal_flag);
 
+    signal(SIGTERM, SIG_DFL);
+    signal(SIGINT, SIG_DFL);
+
     return TCL_OK;
 }
 
@@ -1970,11 +1979,13 @@ static int tws_GetConfigDictCmd(ClientData clientData, Tcl_Interp *interp, int o
 }
 
 static void tws_ExitHandler(ClientData unused) {
-    DBG(fprintf(stderr, "Exit Handler\n"));
+    DBG(fprintf(stderr, "Exit Handler: start\n"));
     tws_DeleteServerNameHT();
     tws_DeleteConnNameHT();
     tws_DeleteHostNameHT();
     tws_DeleteRouterNameHT();
+
+    DBG(fprintf(stderr, "Exit Handler: done\n"));
 }
 
 void tws_InitModule() {

@@ -1007,6 +1007,8 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         }
     } while (!dataPtr->terminate);
 
+    DBG(fprintf(stderr, "exited event loop - thread: %p\n", Tcl_GetCurrentThread()));
+
     // we did not close this in HandleTermEventInThread
     // because we wanted to drain keepalive connections
     close(dataPtr->epoll_fd);
