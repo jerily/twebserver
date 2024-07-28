@@ -890,9 +890,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     Tcl_InitMemory(dataPtr->interp);
     if (TCL_OK != Tcl_Init(dataPtr->interp)) {
         DBG(fprintf(stderr, "error initializing Tcl\n"));
-        Tcl_FinalizeThread();
-        Tcl_ExitThread(TCL_ERROR);
-        TCL_THREAD_CREATE_RETURN;
+        goto error;
     }
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -901,16 +899,12 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     int epoll_fd;
     if (TCL_OK != create_socket(dataPtr->interp, ctrl->server, ctrl->host, ctrl->port, &server_fd) || server_fd < 0) {
         fprintf(stderr, "failed to create socket on thread\n");
-        Tcl_FinalizeThread();
-        Tcl_ExitThread(TCL_ERROR);
-        TCL_THREAD_CREATE_RETURN;
+        goto error;
     }
 
     if (TCL_OK != create_epoll_fd(dataPtr->interp, server_fd, &epoll_fd) || epoll_fd < 0) {
         fprintf(stderr, "failed to create epoll fd on thread\n");
-        Tcl_FinalizeThread();
-        Tcl_ExitThread(TCL_ERROR);
-        TCL_THREAD_CREATE_RETURN;
+        goto error;
     }
 
     DBG(fprintf(stderr, "port: %s - created listening socket on thread: %d\n", ctrl->port, ctrl->thread_index));
@@ -935,9 +929,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         // it is an https server, so we need to create an SSL_CTX
         if (TCL_OK != tws_CreateSslContext(dataPtr->interp, &accept_ctx->ssl_ctx)) {
             Tcl_Free((char *) accept_ctx);
-            Tcl_FinalizeThread();
-            Tcl_ExitThread(TCL_ERROR);
-            TCL_THREAD_CREATE_RETURN;
+            goto error;
         }
         SSL_CTX_set_client_hello_cb(accept_ctx->ssl_ctx, tws_ClientHelloCallback, NULL);
 #endif
@@ -976,17 +968,13 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
                                      &errorinfo_ptr)) {
             Tcl_DecrRefCount(errorinfo_key_ptr);
             Tcl_DecrRefCount(return_options_dict_ptr);
-            Tcl_FinalizeThread();
-            Tcl_ExitThread(TCL_ERROR);
-            TCL_THREAD_CREATE_RETURN;
+            goto error;
         }
         Tcl_DecrRefCount(errorinfo_key_ptr);
         fprintf(stderr, "HandleConnThread: errorInfo: %s\n", Tcl_GetString(errorinfo_ptr));
         Tcl_DecrRefCount(return_options_dict_ptr);
 
-        Tcl_FinalizeThread();
-        Tcl_ExitThread(TCL_ERROR);
-        TCL_THREAD_CREATE_RETURN;
+        goto error;
     }
     Tcl_DecrRefCount(script_ptr);
 
@@ -1026,9 +1014,15 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 
     DBG(fprintf(stderr, "HandleConnThread: out (%p)\n", Tcl_GetCurrentThread()));
 
-    Tcl_FinalizeThread();
     Tcl_ExitThread(TCL_OK);
+    goto thread_create_return;
+
+    error:
+    Tcl_ExitThread(TCL_ERROR);
+
+    thread_create_return:
     TCL_THREAD_CREATE_RETURN;
+
 }
 
 static void tws_KeepaliveConnHandler(void *data, int mask) {
