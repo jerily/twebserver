@@ -89,7 +89,10 @@ int tws_CleanupConnections() {
     Tcl_MutexLock(tws_GetThreadMutex());
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
     tws_conn_t *curr_conn = dataPtr->firstConnPtr;
+    tws_conn_t *next_conn = NULL;
     while (curr_conn != NULL) {
+
+        next_conn = curr_conn->nextPtr;
 
         if (curr_conn->todelete) {
             DBG(fprintf(stderr, "CleanupConnections - deleting conn - client: %d\n", curr_conn->client));
@@ -110,7 +113,7 @@ int tws_CleanupConnections() {
         }
         count++;
 
-        curr_conn = curr_conn->nextPtr;
+        curr_conn = next_conn;
     }
     Tcl_MutexUnlock(tws_GetThreadMutex());
 
