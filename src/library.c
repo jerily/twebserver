@@ -2002,7 +2002,7 @@ void tws_InitModule() {
         tws_InitHostNameHT();
         tws_InitRouterNameHT();
 
-        Tcl_CreateExitHandler(tws_ExitHandler, NULL);
+        Tcl_CreateThreadExitHandler(tws_ExitHandler, NULL);
         tws_ModuleInitialized = 1;
     }
 }
