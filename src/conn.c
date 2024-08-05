@@ -331,26 +331,19 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
     // Get the interp from the thread data
 
     if (accept_ctx->server->option_router) {
-        Tcl_Interp *targetInterpPtr;
-        const char *targetCmdPtr;
-        Tcl_Size objc;
-        Tcl_Obj **objv;
-        if (TCL_OK != Tcl_GetAliasObj(dataPtr->interp, Tcl_GetString(dataPtr->cmd_ptr), &targetInterpPtr, &targetCmdPtr, &objc, &objv)) {
-            fprintf(stderr, "error getting alias\n");
-            tws_CloseConn(conn, 1);
+        Tcl_CmdInfo cmd_info;
+        int found = Tcl_GetCommandInfo(dataPtr->interp, Tcl_GetString(dataPtr->cmd_ptr), &cmd_info);
+        if (found) {
+            tws_router_t *router = (tws_router_t *) cmd_info.objClientData;
+            if (router == NULL) {
+                fprintf(stderr, "error getting router\n");
+                tws_CloseConn(conn, 1);
+                return 1;
+            }
+            DBG(fprintf(stderr, "found command info while using router\n"));
+            tws_HandleRouteEventInThread(router, conn, conn->req_dict_ptr);
             return 1;
         }
-
-        DBG(fprintf(stderr, "targetCmdPtr=%s\n", targetCmdPtr));
-
-        tws_router_t *router = tws_GetInternalFromRouterName(targetCmdPtr);
-        if (router == NULL) {
-            fprintf(stderr, "error getting router\n");
-            tws_CloseConn(conn, 1);
-            return 1;
-        }
-        tws_HandleRouteEventInThread(router, conn, conn->req_dict_ptr);
-        return 1;
     }
 
     Tcl_Obj *ctx_dict_ptr;

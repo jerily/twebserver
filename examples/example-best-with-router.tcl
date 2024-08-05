@@ -19,7 +19,7 @@ set init_script {
     }
 
     # create a router
-    ::twebserver::create_router router
+    ::twebserver::create_router -command_name process_conn router
 
     # add middleware to the router
     ::twebserver::add_middleware \
@@ -51,9 +51,6 @@ set init_script {
 
     # add a catchall route that will be called if no other route matches a GET request
     ::twebserver::add_route $router GET "*" get_catchall_handler
-
-    # make sure that the router will be called when the server receives a connection
-    interp alias {} process_conn {} $router
 
     proc get_index_page_handler {ctx req} {
         set html {

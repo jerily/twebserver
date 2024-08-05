@@ -8,7 +8,7 @@ set init_script {
     package require twebserver
     package require sqlite3
 
-    sqlite3 db1 /tmp/test.db -create true
+    sqlite3 db1 /tmp/test.db -create true -fullmutex true
 
     db1 eval {
         CREATE TABLE IF NOT EXISTS test_table (
@@ -19,14 +19,11 @@ set init_script {
     }
 
     # create a router
-    ::twebserver::create_router router
+    ::twebserver::create_router -command_name process_conn router
 
     ::twebserver::add_route -strict $router GET / get_index_page_handler
     ::twebserver::add_route -strict $router POST /add-row add_row_handler
     ::twebserver::add_route $router GET "*" get_catchall_handler
-
-    # make sure that the router will be called when the server receives a connection
-    interp alias {} process_conn {} $router
 
     proc get_index_page_handler {ctx req} {
         set rows_html ""

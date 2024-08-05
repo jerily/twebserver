@@ -477,12 +477,24 @@ char *tws_VarTraceProc(ClientData clientData, Tcl_Interp *interp, const char *na
     return NULL;
 }
 
-int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     DBG(fprintf(stderr, "CreateCmd\n"));
+
+    const char *option_command_name = NULL;
+    Tcl_ArgvInfo ArgTable[] = {
+            {TCL_ARGV_STRING,   "-command_name", NULL,       &option_command_name, "router command name", NULL},
+            {TCL_ARGV_END, NULL,             NULL, NULL, NULL}
+    };
+
+    Tcl_Obj **remObjv;
+    Tcl_Size objc = incoming_objc;
+    Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
+
     CheckArgs(1, 2, 1, "?varname?");
 
     tws_router_t *router_ptr = (tws_router_t *) Tcl_Alloc(sizeof(tws_router_t));
     if (!router_ptr) {
+        ckfree(remObjv);
         SetResult("create_router: memory alloc failed");
         return TCL_ERROR;
     }
@@ -494,15 +506,16 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
     CMD_ROUTER_NAME(router_ptr->handle, router_ptr);
     tws_RegisterRouterName(router_ptr->handle, router_ptr);
     DBG(fprintf(stderr, "creating obj cmd\n"));
-    Tcl_CreateObjCommand(interp, router_ptr->handle, tws_RouterProcessConnCmd, (ClientData) router_ptr, NULL);
+    const char *command_name = option_command_name ? option_command_name : router_ptr->handle;
+    Tcl_CreateObjCommand(interp, command_name, tws_RouterProcessConnCmd, (ClientData) router_ptr, NULL);
     DBG(fprintf(stderr, "done creating obj cmd\n"));
 
     if (objc == 2) {
         tws_trace_t *trace = (tws_trace_t *) Tcl_Alloc(sizeof(tws_trace_t));
         trace->interp = interp;
-        trace->varname = tws_strndup(Tcl_GetString(objv[1]), 80);
+        trace->varname = tws_strndup(Tcl_GetString(remObjv[1]), 80);
         trace->item = router_ptr;
-        const char *objVar = Tcl_GetString(objv[1]);
+        const char *objVar = Tcl_GetString(remObjv[1]);
         Tcl_UnsetVar(interp, objVar, 0);
         Tcl_SetVar  (interp, objVar, router_ptr->handle, 0);
         Tcl_TraceVar(interp, objVar, TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
@@ -511,6 +524,7 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
     }
 
     SetResult(router_ptr->handle);
+    ckfree(remObjv);
     return TCL_OK;
 
 }
@@ -532,17 +546,20 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 5) || (objc > 5)) {
+        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "router_handle http_method path proc_name");
         return TCL_ERROR;
     }
 
     if (option_prefix && option_strict) {
+        ckfree(remObjv);
         SetResult("add_route: option -prefix and -strict are mutually exclusive");
         return TCL_ERROR;
     }
 
     tws_router_t *router_ptr = tws_GetInternalFromRouterName(Tcl_GetString(remObjv[1]));
     if (!router_ptr) {
+        ckfree(remObjv);
         SetResult("add_route: router handle not found");
         return TCL_ERROR;
     }
@@ -555,6 +572,7 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
 
     tws_route_t *route_ptr = (tws_route_t *) Tcl_Alloc(sizeof(tws_route_t));
     if (!route_ptr) {
+        ckfree(remObjv);
         SetResult("add_route: memory alloc failed");
         return TCL_ERROR;
     }
@@ -596,6 +614,7 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
             }
 
             if (TCL_OK != tws_PathToRegExp(interp, path, path_len, flags, &route_ptr->keys, &route_ptr->pattern)) {
+                ckfree(remObjv);
 //                SetResult("add_route: path_to_regexp failed");
                 return TCL_ERROR;
             }
@@ -621,6 +640,7 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
         router_ptr->lastRoutePtr = route_ptr;
     }
 
+    ckfree(remObjv);
     return TCL_OK;
 }
 
@@ -701,23 +721,27 @@ int tws_AddMiddlewareCmd(ClientData clientData, Tcl_Interp *interp, int incoming
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 2) || (objc > 2)) {
+        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "router_handle");
         return TCL_ERROR;
     }
 
     if (!enter_proc && !leave_proc) {
+        ckfree(remObjv);
         SetResult("add_middleware: at least one of -enter_proc or -leave_proc must be specified");
         return TCL_ERROR;
     }
 
     tws_router_t *router_ptr = tws_GetInternalFromRouterName(Tcl_GetString(remObjv[1]));
     if (!router_ptr) {
+        ckfree(remObjv);
         SetResult("add_middleware: router handle not found");
         return TCL_ERROR;
     }
 
     tws_middleware_t *middleware_ptr = (tws_middleware_t *) Tcl_Alloc(sizeof(tws_middleware_t));
     if (!middleware_ptr) {
+        ckfree(remObjv);
         SetResult("add_middleware: memory alloc failed");
         return TCL_ERROR;
     }
@@ -749,5 +773,6 @@ int tws_AddMiddlewareCmd(ClientData clientData, Tcl_Interp *interp, int incoming
         router_ptr->lastMiddlewarePtr = middleware_ptr;
     }
 
+    ckfree(remObjv);
     return TCL_OK;
 }
