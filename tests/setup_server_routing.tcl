@@ -6,7 +6,7 @@ set http_server_port 1122
 set init_script {
     package require twebserver
 
-    set router [::twebserver::create_router]
+    ::twebserver::create_router -command_name process_conn router
 
     ::twebserver::add_route -strict $router GET /someerror get_someerror_handler
     ::twebserver::add_route -prefix $router GET /asdf get_asdf_handler
@@ -16,8 +16,6 @@ set init_script {
     ::twebserver::add_route -strict $router POST /form-example post_form_handler
     ::twebserver::add_route $router GET "*" catchall_handler
     ::twebserver::add_route $router POST "*" catchall_handler
-
-    interp alias {} process_conn {} $router
 
     proc get_someerror_handler {ctx req} {
         someerror
@@ -81,7 +79,7 @@ set config_dict [dict create \
     gzip on \
     gzip_types [list text/plain application/json] \
     gzip_min_length 20]
-set server_handle [::twebserver::create_server $config_dict process_conn $init_script]
+set server_handle [::twebserver::create_server -with_router $config_dict process_conn $init_script]
 
 set dir [file dirname [info script]]
 set localhost_key [file join $dir "../certs/host1/key.pem"]
@@ -97,6 +95,6 @@ set example_cert [file join $dir "../certs/host2/cert.pem"]
 
 ::twebserver::listen_server -num_threads 4 $server_handle $server_port
 ::twebserver::listen_server -http -num_threads 2 $server_handle $http_server_port
-vwait forever
+::twebserver::wait_signal
 ::twebserver::destroy_server $server_handle
 

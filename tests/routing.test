@@ -46,8 +46,7 @@ test not-found-1 {not found} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 404\nContent-Type: text/plain\nContent-Length: 9\n\nnot found}
 
-sleep 100
-
+sleep 200
 test bad-request-invalid-http-method {} -setup setup -cleanup cleanup -body {
     global cmd
     set request "ABC /hello HTTP/1.1\n\n"
@@ -56,8 +55,7 @@ test bad-request-invalid-http-method {} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 400\nContent-Length: 11\n\nBad Request}
 
-sleep 100
-
+sleep 200
 test bad-request-invalid-http-version-1 {} -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /hello HTTP/A.B.C\n\n"
@@ -66,8 +64,7 @@ test bad-request-invalid-http-version-1 {} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 400\nContent-Length: 11\n\nBad Request}
 
-sleep 100
-
+sleep 200
 test bad-request-invalid-http-version-2 {} -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /hello HTTP/1.B\n\n"
@@ -76,8 +73,7 @@ test bad-request-invalid-http-version-2 {} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 400\nContent-Length: 11\n\nBad Request}
 
-sleep 100
-
+sleep 200
 test internal-server-error-1 {} -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /someerror HTTP/1.\n\n"
@@ -86,8 +82,7 @@ test internal-server-error-1 {} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 500\nContent-Length: 21\n\nInternal Server Error}
 
-sleep 100
-
+sleep 200
 test match-prefix-1 {} -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /asdf HTTP/1.\n\n"

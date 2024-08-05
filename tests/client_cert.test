@@ -48,8 +48,7 @@ test client-cert-1 {simple tls1_3 openssl s_client request} -setup setup -cleanu
     escape $response
 } -result {HTTP/1.1 404\nContent-Type: text/plain\nContent-Length: 9\n\nnot found}
 
-sleep 100
-
+sleep 200
 test client-cert-2 {simple tls1_2 openssl s_client request} -setup setup -cleanup cleanup -body {
     set dir [file dirname [info script]]
     set certfilename [file join $dir "../certs/client/client.crt"]
@@ -60,8 +59,7 @@ test client-cert-2 {simple tls1_2 openssl s_client request} -setup setup -cleanu
     escape $response
 } -result {HTTP/1.1 404\nContent-Type: text/plain\nContent-Length: 9\n\nnot found}
 
-sleep 100
-
+sleep 200
 test client-cert-3 {without client cert} -setup setup -cleanup cleanup -body {
     set request "GET /example HTTP/1.1\n\n"
     set cmd "openssl s_client -connect www.example.com:${server_port} -servername example.com -quiet"
@@ -69,4 +67,4 @@ test client-cert-3 {without client cert} -setup setup -cleanup cleanup -body {
     escape $response
 } -returnCodes error -result {child process exited abnormally}
 
-sleep 100
+sleep 200

@@ -38,8 +38,7 @@ proc escape {str} {
     return [string map {\r {\r} \n {\n}} $str]
 }
 
-sleep 100
-
+sleep 200
 test ipv4-only {} -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /addr HTTP/1.1\n\n"
@@ -48,8 +47,7 @@ test ipv4-only {} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 21\n\naddr=::ffff:127.0.0.1}
 
-sleep 100
-
+sleep 200
 test ipv6-only {} -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /addr HTTP/1.1\n\n"

@@ -23,7 +23,7 @@ proc setup {} {
     global server_file
     set TCLSH tclsh[info tclversion]
     set server_pid [exec -ignorestderr -- $TCLSH [file join $dir ${server_file}] &]
-    sleep 1000
+    sleep 5000
 }
 
 proc cleanup {} {
@@ -45,8 +45,7 @@ test basic-1 {simple tls1_3 openssl s_client request} -setup setup -cleanup clea
     escape $response
 } -result {HTTP/1.1 404\nContent-Type: text/plain\nContent-Length: 9\n\nnot found}
 
-sleep 100
-
+sleep 200
 test basic-2 {simple tls1_2 openssl s_client request} -setup setup -cleanup cleanup -body {
     set request "GET /example HTTP/1.1\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -54,8 +53,7 @@ test basic-2 {simple tls1_2 openssl s_client request} -setup setup -cleanup clea
     escape $response
 } -result {HTTP/1.1 404\nContent-Type: text/plain\nContent-Length: 9\n\nnot found}
 
-sleep 100
-
+sleep 200
 test basic-3 {non-blocking message} -setup setup -cleanup cleanup -body {
     set http_server_port 1122
     set sock [socket localhost $http_server_port]
@@ -76,8 +74,7 @@ while {[eof $sock] == 0} {
     escape $response
 } -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 27\n\ntest message GET path=/asdf}
 
-sleep 100
-
+sleep 200
 test basic-4 {non-blocking message - bad} -setup setup -cleanup cleanup -body {
     set http_server_port 1122
     set sock [socket localhost $http_server_port]
@@ -96,8 +93,7 @@ test basic-4 {non-blocking message - bad} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 400\nContent-Length: 11\n\nBad Request}
 
-sleep 100
-
+sleep 200
 test basic-5 {whatever request} -setup setup -cleanup cleanup -body {
     set request "whatever"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -105,8 +101,7 @@ test basic-5 {whatever request} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 400\nContent-Length: 11\n\nBad Request}
 
-sleep 100
-
+sleep 200
 test basic-6 {non-blocking test tls1_2} -setup setup -cleanup cleanup -body {
     set request "GET /asdf HTTP/1.1\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet -nbio_test -nbio"
@@ -114,8 +109,7 @@ test basic-6 {non-blocking test tls1_2} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 27\n\ntest message GET path=/asdf}
 
-sleep 100
-
+sleep 200
 test basic-7 {non-blocking test tls1_3} -setup setup -cleanup cleanup -body {
     set request "GET /asdf HTTP/1.1\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet -nbio_test -nbio"
@@ -123,8 +117,7 @@ test basic-7 {non-blocking test tls1_3} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 27\n\ntest message GET path=/asdf}
 
-sleep 100
-
+sleep 200
 test read-timeout-4 {whatever request} -setup setup -cleanup cleanup -body {
     set request "POST /example HTTP/1.1\nContent-Length: 10000\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -132,8 +125,7 @@ test read-timeout-4 {whatever request} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 400\nContent-Length: 11\n\nBad Request}
 
-sleep 100
-
+sleep 200
 # Reconnects to the same server 5 times using the same session ID, this can be used as a test that session caching is working.
 test session-resumption-tls1_2 {reconnect with tls1.2} -setup setup -cleanup cleanup -body {
     set request "GET /addr HTTP/1.1\n\n"
@@ -143,8 +135,7 @@ test session-resumption-tls1_2 {reconnect with tls1.2} -setup setup -cleanup cle
     return [expr { $index != -1 }]
 } -result {1}
 
-sleep 100
-
+sleep 200
 test session-resumption-tls1_3 {session resumption with tls1.3} -setup setup -cleanup cleanup -body {
     set request "GET /addr HTTP/1.1\n\n"
 
