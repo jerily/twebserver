@@ -334,15 +334,13 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
         Tcl_CmdInfo cmd_info;
         int found = Tcl_GetCommandInfo(dataPtr->interp, Tcl_GetString(dataPtr->cmd_ptr), &cmd_info);
         if (found) {
-            tws_router_t *router = (tws_router_t *) cmd_info.objClientData;
-            if (router == NULL) {
-                fprintf(stderr, "error getting router\n");
-                tws_CloseConn(conn, 1);
+            const char *handle = (const char *) cmd_info.objClientData;
+            tws_router_t *router = tws_GetInternalFromRouterName(handle);
+            if (router != NULL) {
+                DBG(fprintf(stderr, "found command info while using router\n"));
+                tws_HandleRouteEventInThread(router, conn, conn->req_dict_ptr);
                 return 1;
             }
-            DBG(fprintf(stderr, "found command info while using router\n"));
-            tws_HandleRouteEventInThread(router, conn, conn->req_dict_ptr);
-            return 1;
         }
     }
 

@@ -376,7 +376,12 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
     DBG(fprintf(stderr, "RouterProcessConnCmd\n"));
     CheckArgs(3, 3, 1, "ctx_dict req_dict");
 
-    tws_router_t *router_ptr = (tws_router_t *) clientData;
+    const char *handle = (const char *) clientData;
+    tws_router_t *router_ptr = tws_GetInternalFromRouterName(handle);
+    if (!router_ptr) {
+        SetResult("router_process_conn: router handle not found");
+        return TCL_ERROR;
+    }
 
     Tcl_Obj *conn_key_ptr = Tcl_NewStringObj("conn", -1);
     Tcl_IncrRefCount(conn_key_ptr);
@@ -507,7 +512,7 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int incoming_
     tws_RegisterRouterName(router_ptr->handle, router_ptr);
     DBG(fprintf(stderr, "creating obj cmd\n"));
     const char *command_name = option_command_name ? option_command_name : router_ptr->handle;
-    Tcl_CreateObjCommand(interp, command_name, tws_RouterProcessConnCmd, (ClientData) router_ptr, NULL);
+    Tcl_CreateObjCommand(interp, command_name, tws_RouterProcessConnCmd, (ClientData) router_ptr->handle, NULL);
     DBG(fprintf(stderr, "done creating obj cmd\n"));
 
     if (objc == 2) {
