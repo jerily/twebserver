@@ -218,6 +218,7 @@ typedef struct tws_route_s {
     char proc_name[128];
     Tcl_Obj *keys;
     char *pattern;
+    Tcl_Obj *enter_list_ptr;
     struct tws_route_s *nextPtr;
 } tws_route_t;
 
