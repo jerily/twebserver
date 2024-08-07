@@ -412,13 +412,11 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(statusCodeKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, statusCodeKeyPtr, &statusCodePtr)) {
         Tcl_DecrRefCount(statusCodeKeyPtr);
-//        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(statusCodeKeyPtr);
     if (!statusCodePtr) {
-//        tws_CloseConn(conn, 1);
         SetResult("statusCode not found");
         return TCL_ERROR;
     }
@@ -428,7 +426,6 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(headersKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, headersKeyPtr, &headersPtr)) {
         Tcl_DecrRefCount(headersKeyPtr);
-//        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
@@ -439,7 +436,6 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(multiValueHeadersKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, multiValueHeadersKeyPtr, &multiValueHeadersPtr)) {
         Tcl_DecrRefCount(multiValueHeadersKeyPtr);
-//        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
@@ -450,14 +446,12 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(bodyKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, bodyKeyPtr, &bodyPtr)) {
         Tcl_DecrRefCount(bodyKeyPtr);
-//        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(bodyKeyPtr);
 
     if (!bodyPtr) {
-//        tws_CloseConn(conn, 1);
         SetResult("body not found");
         return TCL_ERROR;
     }
@@ -467,7 +461,6 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(isBase64EncodedKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, isBase64EncodedKeyPtr, &isBase64EncodedPtr)) {
         Tcl_DecrRefCount(isBase64EncodedKeyPtr);
-//        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
@@ -493,7 +486,6 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
             Tcl_Obj *listPtr;
             if (multiValueHeadersPtr) {
                 if (TCL_OK != Tcl_DictObjGet(interp, multiValueHeadersPtr, keyPtr, &listPtr)) {
-//                    tws_CloseConn(conn, 1);
                     SetResult("error reading from dict");
                     return TCL_ERROR;
                 }
@@ -562,9 +554,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
             body = Tcl_Alloc(3 * b64_body_length / 4 + 2);
             body_alloc = 1;
             if (base64_decode(b64_body, b64_body_length, body, &body_length)) {
-//                Tcl_DStringFree(&ds);
                 Tcl_Free(body);
-//                tws_CloseConn(conn, 1);
                 SetResult("base64 decode error");
                 return TCL_ERROR;
             }
@@ -585,11 +575,9 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         Tcl_IncrRefCount(contentTypeKeyPtr);
         if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentTypeKeyPtr, &contentTypePtr)) {
             Tcl_DecrRefCount(contentTypeKeyPtr);
-//            Tcl_DStringFree(&ds);
             if (body_alloc) {
                 Tcl_Free(body);
             }
-//            tws_CloseConn(conn, 1);
             SetResult("error reading from dict");
             return TCL_ERROR;
         }
@@ -632,11 +620,9 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         if (Tcl_ZlibDeflate(interp, TCL_ZLIB_FORMAT_GZIP, baObj,
                             TCL_ZLIB_COMPRESS_FAST, NULL)) {
             Tcl_DecrRefCount(baObj);
-//            Tcl_DStringFree(&ds);
             if (body_alloc) {
                 Tcl_Free(body);
             }
-//            tws_CloseConn(conn, 1);
             SetResult("gzip compression error");
             return TCL_ERROR;
         }

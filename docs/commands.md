@@ -42,7 +42,7 @@
   ```tcl
   ::twebserver::create_router router
   ```
-* **::twebserver::add_route** *?-prefix?* *?-nocase?* *?-strict?* *router* *method* *path* *handler_proc*
+* **::twebserver::add_route** *?-guard_proc_list proc_list?* *?-prefix?* *?-nocase?* *?-strict?* *router* *method* *path* *handler_proc*
     - adds a route to a router, the handler_proc should accept two arguments: ```context_dict``` and ```request_dict```.
       See [Routing](routing.md) for more information.
   ```tcl

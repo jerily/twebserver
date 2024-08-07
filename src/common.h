@@ -218,7 +218,7 @@ typedef struct tws_route_s {
     char proc_name[128];
     Tcl_Obj *keys;
     char *pattern;
-    Tcl_Obj *enter_list_ptr;
+    Tcl_Obj *guard_list_ptr;
     struct tws_route_s *nextPtr;
 } tws_route_t;
 
@@ -275,6 +275,7 @@ int tws_IsBinaryType(const char *content_type, size_t content_type_length);
 long long current_time_in_millis();
 void tws_DecrRefCountUntilZero(Tcl_Obj *obj);
 void tws_FreeSslContexts();
+void tws_PrintRefCountObjv(int objc, Tcl_Obj *const objv[]);
 void tws_IncrRefCountObjv(int objc, Tcl_Obj *const objv[]);
 void tws_DecrRefCountObjv(int objc, Tcl_Obj *const objv[]);
 int valid_conn_handle(tws_conn_t *conn);

@@ -342,6 +342,12 @@ void tws_FreeSslContexts() {
     Tcl_MutexUnlock(&tws_HostNameToInternal_HT_Mutex);
 }
 
+void tws_PrintRefCountObjv(int objc, Tcl_Obj *const objv[]) {
+    for (int i = 0; i < objc; i++) {
+        fprintf(stderr, "i=%d: %ld\n", i, objv[i]->refCount);
+    }
+}
+
 void tws_IncrRefCountObjv(int objc, Tcl_Obj *const objv[]) {
     for (int i = 0; i < objc; i++) {
         Tcl_IncrRefCount(objv[i]);
