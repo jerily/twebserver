@@ -428,8 +428,10 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
         SetResult("router_process_conn: conn handle not found");
         return TCL_ERROR;
     }
-//   TODO: conn->req_dict_ptr = Tcl_DuplicateObj(objv[2]);
+    Tcl_Obj *old_req_dict_ptr = conn->req_dict_ptr;
+    conn->req_dict_ptr = Tcl_DuplicateObj(objv[2]);
     tws_HandleRouteEventInThread(router_ptr, conn);
+    Tcl_DecrRefCount(old_req_dict_ptr);
     return TCL_OK;
 }
 
