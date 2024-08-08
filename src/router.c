@@ -181,7 +181,6 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
     Tcl_ResetResult(interp);
 
     // traverse middleware enter procs
-    tws_middleware_t *prev_middleware_ptr = NULL;
     tws_middleware_t *middleware_ptr = router_ptr->firstMiddlewarePtr;
     while (middleware_ptr != NULL) {
         if (middleware_ptr->enter_proc_ptr) {
@@ -201,7 +200,6 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
             Tcl_ResetResult(interp);
 
         }
-        prev_middleware_ptr = middleware_ptr;
         middleware_ptr = middleware_ptr->nextPtr;
     }
 
@@ -218,7 +216,7 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
     Tcl_ResetResult(interp);
 
     // traverse middleware leave procs in reverse order
-    middleware_ptr = prev_middleware_ptr;
+    middleware_ptr = router_ptr->lastMiddlewarePtr;
     while (middleware_ptr != NULL) {
         if (middleware_ptr->leave_proc_ptr) {
 
