@@ -97,3 +97,28 @@ proc example_handler {ctx req} {
     return $res
 }
 ```
+
+### Guard Proc List
+
+A guard proc list is a list of procs that are executed before the route handler.
+The guard procs should accept the context ```ctx``` and the request ```req``` dictionaries
+and return 0 or 1. If a guard proc returns 0, the route handler is not executed.
+
+```tcl
+proc is_authenticated {ctx req} {
+    if {[dict exists $req headers Authorization]} {
+        return 1
+    }
+    return 0
+}
+
+proc example_handler {ctx req} {
+    set user_id [dict get $req pathParameters user_id]
+    set res [dict create]
+    dict set res statusCode 200
+    dict set res body "hello user $user_id"
+    return $res
+}
+
+::twebserver::add_route -guard_proc_list [list is_authenticated] $router GET /example/:user_id/view example_handler
+```
