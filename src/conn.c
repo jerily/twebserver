@@ -338,7 +338,7 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
             tws_router_t *router = tws_GetInternalFromRouterName(handle);
             if (router != NULL) {
                 DBG(fprintf(stderr, "found command info while using router\n"));
-                tws_HandleRouteEventInThread(router, conn, conn->req_dict_ptr);
+                tws_HandleRouteEventInThread(router, conn);
                 return 1;
             }
         }
