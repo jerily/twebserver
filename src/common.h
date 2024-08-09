@@ -51,28 +51,12 @@ typedef int Tcl_Size;
 #define SetResult(str) Tcl_ResetResult(interp); \
                      Tcl_SetStringObj(Tcl_GetObjResult(interp), (str), -1)
 
-#define CMD_SERVER_NAME(s, internal) sprintf((s), "_TWS_SERVER_%p", (internal))
-#define CMD_CONN_NAME(s, internal) sprintf((s), "_TWS_CONN_%p", (internal))
-#define CMD_ROUTER_NAME(s, internal) sprintf((s), "_TWS_ROUTER_%p", (internal))
+#define CMD_SERVER_NAME(s, internal) sprintf((s), "_TWS_SERVER_%p", (void *) (internal))
+#define CMD_CONN_NAME(s, internal) sprintf((s), "_TWS_CONN_%p", (void *) (internal))
+#define CMD_ROUTER_NAME(s, internal) sprintf((s), "_TWS_ROUTER_%p", (void *) (internal))
 
 #define CHARTYPE(what, c) (is ## what ((int)((unsigned char)(c))))
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
-
-static const char *ssl_errors[] = {
-        "SSL_ERROR_NONE",
-        "SSL_ERROR_SSL",
-        "SSL_ERROR_WANT_READ",
-        "SSL_ERROR_WANT_WRITE",
-        "SSL_ERROR_WANT_X509_LOOKUP",
-        "SSL_ERROR_SYSCALL",
-        "SSL_ERROR_ZERO_RETURN",
-        "SSL_ERROR_WANT_CONNECT",
-        "SSL_ERROR_WANT_ACCEPT",
-        "SSL_ERROR_WANT_ASYNC",
-        "SSL_ERROR_WANT_ASYNC_JOB",
-        "SSL_ERROR_WANT_CLIENT_HELLO_CB",
-        "SSL_ERROR_WANT_RETRY_VERIFY"
-};
 
 typedef struct tws_listener_t_ {
     int port;
@@ -290,6 +274,7 @@ void tws_PrintRefCountObjv(int objc, Tcl_Obj *const objv[]);
 void tws_IncrRefCountObjv(int objc, Tcl_Obj *const objv[]);
 void tws_DecrRefCountObjv(int objc, Tcl_Obj *const objv[]);
 int valid_conn_handle(tws_conn_t *conn);
+const char *tws_GetSslError(int err);
 
 Tcl_Mutex *tws_GetThreadMutex();
 Tcl_ThreadDataKey *tws_GetThreadDataKey();

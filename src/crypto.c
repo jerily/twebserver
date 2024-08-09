@@ -9,6 +9,8 @@
 
 
 int tws_RandomBytesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
     DBG(fprintf(stderr, "RandomBytesCmd\n"));
     CheckArgs(2, 2, 1, "num_bytes");
 
@@ -43,6 +45,8 @@ int tws_RandomBytesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_
 }
 
 int tws_Sha1Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
     DBG(fprintf(stderr, "Sha1Cmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
@@ -57,6 +61,8 @@ int tws_Sha1Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *co
 }
 
 int tws_Sha256Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
     DBG(fprintf(stderr, "Sha256Cmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
@@ -71,6 +77,8 @@ int tws_Sha256Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *
 }
 
 int tws_Sha512Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
     DBG(fprintf(stderr, "Sha512Cmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
@@ -85,6 +93,8 @@ int tws_Sha512Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *
 }
 
 int tws_HexEncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
     DBG(fprintf(stderr, "HexEncodeCmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
@@ -106,6 +116,8 @@ int tws_HexEncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
 }
 
 int tws_HexDecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
     DBG(fprintf(stderr, "HexDecodeCmd\n"));
     CheckArgs(2, 2, 1, "hex_encoded_string");
 

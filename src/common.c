@@ -7,6 +7,22 @@
 #include <sys/time.h>
 #include "common.h"
 
+static const char *ssl_errors[] = {
+        "SSL_ERROR_NONE",
+        "SSL_ERROR_SSL",
+        "SSL_ERROR_WANT_READ",
+        "SSL_ERROR_WANT_WRITE",
+        "SSL_ERROR_WANT_X509_LOOKUP",
+        "SSL_ERROR_SYSCALL",
+        "SSL_ERROR_ZERO_RETURN",
+        "SSL_ERROR_WANT_CONNECT",
+        "SSL_ERROR_WANT_ACCEPT",
+        "SSL_ERROR_WANT_ASYNC",
+        "SSL_ERROR_WANT_ASYNC_JOB",
+        "SSL_ERROR_WANT_CLIENT_HELLO_CB",
+        "SSL_ERROR_WANT_RETRY_VERIFY"
+};
+
 static Tcl_Mutex tws_Thread_Mutex;
 static Tcl_ThreadDataKey dataKey;
 
@@ -364,4 +380,8 @@ int valid_conn_handle(tws_conn_t *conn) {
     char generated_handle[30];
     CMD_CONN_NAME(generated_handle, conn);
     return strncmp(conn->handle, generated_handle, strlen(generated_handle)) == 0;
+}
+
+const char *tws_GetSslError(int err) {
+    return ssl_errors[err];
 }

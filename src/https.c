@@ -6,7 +6,6 @@
 
 #include "https.h"
 
-
 // ClientHello callback
 int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
 
@@ -142,7 +141,7 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
         } else {
             int err = SSL_get_error(conn->ssl, rc);
             if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-                DBG(fprintf(stderr, "AGAIN %s\n", ssl_errors[err]));
+                DBG(fprintf(stderr, "AGAIN %s\n", tws_GetSslError(err)));
                 Tcl_Free(buf);
                 return TWS_AGAIN;
 
@@ -153,7 +152,7 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
             }
 
             fprintf(stderr, "SSL_read error: %s err=%d rc=%d total_read=%zd\n",
-                    ssl_errors[err], err, rc, total_read);
+                    tws_GetSslError(err), err, rc, total_read);
 
             Tcl_Free(buf);
             return TWS_ERROR;

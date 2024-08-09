@@ -9,7 +9,7 @@
 #include <tcl.h>
 #include "common.h"
 
-int tws_UrlEncode(Tcl_Interp *interp, int enc_flags, const char *value, Tcl_Size value_length, Tcl_Obj **valuePtrPtr);
+int tws_UrlEncode(int enc_flags, const char *value, Tcl_Size value_length, Tcl_Obj **valuePtrPtr);
 int tws_UrlDecode(Tcl_Encoding encoding, const char *value, Tcl_Size value_length, Tcl_DString *value_ds_ptr, int *error_num);
 int tws_ParseRequest(tws_conn_t *conn, int *error_num);
 int tws_ParseConnectionKeepalive(Tcl_HashTable *headers_HT_ptr, int *keepalive);

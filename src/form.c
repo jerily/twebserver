@@ -501,6 +501,8 @@ static int tws_ParseUrlEncodedForm(Tcl_Interp *interp, Tcl_Obj *body_ptr, Tcl_Ob
 }
 
 int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
     DBG(fprintf(stderr, "GetFormCmd\n"));
     CheckArgs(2, 2, 1, "request_dict");
 

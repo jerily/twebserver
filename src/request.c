@@ -8,6 +8,8 @@
 #include "uri.h"
 #include "base64.h"
 
+static char hex_digits[] = "0123456789ABCDEF"; // A lookup table for hexadecimal digits
+
 // search a string for any of a set of bytes
 const char *tws_strpbrk(const char *s, const char *end, const char *accept) {
     while (s < end && *s != '\0') {
@@ -90,7 +92,7 @@ int tws_UrlDecode(Tcl_Encoding encoding, const char *value, Tcl_Size value_lengt
     return TCL_OK;
 }
 
-int tws_UrlEncode(Tcl_Interp *interp, int enc_flags, const char *value, Tcl_Size value_length, Tcl_Obj **valuePtrPtr) {
+int tws_UrlEncode(int enc_flags, const char *value, Tcl_Size value_length, Tcl_Obj **valuePtrPtr) {
     // use "enc" to encode "value" into "valuePtr"
     // allocate memory for "valuePtr"
     char *valuePtr = (char *) Tcl_Alloc(3 * value_length + 1);
@@ -530,7 +532,7 @@ static int tws_ParseRequestLine(Tcl_Encoding encoding, const char **currPtr, con
 }
 
 static int tws_AddHeader(Tcl_HashTable *headers_HT_ptr, Tcl_HashTable *multi_value_headers_HT_ptr, const char *key,
-                         const char *value, int *error_num) {
+                         const char *value) {
 
     // check if "key" already exists in "headers"
     Tcl_HashEntry *existing_entry_ptr = Tcl_FindHashEntry(headers_HT_ptr, key);
@@ -568,7 +570,8 @@ static int tws_AddHeader(Tcl_HashTable *headers_HT_ptr, Tcl_HashTable *multi_val
 }
 
 static int tws_ParseHeaders(const char **currPtr, const char *end, Tcl_HashTable *headers_HT_ptr,
-                            Tcl_HashTable *multi_value_headers_HT_ptr, Tcl_DString *parse_ds_ptr, int *error_num) {
+                            Tcl_HashTable *multi_value_headers_HT_ptr, int *error_num) {
+
     // parse the headers, each header is a line of the form "key: value"
     // stop when we reach an empty line denoted by "\r\n" or "\n"
     const char *curr = *currPtr;
@@ -623,7 +626,7 @@ static int tws_ParseHeaders(const char **currPtr, const char *end, Tcl_HashTable
 
         // check if we reached the end
         if (curr == end) {
-            if (TCL_OK != tws_AddHeader(headers_HT_ptr, multi_value_headers_HT_ptr, key, Tcl_DStringValue(&value_ds), error_num)) {
+            if (TCL_OK != tws_AddHeader(headers_HT_ptr, multi_value_headers_HT_ptr, key, Tcl_DStringValue(&value_ds))) {
                 Tcl_Free(key);
                 Tcl_DStringFree(&value_ds);
                 return TCL_ERROR;
@@ -647,7 +650,7 @@ static int tws_ParseHeaders(const char **currPtr, const char *end, Tcl_HashTable
 
         // check if we reached the end
         if (curr == end) {
-            if (TCL_OK != tws_AddHeader(headers_HT_ptr, multi_value_headers_HT_ptr, key, Tcl_DStringValue(&value_ds), error_num)) {
+            if (TCL_OK != tws_AddHeader(headers_HT_ptr, multi_value_headers_HT_ptr, key, Tcl_DStringValue(&value_ds))) {
 //                Tcl_DecrRefCount(keyPtr);
 //                Tcl_DecrRefCount(valuePtr);
 //                SetResult("ParseHeaders: failed adding header (2)");
@@ -695,16 +698,11 @@ static int tws_ParseHeaders(const char **currPtr, const char *end, Tcl_HashTable
 
         }
 
-        if (TCL_OK != tws_AddHeader(headers_HT_ptr, multi_value_headers_HT_ptr, key, Tcl_DStringValue(&value_ds), error_num)) {
-//            Tcl_DecrRefCount(keyPtr);
-//            Tcl_DecrRefCount(valuePtr);
-//            SetResult("ParseHeaders: failed adding header (3)");
+        if (TCL_OK != tws_AddHeader(headers_HT_ptr, multi_value_headers_HT_ptr, key, Tcl_DStringValue(&value_ds))) {
             Tcl_Free(key);
             Tcl_DStringFree(&value_ds);
             return TCL_ERROR;
         }
-//        Tcl_DecrRefCount(keyPtr);
-//        Tcl_DecrRefCount(valuePtr);
         Tcl_Free(key);
         Tcl_DStringFree(&value_ds);
 
@@ -861,7 +859,7 @@ int tws_ParseRequest(tws_conn_t *conn, int *error_num) {
 //    Tcl_Obj *multiValueHeadersPtr = Tcl_NewDictObj();
 //    Tcl_IncrRefCount(multiValueHeadersPtr);
 
-    if (TCL_OK != tws_ParseHeaders(&curr, end, &headers_HT, &multi_value_headers_HT, parse_ds_ptr, error_num)) {
+    if (TCL_OK != tws_ParseHeaders(&curr, end, &headers_HT, &multi_value_headers_HT, error_num)) {
 //        Tcl_DecrRefCount(multiValueHeadersPtr);
 //        Tcl_DecrRefCount(headersPtr);
         tws_FreeParseHashTable(&headers_HT);

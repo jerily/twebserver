@@ -81,7 +81,7 @@ static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_
     return TCL_OK;
 }
 
-static int tws_MatchExactRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *path_ptr, int *matched) {
+static int tws_MatchExactRoute(tws_route_t *route_ptr, Tcl_Obj *path_ptr, int *matched) {
     Tcl_Size path_len;
     char *path = Tcl_GetStringFromObj(path_ptr, &path_len);
 
@@ -142,7 +142,7 @@ static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *d
         }
 
         if (route_ptr->type == ROUTE_TYPE_EXACT) {
-            if (TCL_OK != tws_MatchExactRoute(interp, route_ptr, path_ptr, matched)) {
+            if (TCL_OK != tws_MatchExactRoute(route_ptr, path_ptr, matched)) {
                 SetResult("MatchRoute: match_exact_route failed");
                 return TCL_ERROR;
             }
@@ -489,6 +489,8 @@ static int tws_DestroyRouter(Tcl_Interp *interp, const char *handle) {
 static char VAR_READ_ONLY_MSG[] = "var is read-only";
 
 char *tws_VarTraceProc(ClientData clientData, Tcl_Interp *interp, const char *name1, const char *name2, int flags) {
+    UNUSED(interp);
+
     tws_trace_t *trace = (tws_trace_t *) clientData;
     if (trace->item == NULL) {
         DBG(fprintf(stderr, "VarTraceProc: router has been deleted\n"));
@@ -516,12 +518,14 @@ char *tws_VarTraceProc(ClientData clientData, Tcl_Interp *interp, const char *na
 }
 
 int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
     DBG(fprintf(stderr, "CreateCmd\n"));
 
     const char *option_command_name = NULL;
     Tcl_ArgvInfo ArgTable[] = {
             {TCL_ARGV_STRING, "-command_name", NULL, &option_command_name, "router command name", NULL},
-            {TCL_ARGV_END, NULL,               NULL, NULL, NULL}
+            {TCL_ARGV_END, NULL,               NULL, NULL, NULL,                                  NULL}
     };
 
     Tcl_Obj **remObjv;
@@ -572,6 +576,8 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int incoming_
 }
 
 int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
     DBG(fprintf(stderr, "AddRouteCmd\n"));
 
     int option_prefix = 0;
@@ -579,11 +585,11 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
     int option_strict = 0;
     const char *option_guard_proc_list = NULL;
     Tcl_ArgvInfo ArgTable[] = {
-            {TCL_ARGV_STRING,   "-guard_proc_list", NULL,       &option_guard_proc_list, "guard proc list", NULL},
-            {TCL_ARGV_CONSTANT, "-prefix",          INT2PTR(1), &option_prefix,          "prefix matching"},
-            {TCL_ARGV_CONSTANT, "-nocase",          INT2PTR(1), &option_nocase,          "case insensitive"},
-            {TCL_ARGV_CONSTANT, "-strict",          INT2PTR(1), &option_strict,          "strict matching"},
-            {TCL_ARGV_END, NULL,                    NULL, NULL, NULL}
+            {TCL_ARGV_STRING,   "-guard_proc_list", NULL,       &option_guard_proc_list, "guard proc list",  NULL},
+            {TCL_ARGV_CONSTANT, "-prefix",          INT2PTR(1), &option_prefix,          "prefix matching",  NULL},
+            {TCL_ARGV_CONSTANT, "-nocase",          INT2PTR(1), &option_nocase,          "case insensitive", NULL},
+            {TCL_ARGV_CONSTANT, "-strict",          INT2PTR(1), &option_strict,          "strict matching",  NULL},
+            {TCL_ARGV_END, NULL,                    NULL, NULL, NULL,                                        NULL}
     };
     Tcl_Obj **remObjv;
     Tcl_Size objc = incoming_objc;
@@ -696,6 +702,8 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
 }
 
 int tws_InfoRoutesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
     DBG(fprintf(stderr, "AddRouteCmd\n"));
     CheckArgs(2, 2, 1, "router_handle");
     tws_router_t *router_ptr = tws_GetInternalFromRouterName(Tcl_GetString(objv[1]));
@@ -758,14 +766,16 @@ int tws_InfoRoutesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
 
 
 int tws_AddMiddlewareCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
     DBG(fprintf(stderr, "AddMiddlewareCmd\n"));
 
     const char *enter_proc = NULL;
     const char *leave_proc = NULL;
     Tcl_ArgvInfo ArgTable[] = {
-            {TCL_ARGV_STRING, "-enter_proc", NULL, &enter_proc, "enter proc"},
-            {TCL_ARGV_STRING, "-leave_proc", NULL, &leave_proc, "leave proc"},
-            {TCL_ARGV_END, NULL,             NULL, NULL, NULL}
+            {TCL_ARGV_STRING, "-enter_proc", NULL, &enter_proc, "enter proc", NULL},
+            {TCL_ARGV_STRING, "-leave_proc", NULL, &leave_proc, "leave proc", NULL},
+            {TCL_ARGV_END, NULL,             NULL, NULL, NULL,                NULL}
     };
     Tcl_Obj **remObjv;
     Tcl_Size objc = incoming_objc;

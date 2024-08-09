@@ -46,7 +46,6 @@ enum {
 static int tws_HandleRecv(tws_conn_t *conn);
 static void tws_KeepaliveConnHandler(void *data, int mask);
 static int tws_AddConnToThreadList(tws_conn_t *conn);
-static int tws_HandleWrite(tws_conn_t *conn);
 
 static int tws_SetBlockingMode(
         int fd,
@@ -556,7 +555,7 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
         tws_CloseConn(conn, 1);
         return 1;
     }
-    fprintf(stderr, "SSL_accept <= 0 client: %d err=%s\n", conn->client, ssl_errors[err]);
+    fprintf(stderr, "SSL_accept <= 0 client: %d err=%s\n", conn->client, tws_GetSslError(err));
     conn->error = 1;
     tws_CloseConn(conn, 1);
     ERR_print_errors_fp(stderr);
@@ -564,6 +563,9 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
 }
 
 int tws_HandleTermEventInThread(Tcl_Event *evPtr, int flags) {
+    UNUSED(evPtr);
+    UNUSED(flags);
+
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -598,6 +600,8 @@ static int tws_SetDefaultBodyIfNeeded(Tcl_Interp *interp, tws_conn_t *conn) {
 }
 
 static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
+    UNUSED(flags);
+
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
 
@@ -726,6 +730,8 @@ static void tws_ThreadQueueKeepaliveEvent(tws_conn_t *conn) {
 
 
 int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
     DBG(fprintf(stderr, "InfoConnCmd\n"));
     CheckArgs(2, 2, 1, "conn_handle");
 
@@ -796,6 +802,8 @@ static int tws_AddConnToThreadList(tws_conn_t *conn) {
 }
 
 void tws_AcceptConn(void *data, int mask) {
+    UNUSED(mask);
+
     DBG(fprintf(stderr, "-------------------tws_AcceptConn\n"));
 
     tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) data;
@@ -1020,6 +1028,8 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 }
 
 static void tws_KeepaliveConnHandler(void *data, int mask) {
+    UNUSED(data);
+    UNUSED(mask);
 
         DBG(fprintf(stderr, "KeepaliveConnHandler\n"));
 

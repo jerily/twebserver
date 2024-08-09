@@ -724,7 +724,7 @@ static int tws_EncodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
     const char *text = Tcl_GetStringFromObj(objv[1], &length);
 
     Tcl_Obj *valuePtr;
-    if (TCL_OK != tws_UrlEncode(interp, enc_flags, text, length, &valuePtr)) {
+    if (TCL_OK != tws_UrlEncode(enc_flags, text, length, &valuePtr)) {
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
@@ -743,7 +743,7 @@ static int tws_EncodeQueryCmd(ClientData clientData, Tcl_Interp *interp, int obj
     const char *text = Tcl_GetStringFromObj(objv[1], &length);
 
     Tcl_Obj *valuePtr;
-    if (TCL_OK != tws_UrlEncode(interp, enc_flags, text, length, &valuePtr)) {
+    if (TCL_OK != tws_UrlEncode(enc_flags, text, length, &valuePtr)) {
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
@@ -1197,7 +1197,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incom
     Tcl_Obj *cookieValuePtr;
     Tcl_Size cookie_value_length;
     const char *cookie_value = Tcl_GetStringFromObj(remObjv[3], &cookie_value_length);
-    if (TCL_OK != tws_UrlEncode(interp, enc_flags, cookie_value, cookie_value_length, &cookieValuePtr)) {
+    if (TCL_OK != tws_UrlEncode(enc_flags, cookie_value, cookie_value_length, &cookieValuePtr)) {
         ckfree(remObjv);
         Tcl_DStringFree(&header_value_ds);
         return TCL_ERROR;
@@ -1945,6 +1945,9 @@ int tws_ReturnResponseCmd(ClientData clientData, Tcl_Interp *interp, int objc, T
 }
 
 static int tws_HandleBreakLoopInMainThread(Tcl_Event *evPtr, int flags) {
+    UNUSED(evPtr);
+    UNUSED(flags);
+
     signal_flag = 1;
     return 1;
 }
@@ -2038,7 +2041,9 @@ static int tws_GetConfigDictCmd(ClientData clientData, Tcl_Interp *interp, int o
     return TCL_OK;
 }
 
-static void tws_ExitHandler(ClientData unused) {
+static void tws_ExitHandler(ClientData clientData) {
+    UNUSED(clientData);
+
     DBG(fprintf(stderr, "Exit Handler: start\n"));
     tws_DeleteServerNameHT();
     tws_DeleteConnNameHT();

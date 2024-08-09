@@ -32,7 +32,7 @@ void tws_QueueCreateFileHandlerEvent(tws_conn_t *conn);
 void tws_QueueCleanupEvent();
 static int tws_HandleCreateFileHandlerEventInThread(Tcl_Event *evPtr, int flags);
 static void tws_CreateFileHandler(int fd, ClientData clientData);
-static void tws_ShutdownConn(tws_conn_t *conn, int force);
+static void tws_ShutdownConn(tws_conn_t *conn);
 static int tws_HandleCleanupEventInThread(Tcl_Event *evPtr, int flags);
 
 static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *dataPtr) {
@@ -105,7 +105,7 @@ int tws_CleanupConnections() {
             if (elapsed > curr_conn->accept_ctx->server->conn_timeout_millis) {
                 if (tws_UnregisterConnName(curr_conn->handle)) {
                     DBG(fprintf(stderr, "CleanupConnections - mark connection for deletion\n"));
-                    tws_ShutdownConn(curr_conn, 2);
+                    tws_ShutdownConn(curr_conn);
                     curr_conn->todelete = 1;
                     count_mark_for_deletion++;
                 }
@@ -123,6 +123,9 @@ int tws_CleanupConnections() {
 }
 
 static int tws_HandleCleanupEventInThread(Tcl_Event *evPtr, int flags) {
+    UNUSED(evPtr);
+    UNUSED(flags);
+
     return tws_CleanupConnections();
 }
 
@@ -149,6 +152,8 @@ static void tws_CreateFileHandler(int fd, ClientData clientData) {
 }
 
 static int tws_HandleCreateFileHandlerEventInThread(Tcl_Event *evPtr, int flags) {
+    UNUSED(flags);
+
     DBG(fprintf(stderr, "CreateFileHandlerForKeepaliveConn\n"));
     tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
@@ -169,6 +174,8 @@ void tws_QueueCleanupEvent() {
 }
 
 static int tws_HandleFreeConnEventInThread(Tcl_Event *evPtr, int flags) {
+    UNUSED(flags);
+
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
     tws_FreeConn(conn);
@@ -218,7 +225,7 @@ static void tws_DeleteFileHandler(int fd) {
 #endif
 }
 
-static void tws_ShutdownConn(tws_conn_t *conn, int force) {
+static void tws_ShutdownConn(tws_conn_t *conn) {
     if (conn->todelete) {
         DBG(fprintf(stderr, "ShutdownConn - already marked for deletion\n"));
         return;
@@ -296,13 +303,13 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
 
     if (force) {
         if (tws_UnregisterConnName(conn->handle)) {
-            tws_ShutdownConn(conn, force);
+            tws_ShutdownConn(conn);
             tws_QueueFreeConnEvent(conn);
         }
     } else {
         if (!conn->keepalive) {
             if (tws_UnregisterConnName(conn->handle)) {
-                tws_ShutdownConn(conn, 2);
+                tws_ShutdownConn(conn);
                 tws_QueueFreeConnEvent(conn);
             }
         } else {
@@ -367,6 +374,8 @@ static int tws_HandleWrite(tws_conn_t *conn) {
 }
 
 static int tws_HandleWriteEventInThread(Tcl_Event *evPtr, int flags) {
+    UNUSED(flags);
+
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
 
@@ -545,7 +554,6 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_Size body_length = 0;
     char *body = NULL;
     int body_alloc = 0;
-    int rc;
     if (isBase64Encoded) {
 
         Tcl_Size b64_body_length;
