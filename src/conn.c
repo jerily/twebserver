@@ -330,6 +330,9 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
     // Get the interp from the thread data
 
+    Tcl_Obj *dup_req_dict_ptr = conn->req_dict_ptr;
+    conn->req_dict_ptr = NULL;
+
     if (accept_ctx->server->option_router) {
         Tcl_CmdInfo cmd_info;
         int found = Tcl_GetCommandInfo(dataPtr->interp, Tcl_GetString(dataPtr->cmd_ptr), &cmd_info);
@@ -338,7 +341,7 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
             tws_router_t *router = tws_GetInternalFromRouterName(handle);
             if (router != NULL) {
                 DBG(fprintf(stderr, "found command info while using router\n"));
-                tws_HandleRouteEventInThread(router, conn);
+                tws_HandleRouteEventInThread(router, conn, dup_req_dict_ptr);
                 return 1;
             }
         }
@@ -351,14 +354,13 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
         return 1;
     }
 
-    Tcl_Obj *const cmdobjv[] = {dataPtr->cmd_ptr, ctx_dict_ptr, conn->req_dict_ptr, NULL};
+    Tcl_Obj *const cmdobjv[] = {dataPtr->cmd_ptr, ctx_dict_ptr, dup_req_dict_ptr, NULL};
 
-    tws_IncrRefCountObjv(3, cmdobjv);
     Tcl_ResetResult(dataPtr->interp);
     if (TCL_OK != Tcl_EvalObjv(dataPtr->interp, 3, cmdobjv, TCL_EVAL_GLOBAL)) {
         fprintf(stderr, "error evaluating script sock=%d\n", conn->client);
 
-        tws_DecrRefCountObjv(3, cmdobjv);
+        Tcl_DecrRefCount(dup_req_dict_ptr);
         Tcl_DecrRefCount(ctx_dict_ptr);
 
         Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(dataPtr->interp, TCL_ERROR);
@@ -379,7 +381,8 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
         tws_CloseConn(conn, 1);
         return 1;
     }
-    tws_DecrRefCountObjv(3, cmdobjv);
+
+    Tcl_DecrRefCount(dup_req_dict_ptr);
     Tcl_DecrRefCount(ctx_dict_ptr);
 
     return 1;
