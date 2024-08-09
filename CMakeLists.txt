@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(twebserver VERSION 1.47.47 LANGUAGES CXX C)
+project(twebserver VERSION 1.47.48 LANGUAGES CXX C)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(TARGET twebserver)
