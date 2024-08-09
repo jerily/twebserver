@@ -295,6 +295,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
 
     Tcl_Obj *ctx_dict_ptr;
     if (TCL_OK != tws_CreateContextDict(interp, conn, &ctx_dict_ptr)) {
+        Tcl_DecrRefCount(dup_req_dict_ptr);
         return TCL_ERROR;
     }
 
@@ -303,6 +304,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
         int matched = 0;
         if (TCL_OK != tws_MatchRoute(interp, route_ptr, dup_req_dict_ptr, &matched)) {
             Tcl_DecrRefCount(ctx_dict_ptr);
+            Tcl_DecrRefCount(dup_req_dict_ptr);
             SetResult("router_process_conn: match_route failed");
             return TCL_ERROR;
         }
@@ -314,6 +316,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
                 Tcl_Obj **guard_objv;
                 if (TCL_OK != Tcl_ListObjGetElements(interp, route_ptr->guard_list_ptr, &guard_objc, &guard_objv)) {
                     Tcl_DecrRefCount(ctx_dict_ptr);
+                    Tcl_DecrRefCount(dup_req_dict_ptr);
                     return TCL_ERROR;
                 }
 
@@ -321,6 +324,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
                     Tcl_Obj *const eval_objv[] = {guard_objv[i], ctx_dict_ptr, dup_req_dict_ptr};
                     if (TCL_OK != Tcl_EvalObjv(interp, 3, eval_objv, TCL_EVAL_GLOBAL)) {
                         Tcl_DecrRefCount(ctx_dict_ptr);
+                        Tcl_DecrRefCount(dup_req_dict_ptr);
                         return TCL_ERROR;
                     }
 
@@ -328,6 +332,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
                     int guard_proceed;
                     if (TCL_OK != Tcl_GetBooleanFromObj(interp, guard_result_ptr, &guard_proceed)) {
                         Tcl_DecrRefCount(ctx_dict_ptr);
+                        Tcl_DecrRefCount(dup_req_dict_ptr);
                         return TCL_ERROR;
                     }
 
@@ -341,6 +346,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
             }
 
             if (proceed) {
+                // tws_ProcessRoute decrements ref count for dup_req_dict_ptr in any case
                 if (TCL_OK != tws_ProcessRoute(interp, conn, router_ptr, route_ptr, ctx_dict_ptr, dup_req_dict_ptr)) {
                     Tcl_DecrRefCount(ctx_dict_ptr);
                     return TCL_ERROR;
@@ -354,6 +360,7 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
     Tcl_DecrRefCount(ctx_dict_ptr);
 
     if (route_ptr == NULL) {
+        Tcl_DecrRefCount(dup_req_dict_ptr);
         if (TCL_OK != tws_ReturnError(interp, conn, 404, "Not Found")) {
             return TCL_ERROR;
         }
