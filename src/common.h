@@ -23,10 +23,21 @@ typedef int Tcl_Size;
 #define XSTR(s) STR(s)
 #define STR(s) #s
 
+#define UNUSED(expr) do { (void)(expr); } while (0)
+
 #ifdef DEBUG
 # define DBG(x) x
+#ifndef __FUNCTION_NAME__
+#ifdef _WIN32   // WINDOWS
+#define __FUNCTION_NAME__   __FUNCTION__
+#else          // GCC
+#define __FUNCTION_NAME__   __func__
+#endif
+#endif
+# define DBG2(x) {printf("%s: ", __FUNCTION_NAME__); x; printf("\n"); fflush(stdout);}
 #else
 # define DBG(x)
+# define DBG2(x)
 #endif
 
 #define ObjCmdProc(x) int (x)(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])

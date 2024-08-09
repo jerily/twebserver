@@ -14,9 +14,21 @@ message(STATUS "TCL_INCLUDE_PATH: ${TCL_INCLUDE_PATH}")
 message(STATUS "TCL_LIBRARY: ${TCL_LIBRARY}")
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)
-# NDEBUG to not generate code for assert
-set(CMAKE_C_FLAGS  "-DNDEBUG -DTCL_THREADS -DVERSION=${PROJECT_VERSION} ${CMAKE_C_FLAGS}")
+#set(CMAKE_C_FLAGS  "-DNDEBUG -DTCL_THREADS -DVERSION=${PROJECT_VERSION} ${CMAKE_C_FLAGS}")
 #set(CMAKE_C_FLAGS  "-g -DPURIFY -DDEBUG -fsanitize=address -DNDEBUG -DTCL_THREADS -DVERSION=${PROJECT_VERSION} ${CMAKE_C_FLAGS}")
+
+add_compile_options(-Wall -Wextra -Wpedantic)
+add_compile_definitions(TCL_THREADS VERSION=${PROJECT_VERSION})
+
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+    add_compile_options(-fPIC -g -fsanitize=undefined -fsanitize=address)
+    add_link_options(-fsanitize=undefined -fsanitize=address)
+    set(CMAKE_C_FLAGS "-DDEBUG ${CMAKE_C_FLAGS}")
+else()
+    # NDEBUG to not generate code for assert
+    add_compile_definitions(NDEBUG)
+endif ()
+
 
 
 
