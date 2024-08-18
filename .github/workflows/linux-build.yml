@@ -73,6 +73,7 @@ jobs:
       - name: Run Tests
         working-directory: build
         run: |
+          echo "127.0.0.1 localhost www.example.com" | sudo tee -a /etc/hosts
           make test || {
             echo "::error::Failure during Test"
             exit 1

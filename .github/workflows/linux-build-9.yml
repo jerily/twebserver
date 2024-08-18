@@ -87,6 +87,7 @@ jobs:
       - name: Run Tests
         working-directory: build
         run: |
+          echo "127.0.0.1 localhost www.example.com" | sudo tee -a /etc/hosts
           PATH="$HOME/tcl_install/bin:$PATH" LD_LIBRARY_PATH="$HOME/tcl_install/lib" make test || {
             echo "::error::Failure during Test"
             exit 1
