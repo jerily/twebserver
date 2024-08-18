@@ -49,7 +49,10 @@ jobs:
       - name: Configure openssl
         working-directory: openssl
         run: |
-          ./Configure no-docs
+          ./Configure no-docs --prefix=$HOME/twebserver_install || {
+            echo "::error::Failure during Configure openssl"
+            exit 1
+          }
       - name: Build openssl
         working-directory: openssl
         run: |
