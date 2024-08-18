@@ -70,13 +70,13 @@ jobs:
             echo "::error::Failure during Build"
             exit 1
           }
-#      - name: Run Tests
-#        working-directory: build
-#        run: |
-#          make test || {
-#            echo "::error::Failure during Test"
-#            exit 1
-#          }
+      - name: Run Tests
+        working-directory: build
+        run: |
+          make test || {
+            echo "::error::Failure during Test"
+            exit 1
+          }
       - name: Test-Drive Installation
         working-directory: build
         run: |
