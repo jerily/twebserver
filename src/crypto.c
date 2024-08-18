@@ -11,7 +11,7 @@
 int tws_RandomBytesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "RandomBytesCmd\n"));
+    DBG2(printf("RandomBytesCmd\n"));
     CheckArgs(2, 2, 1, "num_bytes");
 
     int num_bytes;
@@ -47,7 +47,7 @@ int tws_RandomBytesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_
 int tws_Sha1Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "Sha1Cmd\n"));
+    DBG2(printf("Sha1Cmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
     Tcl_Size num_bytes;
@@ -63,7 +63,7 @@ int tws_Sha1Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *co
 int tws_Sha256Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "Sha256Cmd\n"));
+    DBG2(printf("Sha256Cmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
     Tcl_Size num_bytes;
@@ -79,7 +79,7 @@ int tws_Sha256Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *
 int tws_Sha512Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "Sha512Cmd\n"));
+    DBG2(printf("Sha512Cmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
     Tcl_Size num_bytes;
@@ -95,7 +95,7 @@ int tws_Sha512Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *
 int tws_HexEncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "HexEncodeCmd\n"));
+    DBG2(printf("HexEncodeCmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
     Tcl_Size num_bytes;
@@ -118,7 +118,7 @@ int tws_HexEncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
 int tws_HexDecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "HexDecodeCmd\n"));
+    DBG2(printf("HexDecodeCmd\n"));
     CheckArgs(2, 2, 1, "hex_encoded_string");
 
     Tcl_Size hex_length;

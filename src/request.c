@@ -617,7 +617,7 @@ static int tws_ParseHeaders(const char **currPtr, const char *end, Tcl_HashTable
         Tcl_DStringInit(&value_ds);
         Tcl_DStringAppend(&value_ds, p, valuelen);
 
-        DBG(fprintf(stderr, "key=%s value=%s\n", key, Tcl_DStringValue(&value_ds)));
+        DBG2(printf("key=%s value=%s\n", key, Tcl_DStringValue(&value_ds)));
 
         // skip spaces until end of line denoted by "\r\n" or "\n"
         while (curr < end && CHARTYPE(space, *curr) != 0 && *curr != '\r' && *curr != '\n') {
@@ -667,7 +667,7 @@ static int tws_ParseHeaders(const char **currPtr, const char *end, Tcl_HashTable
 
         // check if the line starts with a space, if so, it is a continuation of the previous header
         while (curr < end && *curr == ' ') {
-            DBG(fprintf(stderr, "continuation curr=%p end=%p intchar=%d\n", curr, end, (int) curr[0]));
+            DBG2(printf("continuation curr=%p end=%p intchar=%d\n", curr, end, (int) curr[0]));
             // skip spaces
             while (curr < end && CHARTYPE(space, *curr) != 0) {
                 curr++;
@@ -733,7 +733,7 @@ int tws_ParseBody(tws_conn_t *conn, const char *curr, const char *end, int *erro
     const char *content_type = conn->content_type;
     size_t content_type_length = strnlen(content_type, sizeof(conn->content_type));
 
-    DBG(fprintf(stderr, "content_type: %s\n", content_type));
+    DBG2(printf("content_type: %s\n", content_type));
 
     int base64_encode_it = 0;
     if (content_type_length > 0) {
@@ -847,7 +847,7 @@ int tws_ParseRequest(tws_conn_t *conn, int *error_num) {
     if (TCL_OK != tws_ParseRequestLine(encoding, &curr, end, parse_ds_ptr, error_num)) {
         return TCL_ERROR;
     }
-    DBG(fprintf(stderr, "parse dstring after parse request line: %s\n", Tcl_DStringValue(parse_ds_ptr)));
+    DBG2(printf("parse dstring after parse request line: %s\n", Tcl_DStringValue(parse_ds_ptr)));
 
     Tcl_HashTable headers_HT;
     Tcl_InitHashTable(&headers_HT, TCL_STRING_KEYS);
@@ -1068,7 +1068,7 @@ int tws_ParseAcceptEncoding(Tcl_HashTable *headers_HT_ptr, tws_compression_metho
 }
 
 int tws_ParseTopPart(tws_conn_t *conn, int *error_num) {
-    DBG(fprintf(stderr, "parse top part: start %d\n", conn->client));
+    DBG2(printf("parse top part: start %d\n", conn->client));
 
     if (TCL_OK != tws_ParseRequest(conn, error_num)) {
         return TCL_ERROR;
@@ -1078,7 +1078,7 @@ int tws_ParseTopPart(tws_conn_t *conn, int *error_num) {
 }
 
 int tws_ParseBottomPart(tws_conn_t *conn, int *error_num) {
-    DBG(fprintf(stderr, "parse bottom part\n"));
+    DBG2(printf("parse bottom part\n"));
 
     if (conn->content_length > 0) {
         const char *remaining_unprocessed_ptr = Tcl_DStringValue(&conn->inout_ds) + conn->top_part_offset;

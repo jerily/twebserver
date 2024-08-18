@@ -78,7 +78,9 @@ set config_dict [dict create \
     read_timeout_millis 5000 \
     gzip on \
     gzip_types [list text/plain application/json] \
-    gzip_min_length 20]
+    gzip_min_length 20 \
+    connect_timeout_millis 5000]
+
 set server_handle [::twebserver::create_server -with_router $config_dict process_conn $init_script]
 
 set dir [file dirname [info script]]

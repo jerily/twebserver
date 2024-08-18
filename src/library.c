@@ -45,7 +45,7 @@ static void tws_StopServer(tws_server_t *server) {
         close(listener->server_fd);
 #endif
         for (int i = 0; i < listener->option_num_threads; i++) {
-            DBG(fprintf(stderr, "Stopping thread %p\n", listener->conn_thread_ids[i]));
+            DBG2(printf("Stopping thread %p\n", listener->conn_thread_ids[i]));
             tws_ThreadQueueTermEvent(listener->conn_thread_ids[i]);
         }
         listener = listener->nextPtr;
@@ -56,18 +56,18 @@ static void tws_StopServer(tws_server_t *server) {
     listener = server->first_listener_ptr;
     while (listener) {
         for (int i = 0; i < listener->option_num_threads; i++) {
-            DBG(fprintf(stderr, "Waiting for thread %p\n", listener->conn_thread_ids[i]));
+            DBG2(printf("Waiting for thread %p\n", listener->conn_thread_ids[i]));
             if (TCL_OK != Tcl_JoinThread(listener->conn_thread_ids[i], NULL)) {
                 fprintf(stderr, "Error joining thread %p\n", listener->conn_thread_ids[i]);
             }
-            DBG(fprintf(stderr, "Thread %p exited\n", listener->conn_thread_ids[i]));
+            DBG2(printf("Thread %p exited\n", listener->conn_thread_ids[i]));
         }
         listener = listener->nextPtr;
     }
 }
 
 int tws_Destroy(Tcl_Interp *interp, const char *handle) {
-    DBG(fprintf(stderr, "Destroy\n"));
+    DBG2(printf("Destroy\n"));
 
     tws_server_t *server = tws_GetInternalFromServerName(handle);
     if (!server) {
@@ -84,26 +84,26 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
 
     tws_listener_t *listener = server->first_listener_ptr;
     while (listener) {
-        DBG(fprintf(stderr, "deleting listener\n"));
+        DBG2(printf("deleting listener\n"));
         Tcl_Free((char *) listener->conn_thread_ids);
         tws_listener_t *next_listener = listener->nextPtr;
         Tcl_Free((char *) listener);
         listener = next_listener;
     }
 
-    DBG(fprintf(stderr, "listeners freed\n"));
+    DBG2(printf("listeners freed\n"));
 
     Tcl_DStringFree(&server->cmd_ds);
     Tcl_DStringFree(&server->script_ds);
     Tcl_DStringFree(&server->config_dict_ds);
 
-    DBG(fprintf(stderr, "dstrings freed\n"));
+    DBG2(printf("dstrings freed\n"));
     tws_FreeSslContexts();
-    DBG(fprintf(stderr, "ssl contexts freed\n"));
+    DBG2(printf("ssl contexts freed\n"));
 
     Tcl_DeleteCommand(interp, handle);
     Tcl_Free((char *) server);
-    DBG(fprintf(stderr, "server destroyed\n"));
+    DBG2(printf("server destroyed\n"));
     return TCL_OK;
 }
 
@@ -396,7 +396,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
             if (newEntry) {
                 Tcl_SetHashValue(entryPtr, (ClientData) NULL);
             }
-            DBG(fprintf(stderr, "gzip_types: %s\n", gzip_type));
+            DBG2(printf("gzip_types: %s\n", gzip_type));
         }
     }
 
@@ -468,7 +468,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
 static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "CreateCmd\n"));
+    DBG2(printf("CreateCmd\n"));
 
     int option_router = 0;
     Tcl_ArgvInfo ArgTable[] = {
@@ -493,7 +493,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
         return TCL_ERROR;
     }
 
-    DBG(fprintf(stderr, "option_router=%d\n", option_router));
+    DBG2(printf("option_router=%d\n", option_router));
 
     server_ptr->option_router = option_router;
     Tcl_DStringInit(&server_ptr->config_dict_ds);
@@ -549,7 +549,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
 static int tws_DestroyServerCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "DestroyCmd\n"));
+    DBG2(printf("DestroyCmd\n"));
     CheckArgs(2, 2, 1, "handle");
 
     return tws_Destroy(interp, Tcl_GetString(objv[1]));
@@ -559,7 +559,7 @@ static int tws_DestroyServerCmd(ClientData clientData, Tcl_Interp *interp, int o
 static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "ListenCmd\n"));
+    DBG2(printf("ListenCmd\n"));
 
     int option_http = 0;
     int option_num_threads = 0;
@@ -614,7 +614,7 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int incoming
 static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "AddContextCmd\n"));
+    DBG2(printf("AddContextCmd\n"));
 
     int option_verify_client = 0;
     char *cafile = NULL;
@@ -715,7 +715,7 @@ static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int inco
 static int tws_EncodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "EncodeURIComponentCmd\n"));
+    DBG2(printf("EncodeURIComponentCmd\n"));
     CheckArgs(2, 2, 1, "text");
 
     int enc_flags = CHAR_COMPONENT;
@@ -734,7 +734,7 @@ static int tws_EncodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
 static int tws_EncodeQueryCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "EncodeQueryCmd\n"));
+    DBG2(printf("EncodeQueryCmd\n"));
     CheckArgs(2, 2, 1, "text");
 
     int enc_flags = CHAR_QUERY;
@@ -754,7 +754,7 @@ static int tws_EncodeQueryCmd(ClientData clientData, Tcl_Interp *interp, int obj
 static int tws_DecodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "DecodeURIComponentCmd\n"));
+    DBG2(printf("DecodeURIComponentCmd\n"));
     CheckArgs(2, 3, 1, "encoded_text ?encoding_name?");
 
     Tcl_Size length;
@@ -784,7 +784,7 @@ static int tws_DecodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
 static int tws_Base64EncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "Base64EncodeCmd\n"));
+    DBG2(printf("Base64EncodeCmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
     Tcl_Size input_length;
@@ -810,7 +810,7 @@ static int tws_Base64EncodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
 static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "Base64DecodeCmd\n"));
+    DBG2(printf("Base64DecodeCmd\n"));
     CheckArgs(2, 2, 1, "base64_encoded_string");
 
     Tcl_Size input_length;
@@ -1006,7 +1006,7 @@ tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *const responseDictPtr, Tcl_Obj *heade
 static int tws_ParseCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "ParseCookieCmd\n"));
+    DBG2(printf("ParseCookieCmd\n"));
     CheckArgs(2, 2, 1, "cookie_header");
 
     Tcl_Size cookie_header_len;
@@ -1104,7 +1104,7 @@ static int tws_ParseCookieCmd(ClientData clientData, Tcl_Interp *interp, int obj
 static int tws_ParseQueryCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "ParseCookieCmd\n"));
+    DBG2(printf("ParseCookieCmd\n"));
     CheckArgs(2, 3, 1, "query_string ?encoding?");
 
     Tcl_Size query_string_len;
@@ -1136,7 +1136,7 @@ static int tws_ParseQueryCmd(ClientData clientData, Tcl_Interp *interp, int objc
 static int tws_AddHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "AddHeaderCmd\n"));
+    DBG2(printf("AddHeaderCmd\n"));
     CheckArgs(4, 4, 1, "response_dict header_name header_value");
 
     Tcl_Obj *responseDictPtr;
@@ -1151,7 +1151,7 @@ static int tws_AddHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc,
 static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "AddCookieCmd\n"));
+    DBG2(printf("AddCookieCmd\n"));
 
     const char *option_path = NULL;
     const char *option_domain = NULL;
@@ -1283,7 +1283,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incom
 static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "BuildResponseCmd\n"));
+    DBG2(printf("BuildResponseCmd\n"));
 
     int option_file = 0;
     Tcl_ArgvInfo ArgTable[] = {
@@ -1478,7 +1478,7 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
 static int tws_BuildRedirectCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "BuildRedirectCmd\n"));
+    DBG2(printf("BuildRedirectCmd\n"));
     CheckArgs(3, 3, 1, "status_code location");
 
     // check status_code is 301 or 302
@@ -1622,7 +1622,7 @@ static int tws_GetQueryParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj 
 int tws_GetQueryParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "GetQueryParamCmd\n"));
+    DBG2(printf("GetQueryParamCmd\n"));
     CheckArgs(3, 4, 1, "request_dict param_name ?return_list?");
 
     int option_multi = 0;
@@ -1694,7 +1694,7 @@ static int tws_GetPathParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *
 int tws_GetPathParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "GetPathParamCmd\n"));
+    DBG2(printf("GetPathParamCmd\n"));
     CheckArgs(3, 4, 1, "request_dict param_name ?return_list?");
 
     int option_multi = 0;
@@ -1797,7 +1797,7 @@ static int tws_GetHeader(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *par
 int tws_GetHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "GetPathParamCmd\n"));
+    DBG2(printf("GetPathParamCmd\n"));
     CheckArgs(3, 4, 1, "request_dict header_name ?return_list?");
 
     int option_multi = 0;
@@ -1827,7 +1827,7 @@ int tws_GetHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
 int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "GetParamCmd\n"));
+    DBG2(printf("GetParamCmd\n"));
 
     int option_multi = 0;
     int option_query = 0;
@@ -1888,7 +1888,7 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
 int tws_IpV6ToIpV4Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "IpV6ToIpV4Cmd\n"));
+    DBG2(printf("IpV6ToIpV4Cmd\n"));
     CheckArgs(2, 2, 1, "ipv6_address");
 
     // check if the input is a valid IPv6 address and whether it can be mapped to IPv4
@@ -1921,7 +1921,7 @@ int tws_IpV6ToIpV4Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
 int tws_ReturnResponseCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "ReturnResponseCmd\n"));
+    DBG2(printf("ReturnResponseCmd\n"));
     CheckArgs(3, 4, 1, "conn_handle response_dict ?encoding?");
 
     const char *conn_handle = Tcl_GetString(objv[1]);
@@ -1971,7 +1971,7 @@ void tws_SignalHandler(int signum) {
 static int tws_WaitSignalCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "VarWaitCmd\n"));
+    DBG2(printf("VarWaitCmd\n"));
     CheckArgs(1, 1, 1, "");
 
     signal_flag = 0;
@@ -1997,7 +1997,7 @@ Tcl_Obj *tws_GetConfigDict() {
 static int tws_GetRootdirCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "GetRootdirCmd\n"));
+    DBG2(printf("GetRootdirCmd\n"));
     CheckArgs(1, 2, 1, "");
 
     Tcl_Obj *config_dict_ptr = tws_GetConfigDict();
@@ -2028,7 +2028,7 @@ static int tws_GetRootdirCmd(ClientData clientData, Tcl_Interp *interp, int objc
 static int tws_GetConfigDictCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "GetConfigDictCmd\n"));
+    DBG2(printf("GetConfigDictCmd\n"));
     CheckArgs(1, 1, 1, "");
 
     Tcl_Obj *config_dict_ptr = tws_GetConfigDict();
@@ -2044,13 +2044,13 @@ static int tws_GetConfigDictCmd(ClientData clientData, Tcl_Interp *interp, int o
 static void tws_ExitHandler(ClientData clientData) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "Exit Handler: start\n"));
+    DBG2(printf("Exit Handler: start\n"));
     tws_DeleteServerNameHT();
     tws_DeleteConnNameHT();
     tws_DeleteHostNameHT();
     tws_DeleteRouterNameHT();
 
-    DBG(fprintf(stderr, "Exit Handler: done\n"));
+    DBG2(printf("Exit Handler: done\n"));
 }
 
 void tws_InitModule() {
