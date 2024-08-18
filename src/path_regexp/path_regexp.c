@@ -166,7 +166,7 @@ int tws_PathExprToTokens(Tcl_Interp *interp, const char *path_expr, int path_exp
         return TCL_ERROR;
     }
 
-    DBG(fprintf(stderr, "PathExprToTokens - lex tokens: %s\n", Tcl_GetString(lexTokensListPtr)));
+    DBG2(printf("PathExprToTokens - lex tokens: %s\n", Tcl_GetString(lexTokensListPtr)));
 
     Tcl_Size lexTokensLen;
     Tcl_Obj **lexTokens;
@@ -491,7 +491,7 @@ int tws_PathToRegExp(Tcl_Interp *interp, const char *path, Tcl_Size path_len, in
         return TCL_ERROR;
     }
 
-    DBG(fprintf(stderr, "PathToRegExp - tokens: %s\n", Tcl_GetString(tokensListPtr)));
+    DBG2(printf("PathToRegExp - tokens: %s\n", Tcl_GetString(tokensListPtr)));
 
     Tcl_DString ds;
     Tcl_DStringInit(&ds);
@@ -507,7 +507,7 @@ int tws_PathToRegExp(Tcl_Interp *interp, const char *path, Tcl_Size path_len, in
     *pattern = Tcl_Alloc(Tcl_DStringLength(&ds) + 1);
     memcpy(*pattern, Tcl_DStringValue(&ds), Tcl_DStringLength(&ds));
     (*pattern)[Tcl_DStringLength(&ds)] = '\0';
-    DBG(fprintf(stderr, "PathToRegExp - pattern: %s\n", *pattern));
+    DBG2(printf("PathToRegExp - pattern: %s\n", *pattern));
     *keys = keysListPtr;
     Tcl_DecrRefCount(tokensListPtr);
     Tcl_DStringFree(&ds);

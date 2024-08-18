@@ -39,7 +39,7 @@ static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_
     if (Tcl_RegExpExecObj(interp, regexp, path_ptr, 0, -1, 0) == 1) {
         *matched = 1;
 
-        DBG(fprintf(stderr, "matched pattern: %s\n", route_ptr->pattern));
+        DBG2(printf("matched pattern: %s\n", route_ptr->pattern));
 
         Tcl_Size keys_objc;
         Tcl_Obj **keys_objv;
@@ -54,7 +54,7 @@ static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_
             Tcl_Obj *value_ptr = Tcl_NewStringObj(start, end - start);
             Tcl_IncrRefCount(value_ptr);
 
-            DBG(fprintf(stderr, "key: %s, value: %s\n", Tcl_GetString(key_ptr), Tcl_GetString(value_ptr)));
+            DBG2(printf("key: %s, value: %s\n", Tcl_GetString(key_ptr), Tcl_GetString(value_ptr)));
 
             if (TCL_OK != Tcl_DictObjPut(interp, pathParametersDictPtr, key_ptr, value_ptr)) {
                 Tcl_DecrRefCount(value_ptr);
@@ -160,19 +160,6 @@ static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *d
     return TCL_OK;
 }
 
-static int tws_EvalRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *ctx_dict_ptr, Tcl_Obj *req_dict_ptr) {
-    DBG(fprintf(stderr, "eval route: %s\n", route_ptr->proc_name));
-    Tcl_Obj *proc_name_ptr = Tcl_NewStringObj(route_ptr->proc_name, -1);
-    Tcl_IncrRefCount(proc_name_ptr);
-    Tcl_Obj *const proc_objv[] = {proc_name_ptr, ctx_dict_ptr, req_dict_ptr};
-    if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
-        Tcl_DecrRefCount(proc_name_ptr);
-        return TCL_ERROR;
-    }
-    Tcl_DecrRefCount(proc_name_ptr);
-    return TCL_OK;
-}
-
 // traverse middleware leave procs in reverse order
 static int tws_ProcessMiddlewareLeaveProcs(
         Tcl_Interp *interp,
@@ -185,7 +172,7 @@ static int tws_ProcessMiddlewareLeaveProcs(
     while (middleware_ptr != NULL) {
         if (middleware_ptr->leave_proc_ptr) {
 
-            DBG(fprintf(stderr, "res_dict_ptr, IsShared: %d\n", Tcl_IsShared(res_dict_ptr)));
+            DBG2(printf("res_dict_ptr, IsShared: %d\n", Tcl_IsShared(res_dict_ptr)));
 
             Tcl_Obj *const proc_objv[] = {middleware_ptr->leave_proc_ptr, ctx_dict_ptr, req_dict_ptr, res_dict_ptr};
             if (TCL_OK != Tcl_EvalObjv(interp, 4, proc_objv, TCL_EVAL_GLOBAL)) {
@@ -200,6 +187,133 @@ static int tws_ProcessMiddlewareLeaveProcs(
         middleware_ptr = middleware_ptr->prevPtr;
     }
     *res_dict_ptr_ptr = res_dict_ptr;
+    return TCL_OK;
+}
+
+static int tws_HandleGuardProcError(
+        Tcl_Interp *interp,
+        tws_conn_t *conn,
+        tws_router_t *router_ptr,
+        Tcl_Obj *ctx_dict_ptr,
+        Tcl_Obj *req_dict_ptr
+) {
+    Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(interp, TCL_ERROR);
+    Tcl_IncrRefCount(return_options_dict_ptr);
+    Tcl_Obj *status_code_ptr;
+    Tcl_Obj *status_code_key_ptr = Tcl_NewStringObj("statusCode", -1);
+    Tcl_IncrRefCount(status_code_key_ptr);
+    if (TCL_OK != Tcl_DictObjGet(interp, return_options_dict_ptr, status_code_key_ptr,
+                                 &status_code_ptr)) {
+        Tcl_DecrRefCount(status_code_key_ptr);
+        Tcl_DecrRefCount(return_options_dict_ptr);
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(status_code_key_ptr);
+
+    if (status_code_ptr) {
+        DBG2(printf("returning error response\n"));
+        Tcl_Obj *res_dict_ptr = Tcl_DuplicateObj(return_options_dict_ptr);
+        Tcl_IncrRefCount(res_dict_ptr);
+        if (TCL_OK !=
+            tws_ProcessMiddlewareLeaveProcs(interp, router_ptr->lastMiddlewarePtr, ctx_dict_ptr, req_dict_ptr, &res_dict_ptr)) {
+            DBG2(printf("leave procs failed\n"));
+            Tcl_DecrRefCount(return_options_dict_ptr);
+            Tcl_DecrRefCount(res_dict_ptr);
+            return TCL_ERROR;
+        }
+
+        if (TCL_OK != tws_ReturnConn(interp, conn, res_dict_ptr)) {
+            DBG2(printf("return conn failed\n"));
+            Tcl_DecrRefCount(return_options_dict_ptr);
+            Tcl_DecrRefCount(res_dict_ptr);
+            return TCL_ERROR;
+        }
+        DBG2(printf("return conn done\n"));
+
+
+        Tcl_DecrRefCount(return_options_dict_ptr);
+        Tcl_DecrRefCount(res_dict_ptr);
+        Tcl_ResetResult(interp);
+        return TCL_OK;
+    }
+    Tcl_DecrRefCount(return_options_dict_ptr);
+    return TCL_ERROR;
+}
+
+static int tws_ProcessRouteGuardProcs(
+        Tcl_Interp *interp,
+        tws_conn_t *conn,
+        tws_router_t *router_ptr,
+        tws_route_t *route_ptr,
+        Tcl_Obj *ctx_dict_ptr,
+        Tcl_Obj **req_dict_ptr_ptr,
+        int *done
+) {
+    Tcl_Obj *req_dict_ptr = *req_dict_ptr_ptr;
+    if (route_ptr->guard_list_ptr != NULL) {
+        Tcl_Size guard_objc;
+        Tcl_Obj **guard_objv;
+        if (TCL_OK != Tcl_ListObjGetElements(interp, route_ptr->guard_list_ptr, &guard_objc, &guard_objv)) {
+            return TCL_ERROR;
+        }
+
+        for (Tcl_Size i = 0; i < guard_objc; i++) {
+            Tcl_Obj *const eval_objv[] = {guard_objv[i], ctx_dict_ptr, req_dict_ptr};
+            if (TCL_OK != Tcl_EvalObjv(interp, 3, eval_objv, TCL_EVAL_GLOBAL)) {
+
+                if (TCL_OK == tws_HandleGuardProcError(interp, conn, router_ptr, ctx_dict_ptr, req_dict_ptr)) {
+                    *req_dict_ptr_ptr = req_dict_ptr;
+                    *done = 1;
+                    return TCL_OK;
+                }
+
+                *req_dict_ptr_ptr = req_dict_ptr;
+                return TCL_ERROR;
+            }
+
+            Tcl_DecrRefCount(req_dict_ptr);
+            req_dict_ptr = Tcl_GetObjResult(interp);
+            Tcl_IncrRefCount(req_dict_ptr);
+            Tcl_ResetResult(interp);
+        }
+    }
+    *req_dict_ptr_ptr = req_dict_ptr;
+    return TCL_OK;
+}
+
+static int tws_EvalRoute(
+        Tcl_Interp *interp,
+        tws_conn_t *conn,
+        tws_router_t *router_ptr,
+        tws_route_t *route_ptr,
+        Tcl_Obj *ctx_dict_ptr,
+        Tcl_Obj **req_dict_ptr_ptr,
+        int *done
+) {
+    DBG2(printf("eval route: %s\n", route_ptr->proc_name));
+
+    Tcl_Obj *req_dict_ptr = *req_dict_ptr_ptr;
+
+    int done_during_guard_procs = 0;
+    if (TCL_OK != tws_ProcessRouteGuardProcs(interp, conn, router_ptr, route_ptr, ctx_dict_ptr, &req_dict_ptr, &done_during_guard_procs)) {
+        *req_dict_ptr_ptr = req_dict_ptr;
+        return TCL_ERROR;
+    }
+
+    if (done_during_guard_procs) {
+        *done = 1;
+        *req_dict_ptr_ptr = req_dict_ptr;
+        return TCL_OK;
+    }
+
+    Tcl_Obj *proc_name_ptr = Tcl_NewStringObj(route_ptr->proc_name, -1);
+    Tcl_IncrRefCount(proc_name_ptr);
+    Tcl_Obj *const proc_objv[] = {proc_name_ptr, ctx_dict_ptr, req_dict_ptr};
+    if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
+        Tcl_DecrRefCount(proc_name_ptr);
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(proc_name_ptr);
     return TCL_OK;
 }
 
@@ -224,24 +338,24 @@ static int tws_HandleMiddlewareEnterError(
     Tcl_DecrRefCount(status_code_key_ptr);
 
     if (status_code_ptr) {
-        fprintf(stderr, "returning error response\n");
+        DBG2(printf("returning error response\n"));
         Tcl_Obj *res_dict_ptr = Tcl_DuplicateObj(return_options_dict_ptr);
         Tcl_IncrRefCount(res_dict_ptr);
         if (TCL_OK !=
             tws_ProcessMiddlewareLeaveProcs(interp, middleware_ptr, ctx_dict_ptr, req_dict_ptr, &res_dict_ptr)) {
-            fprintf(stderr, "leave procs failed\n");
+            DBG2(printf("leave procs failed\n"));
             Tcl_DecrRefCount(return_options_dict_ptr);
             Tcl_DecrRefCount(res_dict_ptr);
             return TCL_ERROR;
         }
 
         if (TCL_OK != tws_ReturnConn(interp, conn, res_dict_ptr)) {
-            fprintf(stderr, "return conn failed\n");
+            DBG2(printf("return conn failed\n"));
             Tcl_DecrRefCount(return_options_dict_ptr);
             Tcl_DecrRefCount(res_dict_ptr);
             return TCL_ERROR;
         }
-        fprintf(stderr, "return conn done\n");
+        DBG2(printf("return conn done\n"));
         Tcl_DecrRefCount(return_options_dict_ptr);
         Tcl_DecrRefCount(res_dict_ptr);
         Tcl_ResetResult(interp);
@@ -265,7 +379,7 @@ static int tws_ProcessMiddlewareEnterProcs(
     while (middleware_ptr != NULL) {
         if (middleware_ptr->enter_proc_ptr) {
 
-            DBG(fprintf(stderr, "req_dict_ptr, IsShared: %d\n", Tcl_IsShared(req_dict_ptr)));
+            DBG2(printf("req_dict_ptr, IsShared: %d\n", Tcl_IsShared(req_dict_ptr)));
 
             Tcl_Obj *const proc_objv[] = {middleware_ptr->enter_proc_ptr, ctx_dict_ptr, req_dict_ptr};
             DBG(tws_PrintRefCountObjv(3, proc_objv));
@@ -273,7 +387,7 @@ static int tws_ProcessMiddlewareEnterProcs(
 
                 if (TCL_OK ==
                     tws_HandleMiddlewareEnterError(interp, conn, middleware_ptr, ctx_dict_ptr, req_dict_ptr)) {
-                    fprintf(stderr, "middleware enter error handled\n");
+                    DBG2(printf("middleware enter error handled\n"));
                     *req_dict_ptr_ptr = req_dict_ptr;
                     *done = 1;
                     return TCL_OK;
@@ -297,31 +411,37 @@ static int tws_ProcessMiddlewareEnterProcs(
 }
 
 static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *router_ptr, tws_route_t *route_ptr,
-                            Tcl_Obj *ctx_dict_ptr, Tcl_Obj *dup_req_dict_ptr) {
+                            Tcl_Obj *ctx_dict_ptr, Tcl_Obj *req_dict_ptr) {
     assert(valid_conn_handle(conn));
 
     Tcl_ResetResult(interp);
 
     // traverse middleware enter procs
-    int done = 0;
+    int done_during_enter_middleware = 0;
     if (TCL_OK !=
-        tws_ProcessMiddlewareEnterProcs(interp, conn, router_ptr->firstMiddlewarePtr, ctx_dict_ptr, &dup_req_dict_ptr, &done)) {
-        Tcl_DecrRefCount(dup_req_dict_ptr);
+        tws_ProcessMiddlewareEnterProcs(interp, conn, router_ptr->firstMiddlewarePtr, ctx_dict_ptr, &req_dict_ptr, &done_during_enter_middleware)) {
+        Tcl_DecrRefCount(req_dict_ptr);
         return TCL_ERROR;
     }
 
-    if (done) {
-        Tcl_DecrRefCount(dup_req_dict_ptr);
+    if (done_during_enter_middleware) {
+        Tcl_DecrRefCount(req_dict_ptr);
         return TCL_OK;
     }
 
-    DBG(fprintf(stderr, "req: %s\n", Tcl_GetString(dup_req_dict_ptr)));
+    DBG2(printf("req: %s\n", Tcl_GetString(req_dict_ptr)));
 
     // eval route proc
-    if (TCL_OK != tws_EvalRoute(interp, route_ptr, ctx_dict_ptr, dup_req_dict_ptr)) {
-        DBG(fprintf(stderr, "router_process_conn: eval route failed path: %s\n", route_ptr->path));
-        Tcl_DecrRefCount(dup_req_dict_ptr);
+    int done_during_eval_route = 0;
+    if (TCL_OK != tws_EvalRoute(interp, conn, router_ptr, route_ptr, ctx_dict_ptr, &req_dict_ptr, &done_during_eval_route)) {
+        DBG2(printf("router_process_conn: eval route failed path: %s\n", route_ptr->path));
+        Tcl_DecrRefCount(req_dict_ptr);
         return TCL_ERROR;
+    }
+
+    if (done_during_eval_route) {
+        Tcl_DecrRefCount(req_dict_ptr);
+        return TCL_OK;
     }
 
     Tcl_Obj *res_dict_ptr = Tcl_GetObjResult(interp);
@@ -329,13 +449,13 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
     Tcl_ResetResult(interp);
 
     // traverse middleware leave procs in reverse order
-    if (TCL_OK != tws_ProcessMiddlewareLeaveProcs(interp, router_ptr->lastMiddlewarePtr, ctx_dict_ptr, dup_req_dict_ptr,
+    if (TCL_OK != tws_ProcessMiddlewareLeaveProcs(interp, router_ptr->lastMiddlewarePtr, ctx_dict_ptr, req_dict_ptr,
                                                   &res_dict_ptr)) {
-        Tcl_DecrRefCount(dup_req_dict_ptr);
+        Tcl_DecrRefCount(req_dict_ptr);
         Tcl_DecrRefCount(res_dict_ptr);
         return TCL_ERROR;
     }
-    Tcl_DecrRefCount(dup_req_dict_ptr);
+    Tcl_DecrRefCount(req_dict_ptr);
 
     // return response
     if (TCL_OK != tws_ReturnConn(interp, conn, res_dict_ptr)) {
@@ -388,7 +508,7 @@ int tws_CreateContextDict(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj **result
 }
 
 static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_t *conn, Tcl_Obj *dup_req_dict_ptr) {
-    DBG(fprintf(stderr, "DoRouting\n"));
+    DBG2(printf("DoRouting\n"));
 
     Tcl_Obj *ctx_dict_ptr;
     if (TCL_OK != tws_CreateContextDict(interp, conn, &ctx_dict_ptr)) {
@@ -407,49 +527,12 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
         }
 
         if (matched) {
-            int proceed = 1;
-            if (route_ptr->guard_list_ptr != NULL) {
-                Tcl_Size guard_objc;
-                Tcl_Obj **guard_objv;
-                if (TCL_OK != Tcl_ListObjGetElements(interp, route_ptr->guard_list_ptr, &guard_objc, &guard_objv)) {
-                    Tcl_DecrRefCount(ctx_dict_ptr);
-                    Tcl_DecrRefCount(dup_req_dict_ptr);
-                    return TCL_ERROR;
-                }
-
-                for (Tcl_Size i = 0; i < guard_objc; i++) {
-                    Tcl_Obj *const eval_objv[] = {guard_objv[i], ctx_dict_ptr, dup_req_dict_ptr};
-                    if (TCL_OK != Tcl_EvalObjv(interp, 3, eval_objv, TCL_EVAL_GLOBAL)) {
-                        Tcl_DecrRefCount(ctx_dict_ptr);
-                        Tcl_DecrRefCount(dup_req_dict_ptr);
-                        return TCL_ERROR;
-                    }
-
-                    Tcl_Obj *guard_result_ptr = Tcl_GetObjResult(interp);
-                    int guard_proceed;
-                    if (TCL_OK != Tcl_GetBooleanFromObj(interp, guard_result_ptr, &guard_proceed)) {
-                        Tcl_DecrRefCount(ctx_dict_ptr);
-                        Tcl_DecrRefCount(dup_req_dict_ptr);
-                        return TCL_ERROR;
-                    }
-
-                    Tcl_ResetResult(interp);
-
-                    if (!guard_proceed) {
-                        proceed = 0;
-                        break;
-                    }
-                }
+            // tws_ProcessRoute decrements ref count for dup_req_dict_ptr in any case
+            if (TCL_OK != tws_ProcessRoute(interp, conn, router_ptr, route_ptr, ctx_dict_ptr, dup_req_dict_ptr)) {
+                Tcl_DecrRefCount(ctx_dict_ptr);
+                return TCL_ERROR;
             }
-
-            if (proceed) {
-                // tws_ProcessRoute decrements ref count for dup_req_dict_ptr in any case
-                if (TCL_OK != tws_ProcessRoute(interp, conn, router_ptr, route_ptr, ctx_dict_ptr, dup_req_dict_ptr)) {
-                    Tcl_DecrRefCount(ctx_dict_ptr);
-                    return TCL_ERROR;
-                }
-                break;
-            }
+            break;
         }
         route_ptr = route_ptr->nextPtr;
     }
@@ -468,12 +551,12 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
 
 int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn, Tcl_Obj *dup_req_dict_ptr) {
 
-    DBG(fprintf(stderr, "HandleRouteEventInThread: %s\n", conn->handle));
+    DBG2(printf("HandleRouteEventInThread: %s\n", conn->handle));
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(),
                                                                          sizeof(tws_thread_data_t));
 
     if (TCL_OK != tws_DoRouting(dataPtr->interp, router, conn, dup_req_dict_ptr)) {
-        DBG(fprintf(stderr, "DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp))));
+        DBG2(printf("DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp))));
 
         Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(dataPtr->interp, TCL_ERROR);
         Tcl_IncrRefCount(return_options_dict_ptr);
@@ -501,12 +584,12 @@ int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn, Tcl_Obj
         return 1;
     }
 
-    DBG(fprintf(stderr, "DoRouting done\n"));
+    DBG2(printf("DoRouting done\n"));
     return 1;
 }
 
 static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "RouterProcessConnCmd\n"));
+    DBG2(printf("RouterProcessConnCmd\n"));
     CheckArgs(3, 3, 1, "ctx_dict req_dict");
 
     const char *handle = (const char *) clientData;
@@ -544,7 +627,7 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
 }
 
 static int tws_DestroyRouter(Tcl_Interp *interp, const char *handle) {
-    DBG(fprintf(stderr, "DestroyRouter: %s\n", handle));
+    DBG2(printf("DestroyRouter: %s\n", handle));
     tws_router_t *router_ptr = tws_GetInternalFromRouterName(handle);
     if (!router_ptr) {
         SetResult("DestroyRouter: router handle not found");
@@ -597,7 +680,7 @@ char *tws_VarTraceProc(ClientData clientData, Tcl_Interp *interp, const char *na
 
     tws_trace_t *trace = (tws_trace_t *) clientData;
     if (trace->item == NULL) {
-        DBG(fprintf(stderr, "VarTraceProc: router has been deleted\n"));
+        DBG2(printf("VarTraceProc: router has been deleted\n"));
         if (!Tcl_InterpDeleted(trace->interp)) {
             Tcl_UntraceVar(trace->interp, trace->varname, TCL_TRACE_WRITES | TCL_TRACE_UNSETS,
                            (Tcl_VarTraceProc *) tws_VarTraceProc,
@@ -608,12 +691,12 @@ char *tws_VarTraceProc(ClientData clientData, Tcl_Interp *interp, const char *na
         return NULL;
     }
     if (flags & TCL_TRACE_WRITES) {
-        DBG(fprintf(stderr, "VarTraceProc: TCL_TRACE_WRITES\n"));
+        DBG2(printf("VarTraceProc: TCL_TRACE_WRITES\n"));
         Tcl_SetVar2(trace->interp, name1, name2, ((tws_router_t *) trace->item)->handle, TCL_LEAVE_ERR_MSG);
         return VAR_READ_ONLY_MSG;
     }
     if (flags & TCL_TRACE_UNSETS) {
-        DBG(fprintf(stderr, "VarTraceProc: TCL_TRACE_UNSETS\n"));
+        DBG2(printf("VarTraceProc: TCL_TRACE_UNSETS\n"));
         tws_DestroyRouter(trace->interp, ((tws_router_t *) trace->item)->handle);
         Tcl_Free((char *) trace->varname);
         Tcl_Free((char *) trace);
@@ -624,7 +707,7 @@ char *tws_VarTraceProc(ClientData clientData, Tcl_Interp *interp, const char *na
 int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "CreateCmd\n"));
+    DBG2(printf("CreateCmd\n"));
 
     const char *option_command_name = NULL;
     Tcl_ArgvInfo ArgTable[] = {
@@ -655,10 +738,10 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int incoming_
 
     CMD_ROUTER_NAME(router_ptr->handle, router_ptr);
     tws_RegisterRouterName(router_ptr->handle, router_ptr);
-    DBG(fprintf(stderr, "creating obj cmd\n"));
+    DBG2(printf("creating obj cmd\n"));
     const char *command_name = option_command_name ? option_command_name : router_ptr->handle;
     Tcl_CreateObjCommand(interp, command_name, tws_RouterProcessConnCmd, (ClientData) router_ptr->handle, NULL);
-    DBG(fprintf(stderr, "done creating obj cmd\n"));
+    DBG2(printf("done creating obj cmd\n"));
 
     if (objc == 2) {
         tws_trace_t *trace = (tws_trace_t *) Tcl_Alloc(sizeof(tws_trace_t));
@@ -682,7 +765,7 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int incoming_
 int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "AddRouteCmd\n"));
+    DBG2(printf("AddRouteCmd\n"));
 
     int option_prefix = 0;
     int option_nocase = 0;
@@ -808,7 +891,7 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
 int tws_InfoRoutesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "AddRouteCmd\n"));
+    DBG2(printf("AddRouteCmd\n"));
     CheckArgs(2, 2, 1, "router_handle");
     tws_router_t *router_ptr = tws_GetInternalFromRouterName(Tcl_GetString(objv[1]));
     if (!router_ptr) {
@@ -872,7 +955,7 @@ int tws_InfoRoutesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
 int tws_AddMiddlewareCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "AddMiddlewareCmd\n"));
+    DBG2(printf("AddMiddlewareCmd\n"));
 
     const char *enter_proc = NULL;
     const char *leave_proc = NULL;
@@ -912,7 +995,7 @@ int tws_AddMiddlewareCmd(ClientData clientData, Tcl_Interp *interp, int incoming
     }
 
     if (enter_proc && strlen(enter_proc) > 0) {
-        DBG(fprintf(stderr, "enter_proc: %s (%ld)\n", enter_proc, strlen(enter_proc)));
+        DBG2(printf("enter_proc: %s (%ld)\n", enter_proc, strlen(enter_proc)));
         middleware_ptr->enter_proc_ptr = Tcl_NewStringObj(enter_proc, -1);
         Tcl_IncrRefCount(middleware_ptr->enter_proc_ptr);
     } else {
@@ -920,7 +1003,7 @@ int tws_AddMiddlewareCmd(ClientData clientData, Tcl_Interp *interp, int incoming
     }
 
     if (leave_proc && strlen(leave_proc) > 0) {
-        DBG(fprintf(stderr, "leave_proc: %s (%ld)\n", leave_proc, strlen(leave_proc)));
+        DBG2(printf("leave_proc: %s (%ld)\n", leave_proc, strlen(leave_proc)));
         middleware_ptr->leave_proc_ptr = Tcl_NewStringObj(leave_proc, -1);
         Tcl_IncrRefCount(middleware_ptr->leave_proc_ptr);
     } else {

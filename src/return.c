@@ -38,7 +38,7 @@ static int tws_HandleCleanupEventInThread(Tcl_Event *evPtr, int flags);
 static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *dataPtr) {
     assert(valid_conn_handle(conn));
 
-    DBG(fprintf(stderr, "FreeConnWithThreadData - dataKey: %p thread: %p - client: %d - num_conns: %d\n", tws_GetThreadDataKey(), Tcl_GetCurrentThread(), conn->client, dataPtr->num_conns));
+    DBG2(printf("FreeConnWithThreadData - dataKey: %p thread: %p - client: %d - num_conns: %d\n", tws_GetThreadDataKey(), Tcl_GetCurrentThread(), conn->client, dataPtr->num_conns));
 
     if (conn->prevPtr == NULL) {
         // the node to delete is the first node
@@ -79,7 +79,7 @@ static void tws_FreeConn(tws_conn_t *conn) {
 
 int tws_CleanupConnections() {
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
-    DBG(fprintf(stderr, "CleanupConnections currentThreadId=%p\n", currentThreadId));
+    DBG2(printf("CleanupConnections currentThreadId=%p\n", currentThreadId));
 
     long long milliseconds = current_time_in_millis();
 
@@ -95,16 +95,16 @@ int tws_CleanupConnections() {
         next_conn = curr_conn->nextPtr;
 
         if (curr_conn->todelete) {
-            DBG(fprintf(stderr, "CleanupConnections - deleting conn - client: %d\n", curr_conn->client));
+            DBG2(printf("CleanupConnections - deleting conn - client: %d\n", curr_conn->client));
 
             tws_FreeConnWithThreadData(curr_conn, dataPtr);
 
-            DBG(fprintf(stderr, "CleanupConnections - deleted conn\n"));
+            DBG2(printf("CleanupConnections - deleted conn\n"));
         } else {
             long long elapsed = milliseconds - curr_conn->latest_millis;
             if (elapsed > curr_conn->accept_ctx->server->conn_timeout_millis) {
                 if (tws_UnregisterConnName(curr_conn->handle)) {
-                    DBG(fprintf(stderr, "CleanupConnections - mark connection for deletion\n"));
+                    DBG2(printf("CleanupConnections - mark connection for deletion\n"));
                     tws_ShutdownConn(curr_conn);
                     curr_conn->todelete = 1;
                     count_mark_for_deletion++;
@@ -117,7 +117,7 @@ int tws_CleanupConnections() {
     }
     Tcl_MutexUnlock(tws_GetThreadMutex());
 
-    DBG(fprintf(stderr, "reviewed count: %d marked_for_deletion: %d\n", count, count_mark_for_deletion));
+    DBG2(printf("reviewed count: %d marked_for_deletion: %d\n", count, count_mark_for_deletion));
 
     return 1;
 }
@@ -154,10 +154,10 @@ static void tws_CreateFileHandler(int fd, ClientData clientData) {
 static int tws_HandleCreateFileHandlerEventInThread(Tcl_Event *evPtr, int flags) {
     UNUSED(flags);
 
-    DBG(fprintf(stderr, "CreateFileHandlerForKeepaliveConn\n"));
+    DBG2(printf("CreateFileHandlerForKeepaliveConn\n"));
     tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
-    DBG(fprintf(stderr, "CreateFileHandlerForKeepaliveConn conn=%p client=%d\n", conn, conn->client));
+    DBG2(printf("CreateFileHandlerForKeepaliveConn conn=%p client=%d\n", conn, conn->client));
     tws_CreateFileHandler(conn->client, conn);
 
     return 1;
@@ -165,7 +165,7 @@ static int tws_HandleCreateFileHandlerEventInThread(Tcl_Event *evPtr, int flags)
 
 void tws_QueueCleanupEvent() {
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
-    DBG(fprintf(stderr, "QueueCleanupEvent: %p\n", currentThreadId));
+    DBG2(printf("QueueCleanupEvent: %p\n", currentThreadId));
     Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
     evPtr->proc = tws_HandleCleanupEventInThread;
     evPtr->nextPtr = NULL;
@@ -184,7 +184,7 @@ static int tws_HandleFreeConnEventInThread(Tcl_Event *evPtr, int flags) {
 
 void tws_QueueFreeConnEvent(tws_conn_t *conn) {
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
-    DBG(fprintf(stderr, "QueueFreeConnEvent: %p\n", currentThreadId));
+    DBG2(printf("QueueFreeConnEvent: %p\n", currentThreadId));
     tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleFreeConnEventInThread;
     connEvPtr->nextPtr = NULL;
@@ -203,7 +203,7 @@ void tws_QueueCreateFileHandlerEvent(tws_conn_t *conn) {
 }
 
 static void tws_DeleteFileHandler(int fd) {
-    DBG(fprintf(stderr, "DeleteFileHandler client: %d\n", fd));
+    DBG2(printf("DeleteFileHandler client: %d\n", fd));
 
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
 
@@ -227,7 +227,7 @@ static void tws_DeleteFileHandler(int fd) {
 
 static void tws_ShutdownConn(tws_conn_t *conn) {
     if (conn->todelete) {
-        DBG(fprintf(stderr, "ShutdownConn - already marked for deletion\n"));
+        DBG2(printf("ShutdownConn - already marked for deletion\n"));
         return;
     }
 
@@ -241,18 +241,18 @@ static void tws_ShutdownConn(tws_conn_t *conn) {
     int shutdown_client = 1;
     if (!conn->accept_ctx->option_http) {
         if (!conn->error && SSL_is_init_finished(conn->ssl)) {
-            DBG(fprintf(stderr, "SSL_is_init_finished: true\n"));
+            DBG2(printf("SSL_is_init_finished: true\n"));
             int rc = SSL_shutdown(conn->ssl);
-            DBG(fprintf(stderr, "first SSL_shutdown rc: %d\n", rc));
+            DBG2(printf("first SSL_shutdown rc: %d\n", rc));
             if (rc == 0) {
                 shutdown(conn->client, SHUT_RDWR);
                 shutdown_client = 0;
                 rc = SSL_shutdown(conn->ssl);
-                DBG(fprintf(stderr, "second SSL_shutdown rc: %d\n", rc));
+                DBG2(printf("second SSL_shutdown rc: %d\n", rc));
             }
         }
     }
-    DBG(fprintf(stderr, "shutdown_client: %d\n", shutdown_client));
+    DBG2(printf("shutdown_client: %d\n", shutdown_client));
     if (shutdown_client) {
         if (shutdown(conn->client, SHUT_RDWR)) {
             if (errno != ENOTCONN) {
@@ -265,7 +265,7 @@ static void tws_ShutdownConn(tws_conn_t *conn) {
         fprintf(stderr, "close failed\n");
     }
 
-    DBG(fprintf(stderr, "done shutdown\n"));
+    DBG2(printf("done shutdown\n"));
 }
 
 int tws_CloseConn(tws_conn_t *conn, int force) {
@@ -275,7 +275,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
         return TCL_OK;
     }
 
-    DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force,
+    DBG2(printf("CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force,
                 conn->keepalive, conn->created_file_handler_p));
 
     Tcl_DStringSetLength(&conn->inout_ds, 0);
@@ -339,7 +339,7 @@ static int tws_HandleWrite(tws_conn_t *conn) {
         ds_ptr = &conn->chunks_ds[conn->chunk_offset - 1];
     }
 
-    DBG(fprintf(stderr, "chunk_offset: %ld n_chunks: %ld write_offset: %ld\n", conn->chunk_offset, conn->n_chunks, conn->write_offset));
+    DBG2(printf("chunk_offset: %ld n_chunks: %ld write_offset: %ld\n", conn->chunk_offset, conn->n_chunks, conn->write_offset));
 
     Tcl_Size reply_length = Tcl_DStringLength(ds_ptr);
     const char *reply = Tcl_DStringValue(ds_ptr);
@@ -347,16 +347,16 @@ static int tws_HandleWrite(tws_conn_t *conn) {
     int rc = conn->accept_ctx->write_fn(conn, reply + conn->write_offset, reply_length - conn->write_offset);
 
     if (rc == TWS_AGAIN) {
-        DBG(fprintf(stderr, "TWS_AGAIN write_offset: %ld reply_length: %ld n_chunks: %ld\n", conn->write_offset, reply_length, conn->n_chunks));
+        DBG2(printf("TWS_AGAIN write_offset: %ld reply_length: %ld n_chunks: %ld\n", conn->write_offset, reply_length, conn->n_chunks));
         return 0;
     } else if (rc == TWS_ERROR) {
-        DBG(fprintf(stderr, "TWS_ERROR\n"));
+        DBG2(printf("TWS_ERROR\n"));
         conn->error = 1;
         tws_CloseConn(conn, 1);
         return 1;
     }
 
-    DBG(fprintf(stderr, "TWS_DONE write_offset: %ld reply_length: %ld n_chunks: %ld\n", conn->write_offset, reply_length, conn->n_chunks));
+    DBG2(printf("TWS_DONE write_offset: %ld reply_length: %ld n_chunks: %ld\n", conn->write_offset, reply_length, conn->n_chunks));
 
     if (conn->n_chunks > 0) {
         conn->write_offset = 0;
@@ -369,7 +369,7 @@ static int tws_HandleWrite(tws_conn_t *conn) {
     // TWS_DONE
     tws_CloseConn(conn, 0);
 
-    DBG(fprintf(stderr, "------------done\n"));
+    DBG2(printf("------------done\n"));
     return 1;
 }
 
@@ -381,7 +381,7 @@ static int tws_HandleWriteEventInThread(Tcl_Event *evPtr, int flags) {
 
     assert(valid_conn_handle(conn));
 
-    DBG(fprintf(stderr, "HandleWriteEventInThread: %s\n", conn->handle));
+    DBG2(printf("HandleWriteEventInThread: %s\n", conn->handle));
 
     int result = tws_HandleWrite(conn);
     Tcl_ThreadAlert(conn->threadId);
@@ -391,7 +391,7 @@ static int tws_HandleWriteEventInThread(Tcl_Event *evPtr, int flags) {
 static void tws_QueueWriteEvent(tws_conn_t *conn) {
     assert(valid_conn_handle(conn));
 
-    DBG(fprintf(stderr, "QueueWriteEvent - threadId: %p conn: %s\n", conn->threadId, conn->handle));
+    DBG2(printf("QueueWriteEvent - threadId: %p conn: %s\n", conn->threadId, conn->handle));
     conn->write_offset = 0;
     tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleWriteEventInThread;
@@ -399,7 +399,7 @@ static void tws_QueueWriteEvent(tws_conn_t *conn) {
     connEvPtr->clientData = (ClientData *) conn;
     Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(conn->threadId);
-    DBG(fprintf(stderr, "QueueWriteEvent done - threadId: %p\n", conn->threadId));
+    DBG2(printf("QueueWriteEvent done - threadId: %p\n", conn->threadId));
 
 }
 
@@ -601,10 +601,10 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
                 if (p) {
                     contentType = tws_strndup(contentType, p - contentType);
                 }
-                DBG(fprintf(stderr, "contentType: %s\n", contentType));
+                DBG2(printf("contentType: %s\n", contentType));
                 Tcl_HashEntry *entry = Tcl_FindHashEntry(&conn->accept_ctx->server->gzip_types_HT, contentType);
                 if (!entry) {
-                    DBG(fprintf(stderr, "not found contentType: %s\n", contentType));
+                    DBG2(printf("not found contentType: %s\n", contentType));
                     gzip_p = 0;
                 }
                 if (p) {
@@ -674,7 +674,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         // 8. \r\n
 
         conn->n_chunks = (body_length / MAX_CHUNK_SIZE) + 1;
-        DBG(fprintf(stderr, "n_chunks: %ld\n", conn->n_chunks));
+        DBG2(printf("n_chunks: %ld\n", conn->n_chunks));
         conn->chunks_ds = (Tcl_DString *) Tcl_Alloc(sizeof(Tcl_DString) * conn->n_chunks);
         Tcl_Size chunk_index = 0;
         for (Tcl_Size i = 0; i < body_length; i += MAX_CHUNK_SIZE) {
@@ -710,7 +710,7 @@ int
 tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const char *error_text) {
     assert(valid_conn_handle(conn));
 
-    DBG(fprintf(stderr, "ReturnError: %d %s\n", conn->client, conn->handle));
+    DBG2(printf("ReturnError: %d %s\n", conn->client, conn->handle));
     if (conn->error) {
         return TCL_ERROR;
     }

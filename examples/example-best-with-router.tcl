@@ -10,6 +10,10 @@ set init_script {
     namespace eval simple_session_manager {
         proc enter {ctx req} {
             dict set req session [dict create id 1234567890]
+            set path [dict get $req path]
+            if { $path eq "/example" } {
+                dict set req session is_logged_in 1
+            }
             return $req
         }
         proc leave {ctx req res} {
@@ -26,6 +30,13 @@ set init_script {
             }
             return $req
         }
+    }
+
+    proc is_logged_in {ctx req} {
+        if { [dict exists $req session is_logged_in] } {
+            return $req
+        }
+        return -code error -options [::twebserver::build_response 401 text/plain "unauthorized"]
     }
 
     # create a router
@@ -53,7 +64,7 @@ set init_script {
     ::twebserver::add_route -strict $router GET /addr get_addr_handler
 
     # add a route that will be called if the request method is POST and the path is "/example"
-    ::twebserver::add_route -strict $router POST /example post_example_handler
+    ::twebserver::add_route -strict -guard_proc_list [list is_logged_in] $router POST /example post_example_handler
 
     # add a route that will be called if the request method is GET and the path is "/logo"
     ::twebserver::add_route -strict $router GET /logo get_logo_handler
@@ -66,6 +77,10 @@ set init_script {
 
     # add a route that returns a 429 response
     ::twebserver::add_route -strict $router GET /test-abort get_something_handler
+
+    # add a route that returns a 429 response
+    ::twebserver::add_route -strict -guard_proc_list [list is_logged_in] \
+        $router GET /test-unauthorized get_something_handler
 
     # add a catchall route that will be called if no other route matches a GET request
     ::twebserver::add_route $router GET "*" get_catchall_handler
@@ -82,6 +97,7 @@ set init_script {
                         <li><form method=post enctype="multipart/form-data" action=/example><input type=text name=field1><input type=file name=field2><input type=submit></form></li>
                         <li><a href=/someerror>click here to see an internal server error</a></li>
                         <li><a href=/test-abort>click here to see a 429 response</a></li>
+                        <li><a href=/test-unauthorized>click here to see a 401 response</a></li>
                     </ul>
                 </body>
             </html>

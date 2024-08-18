@@ -437,7 +437,7 @@ tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *mul
 }
 
 static int tws_ParseUrlEncodedForm(Tcl_Interp *interp, Tcl_Obj *body_ptr, Tcl_Obj *result_ptr) {
-    DBG(fprintf(stderr, "ParseUrlEncodedForm\n"));
+    DBG2(printf("ParseUrlEncodedForm\n"));
 
     Tcl_Size body_length;
     const char *body = Tcl_GetStringFromObj(body_ptr, &body_length);
@@ -503,7 +503,7 @@ static int tws_ParseUrlEncodedForm(Tcl_Interp *interp, Tcl_Obj *body_ptr, Tcl_Ob
 int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
 
-    DBG(fprintf(stderr, "GetFormCmd\n"));
+    DBG2(printf("GetFormCmd\n"));
     CheckArgs(2, 2, 1, "request_dict");
 
     //    fprintf(stderr, "req=%s\n", Tcl_GetString(objv[1]));
@@ -536,7 +536,7 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
     Tcl_Obj *result_ptr = Tcl_NewDictObj();
     Tcl_IncrRefCount(result_ptr);
     if (multipart_boundary_ptr) {
-        DBG(fprintf(stderr, "multipart form data with boundary=%s\n", Tcl_GetString(multipart_boundary_ptr)));
+        DBG2(printf("multipart form data with boundary=%s\n", Tcl_GetString(multipart_boundary_ptr)));
 
         Tcl_Size body_b64_length;
         const char *body_b64 = Tcl_GetStringFromObj(body_ptr, &body_b64_length);
