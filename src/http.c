@@ -12,7 +12,7 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
     Tcl_Size max_buffer_size =
             size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size);
 
-    char *buf = (char *) Tcl_Alloc(max_buffer_size);
+    char *buf = (char *) ckalloc(max_buffer_size);
     Tcl_Size total_read = 0;
     Tcl_Size bytes_read = 0;
 
@@ -24,28 +24,28 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
             bytes_read = rc;
             total_read += bytes_read;
             if (total_read > max_request_read_bytes) {
-                Tcl_Free(buf);
+                ckfree(buf);
                 return TWS_ERROR;
             }
             Tcl_DStringAppend(dsPtr, buf, bytes_read);
             if (total_read == size) {
-                Tcl_Free(buf);
+                ckfree(buf);
                 return TWS_DONE;
             }
 
         } else {
             if (rc == 0) {
-                DBG2(printf("peer closed connection %d\n", conn->client));
-                Tcl_Free(buf);
+                DBG2(printf("peer closed connection %d", conn->client));
+                ckfree(buf);
 //                conn->shutdown = 1;
                 return TWS_DONE;
             } else {
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    Tcl_Free(buf);
+                    ckfree(buf);
                     return TWS_AGAIN;
                 } else {
-                    DBG2(printf("read error: %d\n", conn->client));
-                    Tcl_Free(buf);
+                    DBG2(printf("read error: %d", conn->client));
+                    ckfree(buf);
                     return TWS_ERROR;
                 }
             }
