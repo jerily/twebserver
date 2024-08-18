@@ -13,8 +13,18 @@ set init_script {
             return $req
         }
         proc leave {ctx req res} {
-            set res [::twebserver::add_cookie -maxage 3600 $res session_id [dict get $req session id]]
+            set res [::twebserver::add_cookie -samesite None -maxage 3600 $res session_id [dict get $req session id]]
             return $res
+        }
+    }
+
+    namespace eval rate_limiting_manager {
+        proc enter {ctx req} {
+            set path [dict get $req path]
+            if { $path eq "/test-abort" } {
+                return -code error -options [::twebserver::build_response 429 text/plain "too many requests"]
+            }
+            return $req
         }
     }
 
@@ -25,6 +35,11 @@ set init_script {
     ::twebserver::add_middleware \
         -enter_proc simple_session_manager::enter \
         -leave_proc simple_session_manager::leave \
+        $router
+
+    # add middleware to the router
+    ::twebserver::add_middleware \
+        -enter_proc rate_limiting_manager::enter \
         $router
 
     # add a route that will be called if the request method is GET and the path is "/"
@@ -49,6 +64,9 @@ set init_script {
     # add a route that fails with internal server error due to bad response dictionary
     ::twebserver::add_route -strict $router GET /badresponse get_badresponse_handler
 
+    # add a route that returns a 429 response
+    ::twebserver::add_route -strict $router GET /test-abort get_something_handler
+
     # add a catchall route that will be called if no other route matches a GET request
     ::twebserver::add_route $router GET "*" get_catchall_handler
 
@@ -62,6 +80,8 @@ set init_script {
                         <li><a href=/blog/123/sayhi>click here to see how path parameters work</a></li>
                         <li><a href=/addr>click here to see your IP address</a></li>
                         <li><form method=post enctype="multipart/form-data" action=/example><input type=text name=field1><input type=file name=field2><input type=submit></form></li>
+                        <li><a href=/someerror>click here to see an internal server error</a></li>
+                        <li><a href=/test-abort>click here to see a 429 response</a></li>
                     </ul>
                 </body>
             </html>
@@ -125,6 +145,10 @@ set init_script {
 
     proc get_badresponse_handler {ctx req} {
         return [dict create]
+    }
+
+    proc get_something_handler {ctx req} {
+        return [::twebserver::build_response 200 text/plain "something"]
     }
 }
 

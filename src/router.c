@@ -163,14 +163,136 @@ static int tws_MatchRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *d
 static int tws_EvalRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_Obj *ctx_dict_ptr, Tcl_Obj *req_dict_ptr) {
     DBG(fprintf(stderr, "eval route: %s\n", route_ptr->proc_name));
     Tcl_Obj *proc_name_ptr = Tcl_NewStringObj(route_ptr->proc_name, -1);
-    Tcl_Obj *const proc_objv[] = {proc_name_ptr, ctx_dict_ptr, Tcl_DuplicateObj(req_dict_ptr)};
-    tws_IncrRefCountObjv(3, proc_objv);
+    Tcl_IncrRefCount(proc_name_ptr);
+    Tcl_Obj *const proc_objv[] = {proc_name_ptr, ctx_dict_ptr, req_dict_ptr};
     if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
-        tws_DecrRefCountObjv(3, proc_objv);
-//        SetResult("router_process_conn: eval failed");
+        Tcl_DecrRefCount(proc_name_ptr);
         return TCL_ERROR;
     }
-    tws_DecrRefCountObjv(3, proc_objv);
+    Tcl_DecrRefCount(proc_name_ptr);
+    return TCL_OK;
+}
+
+// traverse middleware leave procs in reverse order
+static int tws_ProcessMiddlewareLeaveProcs(
+        Tcl_Interp *interp,
+        tws_middleware_t *middleware_ptr,
+        Tcl_Obj *ctx_dict_ptr,
+        Tcl_Obj *req_dict_ptr,
+        Tcl_Obj **res_dict_ptr_ptr
+) {
+    Tcl_Obj *res_dict_ptr = *res_dict_ptr_ptr;
+    while (middleware_ptr != NULL) {
+        if (middleware_ptr->leave_proc_ptr) {
+
+            DBG(fprintf(stderr, "res_dict_ptr, IsShared: %d\n", Tcl_IsShared(res_dict_ptr)));
+
+            Tcl_Obj *const proc_objv[] = {middleware_ptr->leave_proc_ptr, ctx_dict_ptr, req_dict_ptr, res_dict_ptr};
+            if (TCL_OK != Tcl_EvalObjv(interp, 4, proc_objv, TCL_EVAL_GLOBAL)) {
+                *res_dict_ptr_ptr = res_dict_ptr;
+                return TCL_ERROR;
+            }
+            Tcl_DecrRefCount(res_dict_ptr);
+            res_dict_ptr = Tcl_GetObjResult(interp);
+            Tcl_IncrRefCount(res_dict_ptr);
+            Tcl_ResetResult(interp);
+        }
+        middleware_ptr = middleware_ptr->prevPtr;
+    }
+    *res_dict_ptr_ptr = res_dict_ptr;
+    return TCL_OK;
+}
+
+static int tws_HandleMiddlewareEnterError(
+        Tcl_Interp *interp,
+        tws_conn_t *conn,
+        tws_middleware_t *middleware_ptr,
+        Tcl_Obj *ctx_dict_ptr,
+        Tcl_Obj *req_dict_ptr
+) {
+    Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(interp, TCL_ERROR);
+    Tcl_IncrRefCount(return_options_dict_ptr);
+    Tcl_Obj *status_code_ptr;
+    Tcl_Obj *status_code_key_ptr = Tcl_NewStringObj("statusCode", -1);
+    Tcl_IncrRefCount(status_code_key_ptr);
+    if (TCL_OK != Tcl_DictObjGet(interp, return_options_dict_ptr, status_code_key_ptr,
+                                 &status_code_ptr)) {
+        Tcl_DecrRefCount(status_code_key_ptr);
+        Tcl_DecrRefCount(return_options_dict_ptr);
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(status_code_key_ptr);
+
+    if (status_code_ptr) {
+        fprintf(stderr, "returning error response\n");
+        Tcl_Obj *res_dict_ptr = Tcl_DuplicateObj(return_options_dict_ptr);
+        Tcl_IncrRefCount(res_dict_ptr);
+        if (TCL_OK !=
+            tws_ProcessMiddlewareLeaveProcs(interp, middleware_ptr, ctx_dict_ptr, req_dict_ptr, &res_dict_ptr)) {
+            fprintf(stderr, "leave procs failed\n");
+            Tcl_DecrRefCount(return_options_dict_ptr);
+            Tcl_DecrRefCount(res_dict_ptr);
+            return TCL_ERROR;
+        }
+
+        if (TCL_OK != tws_ReturnConn(interp, conn, res_dict_ptr)) {
+            fprintf(stderr, "return conn failed\n");
+            Tcl_DecrRefCount(return_options_dict_ptr);
+            Tcl_DecrRefCount(res_dict_ptr);
+            return TCL_ERROR;
+        }
+        fprintf(stderr, "return conn done\n");
+        Tcl_DecrRefCount(return_options_dict_ptr);
+        Tcl_DecrRefCount(res_dict_ptr);
+        Tcl_ResetResult(interp);
+        return TCL_OK;
+    }
+    Tcl_DecrRefCount(return_options_dict_ptr);
+    return TCL_ERROR;
+}
+
+static int tws_ProcessMiddlewareEnterProcs(
+        Tcl_Interp *interp,
+        tws_conn_t *conn,
+        tws_middleware_t *middleware_ptr,
+        Tcl_Obj *ctx_dict_ptr,
+        Tcl_Obj **req_dict_ptr_ptr,
+        int *done
+) {
+
+    Tcl_Obj *req_dict_ptr = *req_dict_ptr_ptr;
+
+    while (middleware_ptr != NULL) {
+        if (middleware_ptr->enter_proc_ptr) {
+
+            DBG(fprintf(stderr, "req_dict_ptr, IsShared: %d\n", Tcl_IsShared(req_dict_ptr)));
+
+            Tcl_Obj *const proc_objv[] = {middleware_ptr->enter_proc_ptr, ctx_dict_ptr, req_dict_ptr};
+            DBG(tws_PrintRefCountObjv(3, proc_objv));
+            if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
+
+                if (TCL_OK ==
+                    tws_HandleMiddlewareEnterError(interp, conn, middleware_ptr, ctx_dict_ptr, req_dict_ptr)) {
+                    fprintf(stderr, "middleware enter error handled\n");
+                    *req_dict_ptr_ptr = req_dict_ptr;
+                    *done = 1;
+                    return TCL_OK;
+                }
+
+                *req_dict_ptr_ptr = req_dict_ptr;
+                return TCL_ERROR;
+            }
+
+            Tcl_DecrRefCount(req_dict_ptr);
+            req_dict_ptr = Tcl_GetObjResult(interp);
+            Tcl_IncrRefCount(req_dict_ptr);
+
+            Tcl_ResetResult(interp);
+
+        }
+        middleware_ptr = middleware_ptr->nextPtr;
+    }
+    *req_dict_ptr_ptr = req_dict_ptr;
     return TCL_OK;
 }
 
@@ -181,27 +303,16 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
     Tcl_ResetResult(interp);
 
     // traverse middleware enter procs
-    tws_middleware_t *middleware_ptr = router_ptr->firstMiddlewarePtr;
-    while (middleware_ptr != NULL) {
-        if (middleware_ptr->enter_proc_ptr) {
+    int done = 0;
+    if (TCL_OK !=
+        tws_ProcessMiddlewareEnterProcs(interp, conn, router_ptr->firstMiddlewarePtr, ctx_dict_ptr, &dup_req_dict_ptr, &done)) {
+        Tcl_DecrRefCount(dup_req_dict_ptr);
+        return TCL_ERROR;
+    }
 
-            DBG(fprintf(stderr, "req_dict_ptr, IsShared: %d\n", Tcl_IsShared(dup_req_dict_ptr)));
-
-            Tcl_Obj *const proc_objv[] = {middleware_ptr->enter_proc_ptr, ctx_dict_ptr, dup_req_dict_ptr};
-            DBG(tws_PrintRefCountObjv(3, proc_objv));
-            if (TCL_OK != Tcl_EvalObjv(interp, 3, proc_objv, TCL_EVAL_GLOBAL)) {
-                Tcl_DecrRefCount(dup_req_dict_ptr);
-                return TCL_ERROR;
-            }
-
-            Tcl_DecrRefCount(dup_req_dict_ptr);
-            dup_req_dict_ptr = Tcl_GetObjResult(interp);
-            Tcl_IncrRefCount(dup_req_dict_ptr);
-
-            Tcl_ResetResult(interp);
-
-        }
-        middleware_ptr = middleware_ptr->nextPtr;
+    if (done) {
+        Tcl_DecrRefCount(dup_req_dict_ptr);
+        return TCL_OK;
     }
 
     DBG(fprintf(stderr, "req: %s\n", Tcl_GetString(dup_req_dict_ptr)));
@@ -218,26 +329,12 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
     Tcl_ResetResult(interp);
 
     // traverse middleware leave procs in reverse order
-    middleware_ptr = router_ptr->lastMiddlewarePtr;
-    while (middleware_ptr != NULL) {
-        if (middleware_ptr->leave_proc_ptr) {
-
-            DBG(fprintf(stderr, "res_dict_ptr, IsShared: %d\n", Tcl_IsShared(res_dict_ptr)));
-
-            Tcl_Obj *const proc_objv[] = {middleware_ptr->leave_proc_ptr, ctx_dict_ptr, dup_req_dict_ptr, res_dict_ptr};
-            if (TCL_OK != Tcl_EvalObjv(interp, 4, proc_objv, TCL_EVAL_GLOBAL)) {
-                Tcl_DecrRefCount(dup_req_dict_ptr);
-                Tcl_DecrRefCount(res_dict_ptr);
-                return TCL_ERROR;
-            }
-            Tcl_DecrRefCount(res_dict_ptr);
-            res_dict_ptr = Tcl_GetObjResult(interp);
-            Tcl_IncrRefCount(res_dict_ptr);
-            Tcl_ResetResult(interp);
-        }
-        middleware_ptr = middleware_ptr->prevPtr;
+    if (TCL_OK != tws_ProcessMiddlewareLeaveProcs(interp, router_ptr->lastMiddlewarePtr, ctx_dict_ptr, dup_req_dict_ptr,
+                                                  &res_dict_ptr)) {
+        Tcl_DecrRefCount(dup_req_dict_ptr);
+        Tcl_DecrRefCount(res_dict_ptr);
+        return TCL_ERROR;
     }
-
     Tcl_DecrRefCount(dup_req_dict_ptr);
 
     // return response
