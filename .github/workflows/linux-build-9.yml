@@ -87,7 +87,7 @@ jobs:
       - name: Run Tests
         working-directory: build
         run: |
-          LD_LIBRARY_PATH="$HOME/tcl_install/lib" make test || {
+          PATH="$HOME/tcl_install/bin:$PATH" LD_LIBRARY_PATH="$HOME/tcl_install/lib" make test || {
             echo "::error::Failure during Test"
             exit 1
           }
