@@ -265,14 +265,14 @@ static int create_epoll_fd(Tcl_Interp *interp, int server_fd, int *epoll_sock) {
 tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip[INET6_ADDRSTRLEN]) {
     tws_SetBlockingMode(client, TWS_MODE_NONBLOCKING);
 
-    tws_conn_t *conn = (tws_conn_t *) Tcl_Alloc(sizeof(tws_conn_t));
+    tws_conn_t *conn = (tws_conn_t *) ckalloc(sizeof(tws_conn_t));
 
     if (accept_ctx->option_http) {
         conn->ssl = NULL;
     } else {
         SSL *ssl = SSL_new(accept_ctx->ssl_ctx);
         if (ssl == NULL) {
-            Tcl_Free((char *) conn);
+            ckfree((char *) conn);
             return NULL;
         }
         SSL_set_fd(ssl, client);
@@ -668,7 +668,7 @@ static void tws_QueueProcessEvent(tws_conn_t *conn) {
     assert(valid_conn_handle(conn));
 
     DBG2(printf("ThreadQueueProcessEvent - threadId: %p\n", conn->threadId));
-    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    tws_event_t *connEvPtr = (tws_event_t *) ckalloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleProcessEventInThread;
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
@@ -694,7 +694,7 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
 // to queue the event in the thread that the connection will be processed
 static void tws_ThreadQueueConnEvent(tws_conn_t *conn) {
     DBG2(printf("ThreadQueueConnEvent - threadId: %p\n", conn->threadId));
-    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    tws_event_t *connEvPtr = (tws_event_t *) ckalloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleConnEventInThread;
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
@@ -718,7 +718,7 @@ static int tws_HandleKeepaliveEventInThread(Tcl_Event *evPtr, int flags) {
 
 static void tws_ThreadQueueKeepaliveEvent(tws_conn_t *conn) {
     DBG2(printf("ThreadQueueKeepaliveEvent - threadId: %p\n", conn->threadId));
-    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    tws_event_t *connEvPtr = (tws_event_t *) ckalloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleKeepaliveEventInThread;
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
@@ -779,7 +779,7 @@ static int tws_AddConnToThreadList(tws_conn_t *conn) {
         shutdown(conn->client, SHUT_RDWR);
         close(conn->client);
         SSL_free(conn->ssl);
-        Tcl_Free((char *) conn);
+        ckfree((char *) conn);
         Tcl_MutexUnlock(tws_GetThreadMutex());
         return 0;
     }
@@ -912,7 +912,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     DBG2(printf("port: %s - created listening socket on thread: %d\n", ctrl->port, ctrl->thread_index));
 #endif
 
-    tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_Alloc(sizeof(tws_accept_ctx_t));
+    tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) ckalloc(sizeof(tws_accept_ctx_t));
 
     if (ctrl->option_http) {
         accept_ctx->read_fn = tws_ReadHttpConnAsync;
@@ -930,7 +930,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 #else
         // it is an https server, so we need to create an SSL_CTX
         if (TCL_OK != tws_CreateSslContext(dataPtr->interp, &accept_ctx->ssl_ctx)) {
-            Tcl_Free((char *) accept_ctx);
+            ckfree((char *) accept_ctx);
             goto error;
         }
         SSL_CTX_set_client_hello_cb(accept_ctx->ssl_ctx, tws_ClientHelloCallback, NULL);
@@ -1012,7 +1012,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     tws_DecrRefCountUntilZero(dataPtr->cmd_ptr);
     tws_DecrRefCountUntilZero(dataPtr->config_dict_ptr);
     Tcl_DeleteInterp(dataPtr->interp);
-    Tcl_Free((char *) accept_ctx);
+    ckfree((char *) accept_ctx);
 
     DBG2(printf("HandleConnThread: out (%p)\n", Tcl_GetCurrentThread()));
 
@@ -1094,11 +1094,11 @@ static void tws_AddListenerToServer(tws_server_t *server, tws_listener_t *listen
 
 int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int option_num_threads, const char *host, const char *port) {
 
-    tws_listener_t *listener = (tws_listener_t *) Tcl_Alloc(sizeof(tws_listener_t));
+    tws_listener_t *listener = (tws_listener_t *) ckalloc(sizeof(tws_listener_t));
     listener->port = atoi(port);
     listener->option_http = option_http;
     listener->option_num_threads = option_num_threads;
-    listener->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(option_num_threads * sizeof(Tcl_ThreadId));
+    listener->conn_thread_ids = (Tcl_ThreadId *) ckalloc(option_num_threads * sizeof(Tcl_ThreadId));
     listener->nextPtr = NULL;
     listener->cond_wait = NULL;
 
@@ -1117,7 +1117,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
         return TCL_ERROR;
     }
 
-    tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_Alloc(sizeof(tws_accept_ctx_t));
+    tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) ckalloc(sizeof(tws_accept_ctx_t));
 
     if (option_http) {
         accept_ctx->read_fn = tws_ReadHttpConnAsync;
@@ -1129,7 +1129,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
         accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
 
         if (TCL_OK != tws_CreateSslContext(interp, &accept_ctx->ssl_ctx)) {
-            Tcl_Free((char *) accept_ctx);
+            ckfree((char *) accept_ctx);
             SetResult("Failed to create SSL context");
             return TCL_ERROR;
         }
@@ -1150,7 +1150,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
 
     DBG2(printf("port: %s - created listening socket (%d) on main thread\n", port, server_fd));
 
-    accept_ctx->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(option_num_threads * sizeof(Tcl_ThreadId));
+    accept_ctx->conn_thread_ids = (Tcl_ThreadId *) ckalloc(option_num_threads * sizeof(Tcl_ThreadId));
     listener->server_fd = server_fd;
 #else
 #endif
@@ -1169,7 +1169,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
             Tcl_CreateThread(&id, tws_HandleConnThread, &ctrl, server->thread_stacksize, TCL_THREAD_JOINABLE)) {
             Tcl_MutexUnlock(tws_GetThreadMutex());
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-            Tcl_Free((char *) accept_ctx);
+            ckfree((char *) accept_ctx);
 #endif
             SetResult("Unable to create thread");
             return TCL_ERROR;

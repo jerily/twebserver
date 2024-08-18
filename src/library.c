@@ -30,7 +30,7 @@ static int tws_ModuleInitialized;
 static int signal_flag = 0;
 
 static void tws_ThreadQueueTermEvent(Tcl_ThreadId threadId) {
-    Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
+    Tcl_Event *evPtr = (Tcl_Event *) ckalloc(sizeof(Tcl_Event));
     evPtr->proc = tws_HandleTermEventInThread;
     Tcl_ThreadQueueEvent(threadId, evPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(threadId);
@@ -85,9 +85,9 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     tws_listener_t *listener = server->first_listener_ptr;
     while (listener) {
         DBG2(printf("deleting listener\n"));
-        Tcl_Free((char *) listener->conn_thread_ids);
+        ckfree((char *) listener->conn_thread_ids);
         tws_listener_t *next_listener = listener->nextPtr;
-        Tcl_Free((char *) listener);
+        ckfree((char *) listener);
         listener = next_listener;
     }
 
@@ -102,7 +102,7 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     DBG2(printf("ssl contexts freed\n"));
 
     Tcl_DeleteCommand(interp, handle);
-    Tcl_Free((char *) server);
+    ckfree((char *) server);
     DBG2(printf("server destroyed\n"));
     return TCL_OK;
 }
@@ -486,7 +486,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
         return TCL_ERROR;
     }
 
-    tws_server_t *server_ptr = (tws_server_t *) Tcl_Alloc(sizeof(tws_server_t));
+    tws_server_t *server_ptr = (tws_server_t *) ckalloc(sizeof(tws_server_t));
     if (!server_ptr) {
         ckfree(remObjv);
         SetResult("Unable to allocate memory");
@@ -534,7 +534,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
     server_ptr->thread_max_concurrent_conns = 0;
 
     if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ptr, remObjv[1])) {
-        Tcl_Free((char *) server_ptr);
+        ckfree((char *) server_ptr);
         return TCL_ERROR;
     }
 
@@ -795,15 +795,15 @@ static int tws_Base64EncodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
         return TCL_OK;
     }
 
-    char *output = Tcl_Alloc(input_length * 2);
+    char *output = ckalloc(input_length * 2);
     Tcl_Size output_length;
     if (base64_encode(input, input_length, output, &output_length)) {
-        Tcl_Free(output);
+        ckfree(output);
         SetResult("base64_encode failed");
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, Tcl_NewStringObj(output, output_length));
-    Tcl_Free(output);
+    ckfree(output);
     return TCL_OK;
 }
 
@@ -816,15 +816,15 @@ static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int ob
     Tcl_Size input_length;
     const char *input = Tcl_GetStringFromObj(objv[1], &input_length);
 
-    char *output = Tcl_Alloc(3 * input_length / 4 + 2);
+    char *output = ckalloc(3 * input_length / 4 + 2);
     Tcl_Size output_length;
     if (base64_decode(input, input_length, output, &output_length)) {
-        Tcl_Free(output);
+        ckfree(output);
         SetResult("base64_decode failed");
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, Tcl_NewByteArrayObj(output, output_length));
-    Tcl_Free(output);
+    ckfree(output);
     return TCL_OK;
 }
 
@@ -1374,10 +1374,10 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
             return TCL_ERROR;
         }
 
-        char *file_data = Tcl_Alloc(file_data_length);
+        char *file_data = ckalloc(file_data_length);
         Tcl_Size bytes_read = Tcl_ReadRaw(channel, file_data, file_data_length);
         if (bytes_read < 0) {
-            Tcl_Free(file_data);
+            ckfree(file_data);
             Tcl_DecrRefCount(response_dict_ptr);
             ckfree(remObjv);
             SetResult("build_response: error reading file");
@@ -1392,7 +1392,7 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
                                    : Tcl_NewStringObj(file_data, file_data_length);
 
         Tcl_IncrRefCount(input_ptr);
-        Tcl_Free(file_data);
+        ckfree(file_data);
     } else {
         input_ptr = remObjv[3];
     }
@@ -1417,13 +1417,13 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
         // base64 encode the body
         Tcl_Size input_length;
         const char *input = Tcl_GetByteArrayFromObj(input_ptr, &input_length);
-        char *output = Tcl_Alloc(input_length * 2);
+        char *output = ckalloc(input_length * 2);
         size_t output_length;
         if (TCL_OK != base64_encode(input, input_length, output, &output_length)) {
             if (option_file) {
                 Tcl_DecrRefCount(input_ptr);
             }
-            Tcl_Free(output);
+            ckfree(output);
             Tcl_DecrRefCount(response_dict_ptr);
             ckfree(remObjv);
             SetResult("build_response: error base64 encoding body");
@@ -1441,14 +1441,14 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
             Tcl_DecrRefCount(body_key_ptr);
             Tcl_DecrRefCount(value_ptr);
             Tcl_DecrRefCount(response_dict_ptr);
-            Tcl_Free(output);
+            ckfree(output);
             ckfree(remObjv);
             SetResult("build_response: error writing body to response_dict");
             return TCL_ERROR;
         }
         Tcl_DecrRefCount(body_key_ptr);
         Tcl_DecrRefCount(value_ptr);
-        Tcl_Free(output);
+        ckfree(output);
 
     } else {
         Tcl_Obj *body_key_ptr = Tcl_NewStringObj("body", -1);
@@ -1953,7 +1953,7 @@ static int tws_HandleBreakLoopInMainThread(Tcl_Event *evPtr, int flags) {
 }
 
 void tws_QueueBreakLoopEvent() {
-    Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
+    Tcl_Event *evPtr = (Tcl_Event *) ckalloc(sizeof(Tcl_Event));
     evPtr->proc = tws_HandleBreakLoopInMainThread;
     Tcl_QueueEvent(evPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(Tcl_GetCurrentThread());

@@ -287,7 +287,7 @@ char *tws_strndup(const char *s, size_t n) {
         return NULL;
     }
     size_t l = strnlen(s, n);
-    char *result = (char *) Tcl_Alloc(l + 1);
+    char *result = (char *) ckalloc(l + 1);
     if (result == NULL) {
         return NULL;
     }
