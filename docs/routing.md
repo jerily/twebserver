@@ -97,11 +97,11 @@ The guard procs should accept the context ```ctx``` and the request ```req``` di
 and return 0 or 1. If a guard proc returns 0, the route handler is not executed.
 
 ```tcl
-proc is_authenticated {ctx req} {
-    if {[dict exists $req headers Authorization]} {
-        return 1
+proc is_logged_in {ctx req} {
+    if { [dict exists $req session is_logged_in] } {
+        return $req
     }
-    return 0
+    return -code error -options [::twebserver::build_response 401 text/plain "unauthorized"]
 }
 
 proc example_handler {ctx req} {
@@ -111,6 +111,6 @@ proc example_handler {ctx req} {
 }
 
 ::twebserver::add_route \
-    -guard_proc_list [list is_authenticated] \
+    -guard_proc_list [list is_logged_in] \
     $router GET /example/:user_id/view example_handler
 ```
