@@ -35,9 +35,9 @@ make install
 
 ### Build the twebserver extension
 ```
-wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.49.tar.gz
-tar -xzf v1.47.49.tar.gz
-cd twebserver-1.47.49
+wget https://github.com/jerily/twebserver/archive/refs/tags/v147.50.tar.gz
+tar -xzf v147.50.tar.gz
+cd twebserver-147.50
 mkdir build
 cd build
 cmake ..
