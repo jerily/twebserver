@@ -35,7 +35,7 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
 
         } else {
             if (rc == 0) {
-                DBG2(printf("peer closed connection %d", conn->client));
+                DBG2(printf("peer closed connection %d\n", conn->client));
                 ckfree(buf);
 //                conn->shutdown = 1;
                 return TWS_DONE;
@@ -44,7 +44,7 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
                     ckfree(buf);
                     return TWS_AGAIN;
                 } else {
-                    DBG2(printf("read error: %d", conn->client));
+                    DBG2(printf("read error: %d\n", conn->client));
                     ckfree(buf);
                     return TWS_ERROR;
                 }

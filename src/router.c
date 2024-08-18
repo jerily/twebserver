@@ -39,7 +39,7 @@ static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_
     if (Tcl_RegExpExecObj(interp, regexp, path_ptr, 0, -1, 0) == 1) {
         *matched = 1;
 
-        DBG2(printf("matched pattern: %s", route_ptr->pattern));
+        DBG2(printf("matched pattern: %s\n", route_ptr->pattern));
 
         Tcl_Size keys_objc;
         Tcl_Obj **keys_objv;
@@ -54,7 +54,7 @@ static int tws_MatchRegExpRoute(Tcl_Interp *interp, tws_route_t *route_ptr, Tcl_
             Tcl_Obj *value_ptr = Tcl_NewStringObj(start, end - start);
             Tcl_IncrRefCount(value_ptr);
 
-            DBG2(printf("key: %s, value: %s", Tcl_GetString(key_ptr), Tcl_GetString(value_ptr)));
+            DBG2(printf("key: %s, value: %s\n", Tcl_GetString(key_ptr), Tcl_GetString(value_ptr)));
 
             if (TCL_OK != Tcl_DictObjPut(interp, pathParametersDictPtr, key_ptr, value_ptr)) {
                 Tcl_DecrRefCount(value_ptr);
@@ -172,7 +172,7 @@ static int tws_ProcessMiddlewareLeaveProcs(
     while (middleware_ptr != NULL) {
         if (middleware_ptr->leave_proc_ptr) {
 
-            DBG2(printf("res_dict_ptr, IsShared: %d", Tcl_IsShared(res_dict_ptr)));
+            DBG2(printf("res_dict_ptr, IsShared: %d\n", Tcl_IsShared(res_dict_ptr)));
 
             Tcl_Obj *const proc_objv[] = {middleware_ptr->leave_proc_ptr, ctx_dict_ptr, req_dict_ptr, res_dict_ptr};
             if (TCL_OK != Tcl_EvalObjv(interp, 4, proc_objv, TCL_EVAL_GLOBAL)) {
@@ -290,7 +290,7 @@ static int tws_EvalRoute(
         Tcl_Obj **req_dict_ptr_ptr,
         int *done
 ) {
-    DBG2(printf("eval route: %s", route_ptr->proc_name));
+    DBG2(printf("eval route: %s\n", route_ptr->proc_name));
 
     Tcl_Obj *req_dict_ptr = *req_dict_ptr_ptr;
 
@@ -379,7 +379,7 @@ static int tws_ProcessMiddlewareEnterProcs(
     while (middleware_ptr != NULL) {
         if (middleware_ptr->enter_proc_ptr) {
 
-            DBG2(printf("req_dict_ptr, IsShared: %d", Tcl_IsShared(req_dict_ptr)));
+            DBG2(printf("req_dict_ptr, IsShared: %d\n", Tcl_IsShared(req_dict_ptr)));
 
             Tcl_Obj *const proc_objv[] = {middleware_ptr->enter_proc_ptr, ctx_dict_ptr, req_dict_ptr};
             DBG(tws_PrintRefCountObjv(3, proc_objv));
@@ -429,12 +429,12 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
         return TCL_OK;
     }
 
-    DBG2(printf("req: %s", Tcl_GetString(req_dict_ptr)));
+    DBG2(printf("req: %s\n", Tcl_GetString(req_dict_ptr)));
 
     // eval route proc
     int done_during_eval_route = 0;
     if (TCL_OK != tws_EvalRoute(interp, conn, router_ptr, route_ptr, ctx_dict_ptr, &req_dict_ptr, &done_during_eval_route)) {
-        DBG2(printf("router_process_conn: eval route failed path: %s", route_ptr->path));
+        DBG2(printf("router_process_conn: eval route failed path: %s\n", route_ptr->path));
         Tcl_DecrRefCount(req_dict_ptr);
         return TCL_ERROR;
     }
@@ -551,12 +551,12 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
 
 int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn, Tcl_Obj *dup_req_dict_ptr) {
 
-    DBG2(printf("HandleRouteEventInThread: %s", conn->handle));
+    DBG2(printf("HandleRouteEventInThread: %s\n", conn->handle));
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(),
                                                                          sizeof(tws_thread_data_t));
 
     if (TCL_OK != tws_DoRouting(dataPtr->interp, router, conn, dup_req_dict_ptr)) {
-        DBG2(printf("DoRouting failed: %s", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp))));
+        DBG2(printf("DoRouting failed: %s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp))));
 
         Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(dataPtr->interp, TCL_ERROR);
         Tcl_IncrRefCount(return_options_dict_ptr);
@@ -572,7 +572,7 @@ int tws_HandleRouteEventInThread(tws_router_t *router, tws_conn_t *conn, Tcl_Obj
         }
         Tcl_DecrRefCount(errorinfo_key_ptr);
 
-        fprintf(stderr, "DoRouting: errorinfo: %s", Tcl_GetString(errorinfo_ptr));
+        fprintf(stderr, "DoRouting: errorinfo: %s\n", Tcl_GetString(errorinfo_ptr));
         Tcl_DecrRefCount(return_options_dict_ptr);
 
         if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 500, "Internal Server Error")) {
@@ -627,7 +627,7 @@ static int tws_RouterProcessConnCmd(ClientData clientData, Tcl_Interp *interp, i
 }
 
 static int tws_DestroyRouter(Tcl_Interp *interp, const char *handle) {
-    DBG2(printf("DestroyRouter: %s", handle));
+    DBG2(printf("DestroyRouter: %s\n", handle));
     tws_router_t *router_ptr = tws_GetInternalFromRouterName(handle);
     if (!router_ptr) {
         SetResult("DestroyRouter: router handle not found");
@@ -995,7 +995,7 @@ int tws_AddMiddlewareCmd(ClientData clientData, Tcl_Interp *interp, int incoming
     }
 
     if (enter_proc && strlen(enter_proc) > 0) {
-        DBG2(printf("enter_proc: %s (%ld)", enter_proc, strlen(enter_proc)));
+        DBG2(printf("enter_proc: %s (%ld)\n", enter_proc, strlen(enter_proc)));
         middleware_ptr->enter_proc_ptr = Tcl_NewStringObj(enter_proc, -1);
         Tcl_IncrRefCount(middleware_ptr->enter_proc_ptr);
     } else {
@@ -1003,7 +1003,7 @@ int tws_AddMiddlewareCmd(ClientData clientData, Tcl_Interp *interp, int incoming
     }
 
     if (leave_proc && strlen(leave_proc) > 0) {
-        DBG2(printf("leave_proc: %s (%ld)", leave_proc, strlen(leave_proc)));
+        DBG2(printf("leave_proc: %s (%ld)\n", leave_proc, strlen(leave_proc)));
         middleware_ptr->leave_proc_ptr = Tcl_NewStringObj(leave_proc, -1);
         Tcl_IncrRefCount(middleware_ptr->leave_proc_ptr);
     } else {

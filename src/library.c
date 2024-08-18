@@ -40,12 +40,12 @@ static void tws_StopServer(tws_server_t *server) {
     tws_listener_t *listener = server->first_listener_ptr;
     while (listener) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-        fprintf(stderr, "closing listener->server_fd %d", listener->server_fd);
+        fprintf(stderr, "closing listener->server_fd %d\n", listener->server_fd);
         Tcl_DeleteFileHandler(listener->server_fd);
         close(listener->server_fd);
 #endif
         for (int i = 0; i < listener->option_num_threads; i++) {
-            DBG2(printf("Stopping thread %p", listener->conn_thread_ids[i]));
+            DBG2(printf("Stopping thread %p\n", listener->conn_thread_ids[i]));
             tws_ThreadQueueTermEvent(listener->conn_thread_ids[i]);
         }
         listener = listener->nextPtr;
@@ -56,11 +56,11 @@ static void tws_StopServer(tws_server_t *server) {
     listener = server->first_listener_ptr;
     while (listener) {
         for (int i = 0; i < listener->option_num_threads; i++) {
-            DBG2(printf("Waiting for thread %p", listener->conn_thread_ids[i]));
+            DBG2(printf("Waiting for thread %p\n", listener->conn_thread_ids[i]));
             if (TCL_OK != Tcl_JoinThread(listener->conn_thread_ids[i], NULL)) {
-                fprintf(stderr, "Error joining thread %p", listener->conn_thread_ids[i]);
+                fprintf(stderr, "Error joining thread %p\n", listener->conn_thread_ids[i]);
             }
-            DBG2(printf("Thread %p exited", listener->conn_thread_ids[i]));
+            DBG2(printf("Thread %p exited\n", listener->conn_thread_ids[i]));
         }
         listener = listener->nextPtr;
     }
@@ -396,7 +396,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
             if (newEntry) {
                 Tcl_SetHashValue(entryPtr, (ClientData) NULL);
             }
-            DBG2(printf("gzip_types: %s", gzip_type));
+            DBG2(printf("gzip_types: %s\n", gzip_type));
         }
     }
 
@@ -493,7 +493,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
         return TCL_ERROR;
     }
 
-    DBG2(printf("option_router=%d", option_router));
+    DBG2(printf("option_router=%d\n", option_router));
 
     server_ptr->option_router = option_router;
     Tcl_DStringInit(&server_ptr->config_dict_ds);
@@ -1961,7 +1961,7 @@ void tws_QueueBreakLoopEvent() {
 
 void tws_SignalHandler(int signum) {
     if (signum == SIGTERM || signum == SIGINT) {
-        fprintf(stderr, "Caught signal: %s", signum == SIGTERM ? "SIGTERM" : "SIGINT");
+        fprintf(stderr, "Caught signal: %s\n", signum == SIGTERM ? "SIGTERM" : "SIGINT");
         if (!signal_flag) {
             tws_QueueBreakLoopEvent();
         }
