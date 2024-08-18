@@ -57,7 +57,7 @@ int tws_RegisterServerName(const char *name, tws_server_t *internal) {
     }
     Tcl_MutexUnlock(&tws_ServerNameToInternal_HT_Mutex);
 
-    DBG2(printf("--> RegisterServerName: name=%s internal=%p %s", name, internal,
+    DBG2(printf("--> RegisterServerName: name=%s internal=%p %s\n", name, internal,
                 newEntry ? "entered into" : "already in"));
 
     return newEntry;
@@ -74,7 +74,7 @@ int tws_UnregisterServerName(const char *name) {
     }
     Tcl_MutexUnlock(&tws_ServerNameToInternal_HT_Mutex);
 
-    DBG2(printf("--> UnregisterServerName: name=%s entryPtr=%p", name, entryPtr));
+    DBG2(printf("--> UnregisterServerName: name=%s entryPtr=%p\n", name, entryPtr));
 
     return entryPtr != NULL;
 }
@@ -104,7 +104,7 @@ int tws_RegisterConnName(const char *name, tws_conn_t *internal) {
     }
     Tcl_MutexUnlock(&tws_ConnNameToInternal_HT_Mutex);
 
-    DBG2(printf("--> RegisterConnName: name=%s internal=%p %s", name, internal,
+    DBG2(printf("--> RegisterConnName: name=%s internal=%p %s\n", name, internal,
                 newEntry ? "entered into" : "already in"));
 
     return newEntry;
@@ -121,7 +121,7 @@ int tws_UnregisterConnName(const char *name) {
     }
     Tcl_MutexUnlock(&tws_ConnNameToInternal_HT_Mutex);
 
-    DBG2(printf("--> UnregisterConnName: name=%s entryPtr=%p", name, entryPtr));
+    DBG2(printf("--> UnregisterConnName: name=%s entryPtr=%p\n", name, entryPtr));
 
     return entryPtr != NULL;
 }
@@ -151,7 +151,7 @@ int tws_RegisterHostName(const char *name, SSL_CTX *internal) {
     }
     Tcl_MutexUnlock(&tws_HostNameToInternal_HT_Mutex);
 
-    DBG2(printf("--> RegisterHostName: name=%s internal=%p %s", name, internal,
+    DBG2(printf("--> RegisterHostName: name=%s internal=%p %s\n", name, internal,
                 newEntry ? "entered into" : "already in"));
 
     return newEntry;
@@ -168,7 +168,7 @@ int tws_UnregisterHostName(const char *name) {
     }
     Tcl_MutexUnlock(&tws_HostNameToInternal_HT_Mutex);
 
-    DBG2(printf("--> UnregisterHostName: name=%s entryPtr=%p", name, entryPtr));
+    DBG2(printf("--> UnregisterHostName: name=%s entryPtr=%p\n", name, entryPtr));
 
     return entryPtr != NULL;
 }
@@ -198,7 +198,7 @@ int tws_RegisterRouterName(const char *name, tws_router_t *internal) {
     }
     Tcl_MutexUnlock(&tws_RouterNameToInternal_HT_Mutex);
 
-    DBG2(printf("--> RegisterRouterName: name=%s internal=%p %s", name, internal,
+    DBG2(printf("--> RegisterRouterName: name=%s internal=%p %s\n", name, internal,
                 newEntry ? "entered into" : "already in"));
 
     return newEntry;
@@ -215,7 +215,7 @@ int tws_UnregisterRouterName(const char *name) {
     }
     Tcl_MutexUnlock(&tws_RouterNameToInternal_HT_Mutex);
 
-    DBG2(printf("--> UnregisterRouterName: name=%s entryPtr=%p", name, entryPtr));
+    DBG2(printf("--> UnregisterRouterName: name=%s entryPtr=%p\n", name, entryPtr));
 
     return entryPtr != NULL;
 }
@@ -287,7 +287,7 @@ char *tws_strndup(const char *s, size_t n) {
         return NULL;
     }
     size_t l = strnlen(s, n);
-    char *result = (char *) ckalloc(l + 1);
+    char *result = (char *) Tcl_Alloc(l + 1);
     if (result == NULL) {
         return NULL;
     }
@@ -360,7 +360,7 @@ void tws_FreeSslContexts() {
 
 void tws_PrintRefCountObjv(int objc, Tcl_Obj *const objv[]) {
     for (int i = 0; i < objc; i++) {
-        fprintf(stderr, "i=%d: %ld", i, objv[i]->refCount);
+        fprintf(stderr, "i=%d: %ld\n", i, objv[i]->refCount);
     }
 }
 

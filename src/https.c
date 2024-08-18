@@ -45,7 +45,7 @@ int tws_ClientHelloCallback(SSL *ssl, int *al, void *arg) {
     int servername_len = len;
     const char *servername = (const char *) p;
     // "extension_data" is not null-terminated, so we need to copy it to a new buffer
-    DBG2(printf("servername=%.*s", (int) len, p));
+    DBG2(printf("servername=%.*s\n", (int) len, p));
 
     SSL_CTX *ctx = tws_GetInternalFromHostName(servername);
     if (!ctx) {
@@ -103,13 +103,13 @@ int tws_ConfigureSslContext(Tcl_Interp *interp, SSL_CTX *ctx, const char *key_fi
 }
 
 int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
-    DBG2(printf("ReadConn client: %d", conn->client));
+    DBG2(printf("ReadConn client: %d\n", conn->client));
 
     long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes - Tcl_DStringLength(&conn->inout_ds);
     int max_buffer_size = MIN(INT_MAX,
             size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size));
 
-    char *buf = (char *) ckalloc(max_buffer_size);
+    char *buf = (char *) Tcl_Alloc(max_buffer_size);
     long total_read = 0;
     int rc;
     int bytes_read;
@@ -121,7 +121,7 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
      * until SSL_read() would return no data
      */
 
-    DBG2(printf("max_buffer_size = %ld", max_buffer_size));
+    DBG2(printf("max_buffer_size = %ld\n", max_buffer_size));
 
     for (;;) {
         rc = SSL_read(conn->ssl, buf, max_buffer_size);
@@ -141,8 +141,8 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
         } else {
             int err = SSL_get_error(conn->ssl, rc);
             if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-                DBG2(printf("AGAIN %s", tws_GetSslError(err)));
-                ckfree(buf);
+                DBG2(printf("AGAIN %s\n", tws_GetSslError(err)));
+                Tcl_Free(buf);
                 return TWS_AGAIN;
 
             } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
@@ -151,25 +151,25 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
                 goto done;
             }
 
-            fprintf(stderr, "SSL_read error: %s err=%d rc=%d total_read=%zd",
+            fprintf(stderr, "SSL_read error: %s err=%d rc=%d total_read=%zd\n",
                     tws_GetSslError(err), err, rc, total_read);
 
-            ckfree(buf);
+            Tcl_Free(buf);
             return TWS_ERROR;
         }
         break;
     }
 
-    ckfree(buf);
+    Tcl_Free(buf);
     return TWS_AGAIN;
 
     failed_due_to_request_too_large:
-    ckfree(buf);
+    Tcl_Free(buf);
     fprintf(stderr, "request too large");
     return TWS_ERROR;
 
     done:
-    ckfree(buf);
+    Tcl_Free(buf);
     return TWS_DONE;
 
 }
