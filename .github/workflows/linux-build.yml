@@ -1,0 +1,83 @@
+name: Linux
+on: [push]
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        compiler: ["gcc", "clang"]
+    name: build (${{ matrix.compiler }})
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Environment (compiler=${{ matrix.compiler }})
+        run: |
+          sudo apt-get install tcl8.6-dev cmake
+          mkdir "$HOME/install dir"
+          echo "CFGOPT_COMMON=--with-tcl=/usr/lib/tcl8.6" >> $GITHUB_ENV
+          echo "CC=$COMPILER" >> $GITHUB_ENV
+        env:
+          COMPILER: ${{ matrix.compiler }}
+          OPTS: ${{ matrix.compiler }}
+
+      - name: Checkout openssl
+        uses: actions/checkout@v4
+        with:
+          repository: openssl/openssl
+          ref: main
+          path: openssl
+      - name: Configure openssl
+        working-directory: openssl
+        run: |
+          ./Configure no-docs
+      - name: Build openssl
+        working-directory: openssl
+        run: |
+          make -j || {
+            echo "::error::Failure during Build openssl"
+            exit 1
+          }
+      - name: Install openssl
+        working-directory: openssl
+        run: |
+          make install || {
+            echo "::error::Failure during Install openssl"
+            exit 1
+          }
+
+      - name: Configure
+        run: |
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/twebserver_install -DCMAKE_PREFIX_PATH=$HOME/twebserver_install -DTCL_INCLUDE_DIR=/usr/include/tcl8.6 -DTCL_LIBRARY_DIR=/usr/lib/x86_64-linux-gnu
+      - name: Build
+        working-directory: build
+        run: |
+          make -j || {
+            echo "::error::Failure during Build"
+            exit 1
+          }
+#      - name: Run Tests
+#        working-directory: build
+#        run: |
+#          make test || {
+#            echo "::error::Failure during Test"
+#            exit 1
+#          }
+      - name: Test-Drive Installation
+        working-directory: build
+        run: |
+          make install || {
+            echo "::error::Failure during Install"
+            exit 1
+          }
