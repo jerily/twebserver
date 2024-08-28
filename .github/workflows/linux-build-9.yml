@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: tcltk/tcl
-          ref: core-9-0-b2-rc
+          ref: core-9-0-b3-rc
           path: tcl
       - name: Configure Tcl
         working-directory: tcl/unix
