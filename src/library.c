@@ -1296,8 +1296,8 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 4) || (objc > 4)) {
-        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "status_code mimetype body");
+        ckfree(remObjv);
         return TCL_ERROR;
     }
 
