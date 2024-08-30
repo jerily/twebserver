@@ -481,8 +481,8 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 4) || (objc > 4)) {
-        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "config_dict cmd_name init_script");
+        ckfree(remObjv);
         return TCL_ERROR;
     }
 
@@ -575,8 +575,8 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int incoming
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 3) || (objc > 3)) {
-        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "server_handle port");
+        ckfree(remObjv);
         return TCL_ERROR;
     }
 
@@ -631,8 +631,8 @@ static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int inco
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 5) || (objc > 5)) {
-        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "server_handle hostname key cert");
+        ckfree(remObjv);
         return TCL_ERROR;
     }
 
@@ -1178,8 +1178,8 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incom
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 4) || (objc > 4)) {
-        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "response_dict cookie_name cookie_value");
+        ckfree(remObjv);
         return TCL_ERROR;
     }
 
@@ -1846,8 +1846,8 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 3) || (objc > 3)) {
-        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "request_dict param_name");
+        ckfree(remObjv);
         return TCL_ERROR;
     }
 
