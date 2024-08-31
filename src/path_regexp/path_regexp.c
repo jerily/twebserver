@@ -504,7 +504,7 @@ int tws_PathToRegExp(Tcl_Interp *interp, const char *path, Tcl_Size path_len, in
         return TCL_ERROR;
     }
 
-    *pattern = Tcl_Alloc(Tcl_DStringLength(&ds) + 1);
+    *pattern = ckalloc(Tcl_DStringLength(&ds) + 1);
     memcpy(*pattern, Tcl_DStringValue(&ds), Tcl_DStringLength(&ds));
     (*pattern)[Tcl_DStringLength(&ds)] = '\0';
     DBG2(printf("PathToRegExp - pattern: %s\n", *pattern));

@@ -65,7 +65,7 @@ static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *data
     }
     Tcl_DStringFree(&conn->inout_ds);
     Tcl_DStringFree(&conn->parse_ds);
-    Tcl_Free((char *) conn);
+    ckfree((char *) conn);
 
     dataPtr->num_conns--;
 }
@@ -166,7 +166,7 @@ static int tws_HandleCreateFileHandlerEventInThread(Tcl_Event *evPtr, int flags)
 void tws_QueueCleanupEvent() {
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
     DBG2(printf("QueueCleanupEvent: %p\n", currentThreadId));
-    Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
+    Tcl_Event *evPtr = (Tcl_Event *) ckalloc(sizeof(Tcl_Event));
     evPtr->proc = tws_HandleCleanupEventInThread;
     evPtr->nextPtr = NULL;
     Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
@@ -185,7 +185,7 @@ static int tws_HandleFreeConnEventInThread(Tcl_Event *evPtr, int flags) {
 void tws_QueueFreeConnEvent(tws_conn_t *conn) {
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
     DBG2(printf("QueueFreeConnEvent: %p\n", currentThreadId));
-    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    tws_event_t *connEvPtr = (tws_event_t *) ckalloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleFreeConnEventInThread;
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
@@ -194,7 +194,7 @@ void tws_QueueFreeConnEvent(tws_conn_t *conn) {
 }
 
 void tws_QueueCreateFileHandlerEvent(tws_conn_t *conn) {
-    tws_event_t *evPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    tws_event_t *evPtr = (tws_event_t *) ckalloc(sizeof(tws_event_t));
     evPtr->proc = tws_HandleCreateFileHandlerEventInThread;
     evPtr->nextPtr = NULL;
     evPtr->clientData = (ClientData *) conn;
@@ -296,7 +296,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     for (Tcl_Size i = 0; i < conn->n_chunks; i++) {
         Tcl_DStringFree(&conn->chunks_ds[i]);
     }
-    Tcl_Free(conn->chunks_ds);
+    ckfree(conn->chunks_ds);
     conn->n_chunks = 0;
     conn->chunk_offset = 0;
 
@@ -393,7 +393,7 @@ static void tws_QueueWriteEvent(tws_conn_t *conn) {
 
     DBG2(printf("QueueWriteEvent - threadId: %p conn: %s\n", conn->threadId, conn->handle));
     conn->write_offset = 0;
-    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    tws_event_t *connEvPtr = (tws_event_t *) ckalloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleWriteEventInThread;
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
@@ -559,10 +559,10 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         Tcl_Size b64_body_length;
         const char *b64_body = Tcl_GetStringFromObj(bodyPtr, &b64_body_length);
         if (b64_body_length > 0) {
-            body = Tcl_Alloc(3 * b64_body_length / 4 + 2);
+            body = ckalloc(3 * b64_body_length / 4 + 2);
             body_alloc = 1;
             if (base64_decode(b64_body, b64_body_length, body, &body_length)) {
-                Tcl_Free(body);
+                ckfree(body);
                 SetResult("base64 decode error");
                 return TCL_ERROR;
             }
@@ -584,7 +584,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentTypeKeyPtr, &contentTypePtr)) {
             Tcl_DecrRefCount(contentTypeKeyPtr);
             if (body_alloc) {
-                Tcl_Free(body);
+                ckfree(body);
             }
             SetResult("error reading from dict");
             return TCL_ERROR;
@@ -608,7 +608,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
                     gzip_p = 0;
                 }
                 if (p) {
-                    Tcl_Free(contentType);
+                    ckfree(contentType);
                 }
             }
         }
@@ -629,7 +629,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
                             TCL_ZLIB_COMPRESS_FAST, NULL)) {
             Tcl_DecrRefCount(baObj);
             if (body_alloc) {
-                Tcl_Free(body);
+                ckfree(body);
             }
             SetResult("gzip compression error");
             return TCL_ERROR;
@@ -638,7 +638,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         compressed = Tcl_GetObjResult(interp);
         Tcl_IncrRefCount(compressed);
         if (body_alloc) {
-            Tcl_Free(body);
+            ckfree(body);
         }
         body = (char *) Tcl_GetByteArrayFromObj(compressed, &body_length);
         Tcl_ResetResult(interp);
@@ -675,7 +675,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
 
         conn->n_chunks = (body_length / MAX_CHUNK_SIZE) + 1;
         DBG2(printf("n_chunks: %ld\n", conn->n_chunks));
-        conn->chunks_ds = (Tcl_DString *) Tcl_Alloc(sizeof(Tcl_DString) * conn->n_chunks);
+        conn->chunks_ds = (Tcl_DString *) ckalloc(sizeof(Tcl_DString) * conn->n_chunks);
         Tcl_Size chunk_index = 0;
         for (Tcl_Size i = 0; i < body_length; i += MAX_CHUNK_SIZE) {
             Tcl_DStringInit(&conn->chunks_ds[chunk_index]);
@@ -697,7 +697,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     } else if (body_alloc) {
         // if "body" was allocated, free it
         // if we used compression, "body" was freed above
-        Tcl_Free((char *) body);
+        ckfree((char *) body);
     }
 
     tws_QueueWriteEvent(conn);

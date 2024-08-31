@@ -648,8 +648,8 @@ static int tws_DestroyRouter(Tcl_Interp *interp, const char *handle) {
             Tcl_DecrRefCount(route->guard_list_ptr);
         }
         Tcl_DecrRefCount(route->keys);
-        Tcl_Free(route->pattern);
-        Tcl_Free((char *) route);
+        ckfree(route->pattern);
+        ckfree((char *) route);
         route = next;
     }
 
@@ -662,11 +662,11 @@ static int tws_DestroyRouter(Tcl_Interp *interp, const char *handle) {
         if (middleware->leave_proc_ptr) {
             tws_DecrRefCountUntilZero(middleware->leave_proc_ptr);
         }
-        Tcl_Free((char *) middleware);
+        ckfree((char *) middleware);
         middleware = next;
     }
 
-    Tcl_Free((char *) router_ptr);
+    ckfree((char *) router_ptr);
 
     fprintf(stderr, "router destroyed\n");
 
@@ -686,8 +686,8 @@ char *tws_VarTraceProc(ClientData clientData, Tcl_Interp *interp, const char *na
                            (Tcl_VarTraceProc *) tws_VarTraceProc,
                            (ClientData) clientData);
         }
-        Tcl_Free((char *) trace->varname);
-        Tcl_Free((char *) trace);
+        ckfree((char *) trace->varname);
+        ckfree((char *) trace);
         return NULL;
     }
     if (flags & TCL_TRACE_WRITES) {
@@ -698,8 +698,8 @@ char *tws_VarTraceProc(ClientData clientData, Tcl_Interp *interp, const char *na
     if (flags & TCL_TRACE_UNSETS) {
         DBG2(printf("VarTraceProc: TCL_TRACE_UNSETS\n"));
         tws_DestroyRouter(trace->interp, ((tws_router_t *) trace->item)->handle);
-        Tcl_Free((char *) trace->varname);
-        Tcl_Free((char *) trace);
+        ckfree((char *) trace->varname);
+        ckfree((char *) trace);
     }
     return NULL;
 }
@@ -725,7 +725,7 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int incoming_
         return TCL_ERROR;
     }
 
-    tws_router_t *router_ptr = (tws_router_t *) Tcl_Alloc(sizeof(tws_router_t));
+    tws_router_t *router_ptr = (tws_router_t *) ckalloc(sizeof(tws_router_t));
     if (!router_ptr) {
         ckfree(remObjv);
         SetResult("create_router: memory alloc failed");
@@ -744,7 +744,7 @@ int tws_CreateRouterCmd(ClientData clientData, Tcl_Interp *interp, int incoming_
     DBG2(printf("done creating obj cmd\n"));
 
     if (objc == 2) {
-        tws_trace_t *trace = (tws_trace_t *) Tcl_Alloc(sizeof(tws_trace_t));
+        tws_trace_t *trace = (tws_trace_t *) ckalloc(sizeof(tws_trace_t));
         trace->interp = interp;
         trace->varname = tws_strndup(Tcl_GetString(remObjv[1]), 80);
         trace->item = router_ptr;
@@ -807,7 +807,7 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
     Tcl_Size proc_name_len;
     const char *proc_name = Tcl_GetStringFromObj(remObjv[4], &proc_name_len);
 
-    tws_route_t *route_ptr = (tws_route_t *) Tcl_Alloc(sizeof(tws_route_t));
+    tws_route_t *route_ptr = (tws_route_t *) ckalloc(sizeof(tws_route_t));
     if (!route_ptr) {
         ckfree(remObjv);
         SetResult("add_route: memory alloc failed");
@@ -987,7 +987,7 @@ int tws_AddMiddlewareCmd(ClientData clientData, Tcl_Interp *interp, int incoming
         return TCL_ERROR;
     }
 
-    tws_middleware_t *middleware_ptr = (tws_middleware_t *) Tcl_Alloc(sizeof(tws_middleware_t));
+    tws_middleware_t *middleware_ptr = (tws_middleware_t *) ckalloc(sizeof(tws_middleware_t));
     if (!middleware_ptr) {
         ckfree(remObjv);
         SetResult("add_middleware: memory alloc failed");

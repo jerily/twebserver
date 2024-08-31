@@ -94,7 +94,7 @@ proc example_handler {ctx req} {
 
 A guard proc list is a list of procs that are executed before the route handler.
 The guard procs should accept the context ```ctx``` and the request ```req``` dictionaries
-and return 0 or 1. If a guard proc returns 0, the route handler is not executed.
+and return a request dictionary or an error with -options holding a response dictionary.
 
 ```tcl
 proc is_logged_in {ctx req} {
