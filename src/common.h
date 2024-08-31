@@ -214,6 +214,7 @@ typedef struct tws_route_s {
     Tcl_Obj *keys;
     char *pattern;
     Tcl_Obj *guard_list_ptr;
+    Tcl_Obj *name_ptr;
     struct tws_route_s *nextPtr;
 } tws_route_t;
 
