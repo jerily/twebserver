@@ -215,7 +215,8 @@ static int tws_HandleGuardProcError(
         Tcl_Obj *res_dict_ptr = Tcl_DuplicateObj(return_options_dict_ptr);
         Tcl_IncrRefCount(res_dict_ptr);
         if (TCL_OK !=
-            tws_ProcessMiddlewareLeaveProcs(interp, router_ptr->lastMiddlewarePtr, ctx_dict_ptr, req_dict_ptr, &res_dict_ptr)) {
+            tws_ProcessMiddlewareLeaveProcs(interp, router_ptr->lastMiddlewarePtr, ctx_dict_ptr, req_dict_ptr,
+                                            &res_dict_ptr)) {
             DBG2(printf("leave procs failed\n"));
             Tcl_DecrRefCount(return_options_dict_ptr);
             Tcl_DecrRefCount(res_dict_ptr);
@@ -295,7 +296,8 @@ static int tws_EvalRoute(
     Tcl_Obj *req_dict_ptr = *req_dict_ptr_ptr;
 
     int done_during_guard_procs = 0;
-    if (TCL_OK != tws_ProcessRouteGuardProcs(interp, conn, router_ptr, route_ptr, ctx_dict_ptr, &req_dict_ptr, &done_during_guard_procs)) {
+    if (TCL_OK != tws_ProcessRouteGuardProcs(interp, conn, router_ptr, route_ptr, ctx_dict_ptr, &req_dict_ptr,
+                                             &done_during_guard_procs)) {
         *req_dict_ptr_ptr = req_dict_ptr;
         return TCL_ERROR;
     }
@@ -419,7 +421,8 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
     // traverse middleware enter procs
     int done_during_enter_middleware = 0;
     if (TCL_OK !=
-        tws_ProcessMiddlewareEnterProcs(interp, conn, router_ptr->firstMiddlewarePtr, ctx_dict_ptr, &req_dict_ptr, &done_during_enter_middleware)) {
+        tws_ProcessMiddlewareEnterProcs(interp, conn, router_ptr->firstMiddlewarePtr, ctx_dict_ptr, &req_dict_ptr,
+                                        &done_during_enter_middleware)) {
         Tcl_DecrRefCount(req_dict_ptr);
         return TCL_ERROR;
     }
@@ -433,7 +436,8 @@ static int tws_ProcessRoute(Tcl_Interp *interp, tws_conn_t *conn, tws_router_t *
 
     // eval route proc
     int done_during_eval_route = 0;
-    if (TCL_OK != tws_EvalRoute(interp, conn, router_ptr, route_ptr, ctx_dict_ptr, &req_dict_ptr, &done_during_eval_route)) {
+    if (TCL_OK !=
+        tws_EvalRoute(interp, conn, router_ptr, route_ptr, ctx_dict_ptr, &req_dict_ptr, &done_during_eval_route)) {
         DBG2(printf("router_process_conn: eval route failed path: %s\n", route_ptr->path));
         Tcl_DecrRefCount(req_dict_ptr);
         return TCL_ERROR;
@@ -522,11 +526,22 @@ static int tws_DoRouting(Tcl_Interp *interp, tws_router_t *router_ptr, tws_conn_
         if (TCL_OK != tws_MatchRoute(interp, route_ptr, dup_req_dict_ptr, &matched)) {
             Tcl_DecrRefCount(ctx_dict_ptr);
             Tcl_DecrRefCount(dup_req_dict_ptr);
-            SetResult("router_process_conn: match_route failed");
+            SetResult("DoRouting: match_route failed");
             return TCL_ERROR;
         }
 
         if (matched) {
+
+            if (route_ptr->name_ptr) {
+                if (TCL_OK !=
+                    Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("route_name", -1), route_ptr->name_ptr)) {
+                    Tcl_DecrRefCount(ctx_dict_ptr);
+                    Tcl_DecrRefCount(dup_req_dict_ptr);
+                    SetResult("DoRouting: dict put failed");
+                    return TCL_ERROR;
+                }
+            }
+
             // tws_ProcessRoute decrements ref count for dup_req_dict_ptr in any case
             if (TCL_OK != tws_ProcessRoute(interp, conn, router_ptr, route_ptr, ctx_dict_ptr, dup_req_dict_ptr)) {
                 Tcl_DecrRefCount(ctx_dict_ptr);
@@ -646,6 +661,9 @@ static int tws_DestroyRouter(Tcl_Interp *interp, const char *handle) {
         tws_route_t *next = route->nextPtr;
         if (route->guard_list_ptr != NULL) {
             Tcl_DecrRefCount(route->guard_list_ptr);
+        }
+        if (route->name_ptr != NULL) {
+            Tcl_DecrRefCount(route->name_ptr);
         }
         Tcl_DecrRefCount(route->keys);
         ckfree(route->pattern);
@@ -771,7 +789,9 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
     int option_nocase = 0;
     int option_strict = 0;
     const char *option_guard_proc_list = NULL;
+    const char *option_name = NULL;
     Tcl_ArgvInfo ArgTable[] = {
+            {TCL_ARGV_STRING,   "-name",            NULL,       &option_name,            "route name",       NULL},
             {TCL_ARGV_STRING,   "-guard_proc_list", NULL,       &option_guard_proc_list, "guard proc list",  NULL},
             {TCL_ARGV_CONSTANT, "-prefix",          INT2PTR(1), &option_prefix,          "prefix matching",  NULL},
             {TCL_ARGV_CONSTANT, "-nocase",          INT2PTR(1), &option_nocase,          "case insensitive", NULL},
@@ -827,6 +847,13 @@ int tws_AddRouteCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
     route_ptr->keys = NULL;
     route_ptr->pattern = NULL;
     route_ptr->guard_list_ptr = NULL;
+    route_ptr->name_ptr = NULL;
+
+    if (option_name != NULL) {
+        Tcl_Obj *name_ptr = Tcl_NewStringObj(option_name, -1);
+        Tcl_IncrRefCount(name_ptr);
+        route_ptr->name_ptr = name_ptr;
+    }
 
     if (option_guard_proc_list != NULL) {
         Tcl_Obj *guard_list_ptr = Tcl_NewStringObj(option_guard_proc_list, -1);
