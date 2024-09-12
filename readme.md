@@ -32,6 +32,7 @@ TCL Web Server Extension
 ## Middleware
 
 * [tsession](https://github.com/jerily/tsession) - Simple Session Management
+* [tratelimit](https://github.com/jerily/tratelimit) - Rate Limiting Middleware
 
 ## Getting Started
 
