@@ -33,6 +33,7 @@ TCL Web Server Extension
 
 * [tsession](https://github.com/jerily/tsession) - Simple Session Management
 * [tratelimit](https://github.com/jerily/tratelimit) - Rate Limiting Middleware
+* [treqmon](https://github.com/jerily/treqmon) - Request Monitoring and Logger Middleware
 
 ## Getting Started
 
