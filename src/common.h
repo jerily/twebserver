@@ -141,8 +141,12 @@ typedef struct tws_conn_t_ {
     // refactor the following into a flags field
     tws_compression_method_t compression;
     int keepalive;
-    int created_file_handler_p;
-    int todelete;
+    int io_mask;                 /* Readiness needed by the last I/O attempt. */
+    int wait_mask;               /* Current epoll/kqueue subscription. */
+    int event_queued;
+    Tcl_EventProc *resume_proc;
+    Tcl_TimerToken timeout;
+    int read_timer;
     int ready;
     int handshaked;
     int inprogress;
@@ -188,6 +192,7 @@ typedef struct {
     int terminate;
     int server_fd;
     int epoll_fd;
+    Tcl_TimerToken cleanup_timer;
 } tws_thread_data_t;
 
 typedef struct {

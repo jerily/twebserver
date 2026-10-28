@@ -13,6 +13,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
 #include "conn.h"
 #include "request.h"
 #include "https.h"
@@ -44,9 +45,169 @@ enum {
 };
 
 static int tws_HandleRecv(tws_conn_t *conn);
-static void tws_KeepaliveConnHandler(void *data, int mask);
+static void tws_ConnReadyHandler(void *data, int mask);
 static int tws_AddConnToThreadList(tws_conn_t *conn);
-static int tws_HandleWrite(tws_conn_t *conn);
+static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags);
+static int tws_HandleKeepaliveEventInThread(Tcl_Event *evPtr, int flags);
+
+typedef struct {
+    tws_event_t event;
+    Tcl_EventProc *callback;
+} tws_conn_event_t;
+
+static void tws_DisarmConn(tws_conn_t *conn) {
+    if (!conn->wait_mask) {
+        return;
+    }
+    tws_thread_data_t *dataPtr = Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    struct kevent ev;
+    EV_SET(&ev, conn->client, conn->wait_mask == TCL_READABLE ? EVFILT_READ : EVFILT_WRITE,
+           EV_DELETE, 0, 0, NULL);
+    kevent(dataPtr->epoll_fd, &ev, 1, NULL, 0, NULL);
+#else
+    epoll_ctl(dataPtr->epoll_fd, EPOLL_CTL_DEL, conn->client, NULL);
+#endif
+    conn->wait_mask = 0;
+}
+
+static int tws_HandleConnWork(Tcl_Event *evPtr, int flags) {
+    if (!(flags & TCL_FILE_EVENTS)) {
+        return 0;
+    }
+    tws_conn_event_t *work = (tws_conn_event_t *) evPtr;
+    tws_conn_t *conn = (tws_conn_t *) work->event.clientData;
+    conn->event_queued = 0;
+    /* Tcl handlers may run nested event loops, including a timeout/free event. */
+    Tcl_Preserve(conn);
+    if (!conn->shutdown) {
+        work->callback(evPtr, flags);
+    }
+    Tcl_Release(conn);
+    return 1;
+}
+
+void tws_QueueConnEvent(tws_conn_t *conn, Tcl_EventProc *proc) {
+    if (conn->shutdown || conn->event_queued) {
+        return;
+    }
+    tws_DisarmConn(conn);
+    tws_conn_event_t *work = (tws_conn_event_t *) Tcl_Alloc(sizeof(*work));
+    work->event.proc = tws_HandleConnWork;
+    work->event.nextPtr = NULL;
+    work->event.clientData = (ClientData *) conn;
+    work->callback = proc;
+    conn->event_queued = 1;
+    Tcl_QueueEvent((Tcl_Event *) work, TCL_QUEUE_TAIL);
+}
+
+void tws_WaitForConn(tws_conn_t *conn, int mask, Tcl_EventProc *proc) {
+    assert(mask == TCL_READABLE || mask == TCL_WRITABLE);
+    if (conn->shutdown) {
+        return;
+    }
+    tws_DisarmConn(conn);
+    tws_thread_data_t *dataPtr = Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
+    int rc;
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    struct kevent ev;
+    EV_SET(&ev, conn->client, mask == TCL_READABLE ? EVFILT_READ : EVFILT_WRITE,
+           EV_ADD | EV_ENABLE, 0, 0, conn);
+    rc = kevent(dataPtr->epoll_fd, &ev, 1, NULL, 0, NULL);
+#else
+    struct epoll_event ev = {0};
+    ev.events = mask == TCL_READABLE ? EPOLLIN : EPOLLOUT;
+    ev.data.ptr = conn;
+    rc = epoll_ctl(dataPtr->epoll_fd, EPOLL_CTL_ADD, conn->client, &ev);
+#endif
+    if (rc == -1) {
+        perror("unable to watch connection readiness");
+        conn->error = 1;
+        tws_CloseConn(conn, 1);
+        return;
+    }
+    conn->wait_mask = mask;
+    conn->resume_proc = proc;
+}
+
+static int tws_DeleteConnWork(Tcl_Event *evPtr, ClientData clientData) {
+    return evPtr->proc == tws_HandleConnWork &&
+           ((tws_conn_event_t *) evPtr)->event.clientData == (ClientData *) clientData;
+}
+
+void tws_CancelConnIO(tws_conn_t *conn) {
+    tws_DisarmConn(conn);
+    if (conn->timeout) {
+        Tcl_DeleteTimerHandler(conn->timeout);
+        conn->timeout = NULL;
+    }
+    Tcl_DeleteEvents(tws_DeleteConnWork, conn);
+    conn->event_queued = 0;
+}
+
+static void tws_ConnTimeout(ClientData clientData) {
+    tws_conn_t *conn = (tws_conn_t *) clientData;
+    conn->timeout = NULL;
+    if (conn->shutdown) {
+        return;
+    }
+    if (!conn->read_timer) {
+        long long remaining = conn->accept_ctx->server->conn_timeout_millis -
+                              (current_time_in_millis() - conn->latest_millis);
+        if (remaining > 0) {
+            conn->timeout = Tcl_CreateTimerHandler((int) remaining, tws_ConnTimeout, conn);
+            return;
+        }
+    }
+    int reading = conn->read_timer;
+    tws_CancelConnIO(conn);
+    if (reading && (!conn->ssl || conn->handshaked)) {
+        tws_thread_data_t *dataPtr = Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
+        Tcl_InterpState state = Tcl_SaveInterpState(dataPtr->interp, TCL_OK);
+        conn->keepalive = 0;
+        if (tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request") != TCL_OK) {
+            tws_CloseConn(conn, 1);
+        }
+        Tcl_RestoreInterpState(dataPtr->interp, state);
+    } else {
+        tws_CloseConn(conn, 1);
+    }
+}
+
+void tws_StartConnTimer(tws_conn_t *conn, int reading) {
+    if (conn->shutdown) {
+        return;
+    }
+    if (conn->timeout) {
+        Tcl_DeleteTimerHandler(conn->timeout);
+    }
+    conn->read_timer = reading;
+    conn->latest_millis = current_time_in_millis();
+    if (reading) {
+        conn->start_read_millis = conn->latest_millis;
+    }
+    int delay = reading ? conn->accept_ctx->server->read_timeout_millis :
+                          conn->accept_ctx->server->conn_timeout_millis;
+    conn->timeout = Tcl_CreateTimerHandler(delay, tws_ConnTimeout, conn);
+}
+
+void tws_KeepaliveConn(tws_conn_t *conn) {
+    tws_StartConnTimer(conn, 0);
+    if (conn->ssl && SSL_has_pending(conn->ssl)) {
+        /* Read-ahead may have consumed the next record from the socket. Try
+         * once now; an incomplete record will then arm the actual WANT mask. */
+        tws_QueueConnEvent(conn, tws_HandleKeepaliveEventInThread);
+    } else {
+        tws_WaitForConn(conn, TCL_READABLE, tws_HandleKeepaliveEventInThread);
+    }
+}
+
+static void tws_CleanupTimer(ClientData clientData) {
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) clientData;
+    tws_CleanupConnections();
+    dataPtr->cleanup_timer = Tcl_CreateTimerHandler(
+            dataPtr->server->garbage_collection_interval_millis, tws_CleanupTimer, dataPtr);
+}
 
 tws_server_t *tws_GetCurrentServer() {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
@@ -291,11 +452,15 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->client = client;
     conn->compression = NO_COMPRESSION;
     conn->keepalive = 0;
-    conn->created_file_handler_p = 0;
+    conn->io_mask = 0;
+    conn->wait_mask = 0;
+    conn->event_queued = 0;
+    conn->resume_proc = NULL;
+    conn->timeout = NULL;
+    conn->read_timer = 0;
     conn->ready = 0;
     conn->handshaked = 0;
     conn->inprogress = 0;
-    conn->todelete = 0;
     conn->shutdown = 0;
     conn->prevPtr = NULL;
     conn->nextPtr = NULL;
@@ -335,7 +500,7 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
     if (accept_ctx->server->option_router) {
         Tcl_Interp *targetInterpPtr;
         const char *targetCmdPtr;
-        int objc;
+        Tcl_Size objc;
         Tcl_Obj **objv;
         if (TCL_OK != Tcl_GetAliasObj(dataPtr->interp, Tcl_GetString(accept_ctx->server->cmdPtr), &targetInterpPtr, &targetCmdPtr, &objc, &objv)) {
             fprintf(stderr, "error getting alias\n");
@@ -414,7 +579,8 @@ static int tws_FoundBlankLine(tws_conn_t *conn) {
     }
 
     DBG(fprintf(stderr, "NotFoundBlankLine\n"));
-    conn->blank_line_offset = p - s;
+    /* The delimiter may straddle two socket reads. */
+    conn->blank_line_offset = p - s > 3 ? p - s - 3 : 0;
     return 0;
 }
 
@@ -476,13 +642,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
         ret = conn->accept_ctx->read_fn(conn, &conn->inout_ds, bytes_to_read);
     }
 
-    if (TWS_AGAIN == ret) {
-        if (tws_ShouldParseTopPart(conn) || tws_ShouldReadMore(conn)) {
-            DBG(fprintf(stderr, "retry dslen=%zd offset=%zd parsedslen=%zd\n", Tcl_DStringLength(&conn->inout_ds), conn->top_part_offset,
-                        Tcl_DStringLength(&conn->parse_ds)));
-            return 0;
-        }
-    } else if (TWS_ERROR == ret) {
+    if (TWS_ERROR == ret) {
         conn->error = 1;
         tws_CloseConn(conn, 2);
         return 1;
@@ -507,6 +667,17 @@ static int tws_HandleRecv(tws_conn_t *conn) {
             conn->ready = 1;
             return 1;
         }
+    }
+
+    /* Consume buffered headers before deciding whether another read is needed. */
+    if (tws_ShouldReadMore(conn)) {
+        if (ret == TWS_DONE) {
+            conn->keepalive = 0;
+            Tcl_DStringSetLength(&conn->parse_ds, 0);
+            conn->ready = 1;
+            return 1;
+        }
+        return 0;
     }
 
     if (tws_ShouldParseBottomPart(conn)) {
@@ -541,6 +712,7 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
         fprintf(stderr, "HandleSslHandshake: already handshaked\n");
         return 1;
     }
+    conn->io_mask = 0;
     ERR_clear_error();
     int rc = SSL_accept(conn->ssl);
     if (rc == 1) {
@@ -552,9 +724,11 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
 
     int err = SSL_get_error(conn->ssl, rc);
     if (err == SSL_ERROR_WANT_READ) {
+        conn->io_mask = TCL_READABLE;
         DBG(fprintf(stderr, "HandleHandshake: SSL_ERROR_WANT_READ\n"));
         return 0;
     } else if (err == SSL_ERROR_WANT_WRITE) {
+        conn->io_mask = TCL_WRITABLE;
         DBG(fprintf(stderr, "HandleHandshake: SSL_ERROR_WANT_WRITE\n"));
         return 0;
     } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
@@ -578,10 +752,7 @@ int tws_HandleTermEventInThread(Tcl_Event *evPtr, int flags) {
     Tcl_DeleteFileHandler(dataPtr->server_fd);
     close(dataPtr->server_fd);
 #endif
-    Tcl_DeleteFileHandler(dataPtr->epoll_fd);
-
     dataPtr->terminate = 1;
-    Tcl_ThreadAlert(Tcl_GetCurrentThread());
     return 1;
 }
 
@@ -616,10 +787,19 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
     }
 
     DBG(fprintf(stderr, "HandleProcessEventInThread: %s (%p)\n", conn->handle, conn->handle_conn_fn));
-    int rc = conn->handle_conn_fn(conn);
-    if (!rc) {
-        Tcl_ThreadAlert(conn->threadId);
-        return 0;
+    conn->io_mask = 0;
+    conn->handle_conn_fn(conn);
+    if (conn->shutdown) {
+        return 1;
+    }
+    if (!conn->ready) {
+        if (conn->io_mask) {
+            tws_WaitForConn(conn, conn->io_mask, tws_HandleProcessEventInThread);
+        } else {
+            /* Buffered data or a completed handshake can progress immediately. */
+            tws_QueueConnEvent(conn, tws_HandleProcessEventInThread);
+        }
+        return 1;
     }
     DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d (%p)\n", conn->ready, conn->handle_conn_fn));
 
@@ -627,10 +807,12 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
     if (ready) {
         if (!conn->inprogress) {
             conn->inprogress = 1;
+            tws_StartConnTimer(conn, 0);
             tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
             Tcl_InterpState interp_state = Tcl_SaveInterpState(dataPtr->interp, TCL_OK);
 
             if (!Tcl_DStringLength(&conn->parse_ds)) {
+                conn->keepalive = 0;
                 if (TCL_OK != tws_ReturnError(dataPtr->interp, conn, 400, "Bad Request")) {
                     tws_CloseConn(conn, 1);
                 }
@@ -642,7 +824,7 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
             conn->req_dict_ptr = Tcl_DStringToObj(&conn->parse_ds);
 #else
             Tcl_DStringResult(dataPtr->interp, &conn->parse_ds);
-            conn->requestDictPtr = Tcl_GetObjResult(dataPtr->interp);
+            conn->req_dict_ptr = Tcl_GetObjResult(dataPtr->interp);
 #endif
             Tcl_IncrRefCount(conn->req_dict_ptr);
             if (TCL_OK != tws_SetDefaultBodyIfNeeded(dataPtr->interp, conn)) {
@@ -653,22 +835,11 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
             Tcl_RestoreInterpState(dataPtr->interp, interp_state);
         }
     }
-    Tcl_ThreadAlert(conn->threadId);
-    return ready;
+    return 1;
 }
 
 static void tws_QueueProcessEvent(tws_conn_t *conn) {
-
-    assert(valid_conn_handle(conn));
-
-    DBG(fprintf(stderr, "ThreadQueueProcessEvent - threadId: %p\n", conn->threadId));
-    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-    connEvPtr->proc = tws_HandleProcessEventInThread;
-    connEvPtr->nextPtr = NULL;
-    connEvPtr->clientData = (ClientData *) conn;
-    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
-     Tcl_ThreadAlert(conn->threadId);
-    DBG(fprintf(stderr, "ThreadQueueProcessEvent done - threadId: %p\n", conn->threadId));
+    tws_QueueConnEvent(conn, tws_HandleProcessEventInThread);
 }
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -679,6 +850,7 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
     DBG(fprintf(stderr, "current thread: %p conn->threadId: %p\n", Tcl_GetCurrentThread(), conn->threadId));
 
     if (tws_AddConnToThreadList(conn)) {
+        tws_StartConnTimer(conn, 1);
         tws_QueueProcessEvent(conn);
     }
     return 1;
@@ -696,31 +868,18 @@ static void tws_ThreadQueueConnEvent(tws_conn_t *conn) {
     Tcl_ThreadAlert(conn->threadId);
     DBG(fprintf(stderr, "ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
 }
+#endif
 
 static int tws_HandleKeepaliveEventInThread(Tcl_Event *evPtr, int flags) {
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
 
     DBG(fprintf(stderr, "current thread: %p conn->threadId: %p\n", Tcl_GetCurrentThread(), conn->threadId));
-    conn->start_read_millis = current_time_in_millis();
-    conn->latest_millis = conn->start_read_millis;
-
+    tws_StartConnTimer(conn, 1);
     tws_QueueProcessEvent(conn);
 
     return 1;
 }
-
-static void tws_ThreadQueueKeepaliveEvent(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "ThreadQueueKeepaliveEvent - threadId: %p\n", conn->threadId));
-    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
-    connEvPtr->proc = tws_HandleKeepaliveEventInThread;
-    connEvPtr->nextPtr = NULL;
-    connEvPtr->clientData = (ClientData *) conn;
-    Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
-    Tcl_ThreadAlert(conn->threadId);
-    DBG(fprintf(stderr, "ThreadQueueKeepaliveEvent done - threadId: %p\n", conn->threadId));
-}
-#endif
 
 
 int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
@@ -770,7 +929,11 @@ static int tws_AddConnToThreadList(tws_conn_t *conn) {
         fprintf(stderr, "thread limit reached, close client: %d\n", conn->client);
         shutdown(conn->client, SHUT_RDWR);
         close(conn->client);
+        tws_UnregisterConnName(conn->handle);
         SSL_free(conn->ssl);
+        Tcl_FreeEncoding(conn->encoding);
+        Tcl_DStringFree(&conn->inout_ds);
+        Tcl_DStringFree(&conn->parse_ds);
         Tcl_Free((char *) conn);
         Tcl_MutexUnlock(tws_GetThreadMutex());
         return 0;
@@ -829,6 +992,7 @@ void tws_AcceptConn(void *data, int mask) {
         tws_ThreadQueueConnEvent(conn);
 #else
         if (tws_AddConnToThreadList(conn)) {
+            tws_StartConnTimer(conn, 1);
             tws_QueueProcessEvent(conn);
         }
 #endif
@@ -934,7 +1098,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 #endif
 
     // create a file handler for the epoll fd for this thread
-    Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_KeepaliveConnHandler, NULL);
+    Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_ConnReadyHandler, NULL);
 
     if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->server->scriptPtr)) {
         fprintf(stderr, "error evaluating init script\n");
@@ -962,6 +1126,9 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         TCL_THREAD_CREATE_RETURN;
     }
 
+    dataPtr->cleanup_timer = Tcl_CreateTimerHandler(
+            ctrl->server->garbage_collection_interval_millis, tws_CleanupTimer, dataPtr);
+
     // notify the main thread that we are done initializing
     Tcl_ConditionNotify(ctrl->cond_wait_ptr);
 
@@ -970,17 +1137,14 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
         if (dataPtr->terminate && dataPtr->num_conns) {
             fprintf(stderr, "Draining connections - thread: %p num_conns: %d conn_timeout_millis: %d\n", Tcl_GetCurrentThread(), dataPtr->num_conns, accept_ctx->server->conn_timeout_millis);
-            Tcl_Time block_time = {0, 10000};
             while (dataPtr->num_conns) {
-                Tcl_DoOneEvent(TCL_DONT_WAIT);
-                Tcl_WaitForEvent(&block_time);
-                tws_CleanupConnections();
+                Tcl_DoOneEvent(TCL_ALL_EVENTS);
             }
         }
     } while (!dataPtr->terminate);
 
-    // we did not close this in HandleTermEventInThread
-    // because we wanted to drain keepalive connections
+    Tcl_DeleteTimerHandler(dataPtr->cleanup_timer);
+    Tcl_DeleteFileHandler(dataPtr->epoll_fd);
     close(dataPtr->epoll_fd);
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -1000,7 +1164,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     TCL_THREAD_CREATE_RETURN;
 }
 
-static void tws_KeepaliveConnHandler(void *data, int mask) {
+static void tws_ConnReadyHandler(void *data, int mask) {
 
         DBG(fprintf(stderr, "KeepaliveConnHandler\n"));
 
@@ -1010,7 +1174,7 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
     struct timespec timeout;
     timeout.tv_sec = 0;  // 0 seconds
-    timeout.tv_nsec = 1000; // 1000 nanoseconds
+    timeout.tv_nsec = 0;
 
     struct kevent events[MAX_EVENTS];
     int nfds = kevent(dataPtr->epoll_fd, NULL, 0, events, MAX_EVENTS, &timeout);
@@ -1033,23 +1197,13 @@ static void tws_KeepaliveConnHandler(void *data, int mask) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
         tws_conn_t *conn = (tws_conn_t *) events[i].udata;
 
-        if (!conn->handle_conn_fn) {
-            conn->handle_conn_fn = tws_HandleRecv;
-        }
-
-        tws_ThreadQueueKeepaliveEvent(conn);
 #else
         tws_conn_t *conn = (tws_conn_t *) events[i].data.ptr;
-        DBG(fprintf(stderr, "KeepaliveConnHandler - keepalive client: %d %s\n", conn->client, conn->handle));
-        conn->start_read_millis = current_time_in_millis();
-        conn->latest_millis = conn->start_read_millis;
-
-        if (!conn->handle_conn_fn) {
-            conn->handle_conn_fn = tws_HandleRecv;
-        }
-
-        tws_QueueProcessEvent(conn);
 #endif
+        /* Disarm before queuing: level readiness must not duplicate work. */
+        if (conn->wait_mask && !conn->shutdown) {
+            tws_QueueConnEvent(conn, conn->resume_proc);
+        }
     }
 
 }
