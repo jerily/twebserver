@@ -5,33 +5,14 @@
  */
 
 #include <unistd.h>
+#include <assert.h>
 #include "return.h"
 #include "base64.h"
-
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-#include <sys/event.h>
-#include <assert.h>
-
-#else
-
-#include <sys/epoll.h>
-#include <sys/ioctl.h>
-#include <signal.h>
-#include <assert.h>
-
-#endif
-
-#define MAX_EVENTS 100
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-#define MAX_BUFFER_SIZE 1024
-#endif
+#include "conn.h"
 
 #define MAX_CHUNK_SIZE 10485760
 
-void tws_QueueCreateFileHandlerEvent(tws_conn_t *conn);
 void tws_QueueCleanupEvent();
-static int tws_HandleCreateFileHandlerEventInThread(Tcl_Event *evPtr, int flags);
-static void tws_CreateFileHandler(int fd, ClientData clientData);
 static void tws_ShutdownConn(tws_conn_t *conn);
 static int tws_HandleCleanupEventInThread(Tcl_Event *evPtr, int flags);
 
@@ -65,12 +46,18 @@ static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *data
     }
     Tcl_DStringFree(&conn->inout_ds);
     Tcl_DStringFree(&conn->parse_ds);
+    Tcl_FreeEncoding(conn->encoding);
     ckfree((char *) conn);
 
     dataPtr->num_conns--;
 }
 
-static void tws_FreeConn(tws_conn_t *conn) {
+#if TCL_MAJOR_VERSION > 8
+static void tws_FreeConn(void *data) {
+#else
+static void tws_FreeConn(char *data) {
+#endif
+    tws_conn_t *conn = (tws_conn_t *) data;
     Tcl_MutexLock(tws_GetThreadMutex());
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
     tws_FreeConnWithThreadData(conn, dataPtr);
@@ -84,40 +71,27 @@ int tws_CleanupConnections() {
     long long milliseconds = current_time_in_millis();
 
     int count = 0;
-    int count_mark_for_deletion = 0;
+    int count_closed = 0;
 
-    Tcl_MutexLock(tws_GetThreadMutex());
+    /* The list belongs to this thread. Close through the same deferred-free
+     * path as I/O callbacks, so queued or active events never see freed data. */
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
     tws_conn_t *curr_conn = dataPtr->firstConnPtr;
-    tws_conn_t *next_conn = NULL;
     while (curr_conn != NULL) {
-
-        next_conn = curr_conn->nextPtr;
-
-        if (curr_conn->todelete) {
-            DBG2(printf("CleanupConnections - deleting conn - client: %d\n", curr_conn->client));
-
-            tws_FreeConnWithThreadData(curr_conn, dataPtr);
-
-            DBG2(printf("CleanupConnections - deleted conn\n"));
-        } else {
+        tws_conn_t *next_conn = curr_conn->nextPtr;
+        if (!curr_conn->shutdown) {
             long long elapsed = milliseconds - curr_conn->latest_millis;
             if (elapsed > curr_conn->accept_ctx->server->conn_timeout_millis) {
-                if (tws_UnregisterConnName(curr_conn->handle)) {
-                    DBG2(printf("CleanupConnections - mark connection for deletion\n"));
-                    tws_ShutdownConn(curr_conn);
-                    curr_conn->todelete = 1;
-                    count_mark_for_deletion++;
-                }
+                tws_CloseConn(curr_conn, 2);
+                count_closed++;
             }
         }
         count++;
 
         curr_conn = next_conn;
     }
-    Tcl_MutexUnlock(tws_GetThreadMutex());
 
-    DBG2(printf("reviewed count: %d marked_for_deletion: %d\n", count, count_mark_for_deletion));
+    DBG2(printf("reviewed count: %d closed: %d\n", count, count_closed));
 
     return 1;
 }
@@ -129,40 +103,6 @@ static int tws_HandleCleanupEventInThread(Tcl_Event *evPtr, int flags) {
     return tws_CleanupConnections();
 }
 
-static void tws_CreateFileHandler(int fd, ClientData clientData) {
-    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
-
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    // Add the server socket to the kqueue set
-    struct kevent ev;
-    EV_SET(&ev, fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, clientData);
-    if (kevent(dataPtr->epoll_fd, &ev, 1, NULL, 0, NULL) == -1) {
-        fprintf(stderr, "CreateFileHandler: kevent failed, fd: %d\n", fd);
-    }
-#else
-    // Add the server socket to the epoll set
-    struct epoll_event ev;
-    ev.events = EPOLLIN;
-    ev.data.fd = fd;
-    ev.data.ptr = clientData;
-    if (epoll_ctl(dataPtr->epoll_fd, EPOLL_CTL_ADD, fd, &ev) == -1) {
-        fprintf(stderr, "CreateFileHandler: epoll_ctl failed, fd: %d\n", fd);
-    }
-#endif
-}
-
-static int tws_HandleCreateFileHandlerEventInThread(Tcl_Event *evPtr, int flags) {
-    UNUSED(flags);
-
-    DBG2(printf("CreateFileHandlerForKeepaliveConn\n"));
-    tws_event_t *keepaliveEvPtr = (tws_event_t *) evPtr;
-    tws_conn_t *conn = (tws_conn_t *) keepaliveEvPtr->clientData;
-    DBG2(printf("CreateFileHandlerForKeepaliveConn conn=%p client=%d\n", conn, conn->client));
-    tws_CreateFileHandler(conn->client, conn);
-
-    return 1;
-}
-
 void tws_QueueCleanupEvent() {
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
     DBG2(printf("QueueCleanupEvent: %p\n", currentThreadId));
@@ -170,7 +110,6 @@ void tws_QueueCleanupEvent() {
     evPtr->proc = tws_HandleCleanupEventInThread;
     evPtr->nextPtr = NULL;
     Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-    Tcl_ThreadAlert(currentThreadId);
 }
 
 static int tws_HandleFreeConnEventInThread(Tcl_Event *evPtr, int flags) {
@@ -178,7 +117,7 @@ static int tws_HandleFreeConnEventInThread(Tcl_Event *evPtr, int flags) {
 
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
-    tws_FreeConn(conn);
+    Tcl_EventuallyFree(conn, tws_FreeConn);
     return 1;
 }
 
@@ -190,54 +129,15 @@ void tws_QueueFreeConnEvent(tws_conn_t *conn) {
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
     Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
-    Tcl_ThreadAlert(currentThreadId);
-}
-
-void tws_QueueCreateFileHandlerEvent(tws_conn_t *conn) {
-    tws_event_t *evPtr = (tws_event_t *) ckalloc(sizeof(tws_event_t));
-    evPtr->proc = tws_HandleCreateFileHandlerEventInThread;
-    evPtr->nextPtr = NULL;
-    evPtr->clientData = (ClientData *) conn;
-    Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
-    Tcl_ThreadAlert(conn->threadId);
-}
-
-static void tws_DeleteFileHandler(int fd) {
-    DBG2(printf("DeleteFileHandler client: %d\n", fd));
-
-    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
-
-#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-    // Remove the server socket from the kqueue set
-    struct kevent ev;
-    EV_SET(&ev, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-    if (kevent(dataPtr->epoll_fd, &ev, 1, NULL, 0, NULL) == -1) {
-        fprintf(stderr, "DeleteFileHandler: kevent failed, fd: %d\n", fd);
-    }
-#else
-    // Remove the server socket from the epoll set
-    struct epoll_event ev;
-    ev.events = EPOLLIN;
-    ev.data.fd = fd;
-    if (epoll_ctl(dataPtr->epoll_fd, EPOLL_CTL_DEL, fd, &ev) == -1) {
-        fprintf(stderr, "DeleteFileHandler: epoll_ctl failed, fd: %d\n", fd);
-    }
-#endif
 }
 
 static void tws_ShutdownConn(tws_conn_t *conn) {
-    if (conn->todelete) {
-        DBG2(printf("ShutdownConn - already marked for deletion\n"));
+    if (conn->shutdown) {
         return;
     }
 
-
-    if (conn->created_file_handler_p == 1) {
-        tws_DeleteFileHandler(conn->client);
-        conn->created_file_handler_p = 0;
-    }
-
     conn->shutdown = 1;
+    tws_CancelConnIO(conn);
     int shutdown_client = 1;
     if (!conn->accept_ctx->option_http) {
         if (!conn->error && SSL_is_init_finished(conn->ssl)) {
@@ -275,8 +175,8 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
         return TCL_OK;
     }
 
-    DBG2(printf("CloseConn - client: %d force: %d keepalive: %d handler: %d\n", conn->client, force,
-                conn->keepalive, conn->created_file_handler_p));
+    DBG2(printf("CloseConn - client: %d force: %d keepalive: %d wait_mask: %d\n", conn->client, force,
+                conn->keepalive, conn->wait_mask));
 
     Tcl_DStringSetLength(&conn->inout_ds, 0);
     Tcl_DStringSetLength(&conn->parse_ds, 0);
@@ -288,8 +188,6 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
         Tcl_DecrRefCount(conn->req_dict_ptr);
     }
     conn->req_dict_ptr = NULL;
-//    conn->handle_conn_fn = NULL;
-    conn->shutdown = 0;
     conn->ready = 0;
     conn->inprogress = 0;
 //    conn->handshaked = 0;
@@ -299,7 +197,6 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     ckfree(conn->chunks_ds);
     conn->n_chunks = 0;
     conn->chunk_offset = 0;
-
 
     if (force) {
         if (tws_UnregisterConnName(conn->handle)) {
@@ -313,11 +210,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
                 tws_QueueFreeConnEvent(conn);
             }
         } else {
-            if (!conn->created_file_handler_p) {
-                conn->created_file_handler_p = 1;
-                // notify the event loop to keep the connection alive
-                tws_QueueCreateFileHandlerEvent(conn);
-            }
+            tws_KeepaliveConn(conn);
         }
     }
 
@@ -383,9 +276,17 @@ static int tws_HandleWriteEventInThread(Tcl_Event *evPtr, int flags) {
 
     DBG2(printf("HandleWriteEventInThread: %s\n", conn->handle));
 
-    int result = tws_HandleWrite(conn);
-    Tcl_ThreadAlert(conn->threadId);
-    return result;
+    if (conn->shutdown) {
+        return 1;
+    }
+    if (!tws_HandleWrite(conn)) {
+        if (conn->io_mask) {
+            tws_WaitForConn(conn, conn->io_mask, tws_HandleWriteEventInThread);
+        } else {
+            tws_QueueConnEvent(conn, tws_HandleWriteEventInThread);
+        }
+    }
+    return 1;
 }
 
 static void tws_QueueWriteEvent(tws_conn_t *conn) {
@@ -393,12 +294,8 @@ static void tws_QueueWriteEvent(tws_conn_t *conn) {
 
     DBG2(printf("QueueWriteEvent - threadId: %p conn: %s\n", conn->threadId, conn->handle));
     conn->write_offset = 0;
-    tws_event_t *connEvPtr = (tws_event_t *) ckalloc(sizeof(tws_event_t));
-    connEvPtr->proc = tws_HandleWriteEventInThread;
-    connEvPtr->nextPtr = NULL;
-    connEvPtr->clientData = (ClientData *) conn;
-    Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
-    Tcl_ThreadAlert(conn->threadId);
+    tws_StartConnTimer(conn, 0);
+    tws_QueueConnEvent(conn, tws_HandleWriteEventInThread);
     DBG2(printf("QueueWriteEvent done - threadId: %p\n", conn->threadId));
 
 }
@@ -406,7 +303,7 @@ static void tws_QueueWriteEvent(tws_conn_t *conn) {
 int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr) {
     assert(valid_conn_handle(conn));
 
-    if (!conn->accept_ctx) {
+    if (!conn->accept_ctx || conn->shutdown) {
         SetResult("ReturnConn called on deleted conn");
         return TCL_ERROR;
     }
@@ -711,7 +608,7 @@ tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const cha
     assert(valid_conn_handle(conn));
 
     DBG2(printf("ReturnError: %d %s\n", conn->client, conn->handle));
-    if (conn->error) {
+    if (conn->error || conn->shutdown) {
         return TCL_ERROR;
     }
 

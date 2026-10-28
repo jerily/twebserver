@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: MIT.
  */
 
+#include <errno.h>
 #include "https.h"
 
 // ClientHello callback
@@ -105,33 +106,34 @@ int tws_ConfigureSslContext(Tcl_Interp *interp, SSL_CTX *ctx, const char *key_fi
 int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
     DBG2(printf("ReadConn client: %d\n", conn->client));
 
-    long max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes - Tcl_DStringLength(&conn->inout_ds);
+    conn->io_mask = 0;
+    Tcl_Size max_request_read_bytes = conn->accept_ctx->server->max_request_read_bytes - Tcl_DStringLength(&conn->inout_ds);
     int max_buffer_size = MIN(INT_MAX,
             size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size));
 
     char *buf = (char *) ckalloc(max_buffer_size);
-    long total_read = 0;
+    Tcl_Size total_read = 0;
     int rc;
-    int bytes_read;
-
-    ERR_clear_error();
 
     /*
      * SSL_read() may return data in parts, so try to read
      * until SSL_read() would return no data
      */
 
-    DBG2(printf("max_buffer_size = %ld\n", max_buffer_size));
+    DBG2(printf("max_buffer_size = %d\n", max_buffer_size));
 
     for (;;) {
-        rc = SSL_read(conn->ssl, buf, max_buffer_size);
+        int toread = size == 0 ? max_buffer_size : MIN(max_buffer_size, size - total_read);
+        ERR_clear_error();
+        errno = 0;
+        rc = SSL_read(conn->ssl, buf, toread);
         if (rc > 0) {
-            bytes_read = rc;
-            total_read += bytes_read;
+            conn->latest_millis = current_time_in_millis();
+            total_read += rc;
             if (total_read > max_request_read_bytes) {
                 goto failed_due_to_request_too_large;
             }
-            Tcl_DStringAppend(dsPtr, buf, bytes_read);
+            Tcl_DStringAppend(dsPtr, buf, rc);
             if (total_read < size) {
                 continue;
             }
@@ -142,12 +144,15 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
             int err = SSL_get_error(conn->ssl, rc);
             if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
                 DBG2(printf("AGAIN %s\n", tws_GetSslError(err)));
+                conn->io_mask = err == SSL_ERROR_WANT_READ ? TCL_READABLE : TCL_WRITABLE;
                 ckfree(buf);
                 return TWS_AGAIN;
 
-            } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
+            } else if (err == SSL_ERROR_SYSCALL && errno == EINTR) {
+                continue;
+            } else if (err == SSL_ERROR_ZERO_RETURN ||
+                       (err == SSL_ERROR_SYSCALL && rc == 0 && ERR_peek_error() == 0)) {
                 // peer closed connection
-//                conn->shutdown = 1;
                 goto done;
             }
 
@@ -160,6 +165,7 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
         break;
     }
 
+    /* Buffered TLS records can remain even when the socket is no longer readable. */
     ckfree(buf);
     return TWS_AGAIN;
 
@@ -175,12 +181,16 @@ int tws_ReadSslConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
 }
 
 int tws_WriteSslConnAsync(tws_conn_t *conn, const char *buf, Tcl_Size len) {
+    conn->io_mask = 0;
     Tcl_Size total_written = 0;
     int rc;
-    for (;;) {
+    while (total_written < len) {
         int towrite = MIN(INT_MAX, len - total_written);
+        ERR_clear_error();
+        errno = 0;
         rc = SSL_write(conn->ssl, buf + total_written, towrite);
         if (rc > 0) {
+            conn->latest_millis = current_time_in_millis();
             // The write operation was successful, the return value is the number
             // of bytes actually written to the TLS/SSL connection.
             total_written += rc;
@@ -190,14 +200,16 @@ int tws_WriteSslConnAsync(tws_conn_t *conn, const char *buf, Tcl_Size len) {
         } else {
             int err = SSL_get_error(conn->ssl, rc);
             if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+                /* Preserve the pending SSL_write buffer and length for its retry. */
                 conn->write_offset += total_written;
+                conn->io_mask = err == SSL_ERROR_WANT_READ ? TCL_READABLE : TCL_WRITABLE;
                 return TWS_AGAIN;
-            } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
-                // peer closed connection
-                return TWS_DONE;
+            } else if (err == SSL_ERROR_SYSCALL && errno == EINTR) {
+                continue;
             }
 
             return TWS_ERROR;
         }
     }
+    return TWS_DONE;
 }

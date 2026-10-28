@@ -26,15 +26,15 @@ the organization and common name (CN),
 which should be the client’s name or identifier.
 
 ```bash
-openssl req -new -key client.key -out client.csr
+openssl req -new -key client.key -sha256 \
+  -subj "/C=CY/O=Jerily Test/CN=twebserver Test Client" \
+  -out client.csr
 ```
 
 This command creates a new CSR (client.csr)
 using the private key (client.key).
-You will be prompted to enter the client's information
-such as country, state, locality, organization name,
-organizational unit, common name (client's name), and email address.
-Ensure that the common name or CN is unique to the client.
+The subject is supplied explicitly so the checked-in test certificate can be
+reproduced without interactive prompts.
 
 ## Step 3: Create a Certificate for the Client Signed by your CA
 
@@ -42,8 +42,15 @@ Now, use the CA key and certificate to sign the client’s CSR
 and create the client certificate:
 
 ```bash
-openssl x509 -req -in client.csr -CA ../ca/ca.crt -CAkey ../ca/ca.key -CAcreateserial -out client.crt -days 365 -sha256
+openssl x509 -req -in client.csr \
+  -CA ../ca/ca.crt -CAkey ../ca/ca.key \
+  -set_serial 0x1001 -days 3650 -sha256 \
+  -extfile client-ext.cnf \
+  -out client.crt
 ```
+
+The extension file marks this as an end-entity certificate permitted only for
+TLS client authentication.
 
 ## Step 4: Test client verification using curl
 
