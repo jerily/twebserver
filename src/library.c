@@ -1418,7 +1418,7 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
         Tcl_Size input_length;
         const char *input = Tcl_GetByteArrayFromObj(input_ptr, &input_length);
         char *output = ckalloc(input_length * 2);
-        size_t output_length;
+        Tcl_Size output_length;
         if (TCL_OK != base64_encode(input, input_length, output, &output_length)) {
             if (option_file) {
                 Tcl_DecrRefCount(input_ptr);
