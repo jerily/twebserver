@@ -7,21 +7,11 @@ set(CMAKE_C_STANDARD   11)
 set(CMAKE_C_STANDARD_REQUIRED true)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(OpenSSL 3.0.2 REQUIRED)     # OPENSSL_INCLUDE_DIR OPENSSL_LIBRARIES
-find_package(TCL 8.6.13 REQUIRED)  # TCL_INCLUDE_PATH TCL_LIBRARY
+find_package(TclStub 8.6 REQUIRED)  # TCL_INCLUDE_PATH TCL_STUB_LIBRARY TCL_TCLSH
 find_package(Threads REQUIRED)
-find_program(TCL_TCLSH
-        NAMES
-        tclsh90 tclsh9.0
-        tclsh86 tclsh8.6
-        tclsh
-        PATHS
-        ${TCL_INCLUDE_PATH}/../bin
-        ${TCL_INCLUDE_PATH}/../../bin
-        NO_DEFAULT_PATH
-)
 
 message(STATUS "TCL_INCLUDE_PATH: ${TCL_INCLUDE_PATH}")
-message(STATUS "TCL_LIBRARY: ${TCL_LIBRARY}")
+message(STATUS "TCL_STUB_LIBRARY: ${TCL_STUB_LIBRARY}")
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 #set(CMAKE_C_FLAGS  "-DNDEBUG -DTCL_THREADS -DVERSION=${PROJECT_VERSION} ${CMAKE_C_FLAGS}")
@@ -73,9 +63,9 @@ add_library(twebserver SHARED src/library.c src/base64.c src/base64/cencode.c sr
 set_target_properties(twebserver PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 include_directories(${TCL_INCLUDE_PATH} ${OPENSSL_INCLUDE_DIR})
-target_link_libraries(twebserver PRIVATE ${OPENSSL_LIBRARIES} ${TCL_LIBRARY} Threads::Threads)
+target_compile_definitions(twebserver PRIVATE USE_TCL_STUBS)
+target_link_libraries(twebserver PRIVATE ${OPENSSL_LIBRARIES} ${TCL_STUB_LIBRARY} Threads::Threads)
 #target_link_options(twebserver PUBLIC -fsanitize=address)
-get_filename_component(TCL_LIBRARY_PATH "${TCL_LIBRARY}" PATH)
 
 install(TARGETS ${TARGET}
         LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/${TARGET}${PROJECT_VERSION}
