@@ -88,7 +88,7 @@ set localhost_key [file join $dir "../certs/host1/key.pem"]
 set localhost_cert [file join $dir "../certs/host1/cert.pem"]
 ::twebserver::add_context $server_handle localhost $localhost_key $localhost_cert
 
-# the following requires www.example.com to be in /etc/hosts
+# The client selects this context with TLS SNI (`-servername example.com`).
 set cafile [file join $dir "../certs/ca/ca.crt"]
 set cadir [file join $dir "../certs/ca"]
 set example_key [file join $dir "../certs/host2/key.pem"]

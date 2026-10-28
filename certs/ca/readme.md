@@ -17,7 +17,13 @@ This certificate serves as the CA certificate.
 You will use it to sign other certificates.
 
 ```bash
-openssl req -x509 -new -nodes -key ca.key -sha256 -days 1024 -out ca.crt
+openssl req -x509 -new -key ca.key -sha256 -days 3650 \
+  -set_serial 0x1000 \
+  -subj "/C=CY/O=Jerily Test/CN=twebserver Test CA" \
+  -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign" \
+  -addext "subjectKeyIdentifier=hash" \
+  -out ca.crt
 ```
 
 ## Step 3: Verify the CA Certificate
