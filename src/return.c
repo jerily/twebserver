@@ -10,14 +10,16 @@
 #include "base64.h"
 #include "conn.h"
 
+#define MAX_CHUNK_SIZE 10485760
+
 void tws_QueueCleanupEvent();
-static void tws_ShutdownConn(tws_conn_t *conn, int force);
+static void tws_ShutdownConn(tws_conn_t *conn);
 static int tws_HandleCleanupEventInThread(Tcl_Event *evPtr, int flags);
 
 static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *dataPtr) {
     assert(valid_conn_handle(conn));
 
-    DBG(fprintf(stderr, "FreeConnWithThreadData - dataKey: %p thread: %p - client: %d - num_conns: %d\n", tws_GetThreadDataKey(), Tcl_GetCurrentThread(), conn->client, dataPtr->num_conns));
+    DBG2(printf("FreeConnWithThreadData - dataKey: %p thread: %p - client: %d - num_conns: %d\n", tws_GetThreadDataKey(), Tcl_GetCurrentThread(), conn->client, dataPtr->num_conns));
 
     if (conn->prevPtr == NULL) {
         // the node to delete is the first node
@@ -45,7 +47,7 @@ static void tws_FreeConnWithThreadData(tws_conn_t *conn, tws_thread_data_t *data
     Tcl_DStringFree(&conn->inout_ds);
     Tcl_DStringFree(&conn->parse_ds);
     Tcl_FreeEncoding(conn->encoding);
-    Tcl_Free((char *) conn);
+    ckfree((char *) conn);
 
     dataPtr->num_conns--;
 }
@@ -64,7 +66,7 @@ static void tws_FreeConn(char *data) {
 
 int tws_CleanupConnections() {
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
-    DBG(fprintf(stderr, "CleanupConnections currentThreadId=%p\n", currentThreadId));
+    DBG2(printf("CleanupConnections currentThreadId=%p\n", currentThreadId));
 
     long long milliseconds = current_time_in_millis();
 
@@ -89,25 +91,30 @@ int tws_CleanupConnections() {
         curr_conn = next_conn;
     }
 
-    DBG(fprintf(stderr, "reviewed count: %d closed: %d\n", count, count_closed));
+    DBG2(printf("reviewed count: %d closed: %d\n", count, count_closed));
 
     return 1;
 }
 
 static int tws_HandleCleanupEventInThread(Tcl_Event *evPtr, int flags) {
+    UNUSED(evPtr);
+    UNUSED(flags);
+
     return tws_CleanupConnections();
 }
 
 void tws_QueueCleanupEvent() {
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
-    DBG(fprintf(stderr, "QueueCleanupEvent: %p\n", currentThreadId));
-    Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
+    DBG2(printf("QueueCleanupEvent: %p\n", currentThreadId));
+    Tcl_Event *evPtr = (Tcl_Event *) ckalloc(sizeof(Tcl_Event));
     evPtr->proc = tws_HandleCleanupEventInThread;
     evPtr->nextPtr = NULL;
     Tcl_QueueEvent((Tcl_Event *) evPtr, TCL_QUEUE_TAIL);
 }
 
 static int tws_HandleFreeConnEventInThread(Tcl_Event *evPtr, int flags) {
+    UNUSED(flags);
+
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
     Tcl_EventuallyFree(conn, tws_FreeConn);
@@ -116,15 +123,15 @@ static int tws_HandleFreeConnEventInThread(Tcl_Event *evPtr, int flags) {
 
 void tws_QueueFreeConnEvent(tws_conn_t *conn) {
     Tcl_ThreadId currentThreadId = Tcl_GetCurrentThread();
-    DBG(fprintf(stderr, "QueueFreeConnEvent: %p\n", currentThreadId));
-    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    DBG2(printf("QueueFreeConnEvent: %p\n", currentThreadId));
+    tws_event_t *connEvPtr = (tws_event_t *) ckalloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleFreeConnEventInThread;
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
     Tcl_QueueEvent((Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
 }
 
-static void tws_ShutdownConn(tws_conn_t *conn, int force) {
+static void tws_ShutdownConn(tws_conn_t *conn) {
     if (conn->shutdown) {
         return;
     }
@@ -134,18 +141,18 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
     int shutdown_client = 1;
     if (!conn->accept_ctx->option_http) {
         if (!conn->error && SSL_is_init_finished(conn->ssl)) {
-            DBG(fprintf(stderr, "SSL_is_init_finished: true\n"));
+            DBG2(printf("SSL_is_init_finished: true\n"));
             int rc = SSL_shutdown(conn->ssl);
-            DBG(fprintf(stderr, "first SSL_shutdown rc: %d\n", rc));
+            DBG2(printf("first SSL_shutdown rc: %d\n", rc));
             if (rc == 0) {
                 shutdown(conn->client, SHUT_RDWR);
                 shutdown_client = 0;
                 rc = SSL_shutdown(conn->ssl);
-                DBG(fprintf(stderr, "second SSL_shutdown rc: %d\n", rc));
+                DBG2(printf("second SSL_shutdown rc: %d\n", rc));
             }
         }
     }
-    DBG(fprintf(stderr, "shutdown_client: %d\n", shutdown_client));
+    DBG2(printf("shutdown_client: %d\n", shutdown_client));
     if (shutdown_client) {
         if (shutdown(conn->client, SHUT_RDWR)) {
             if (errno != ENOTCONN) {
@@ -158,7 +165,7 @@ static void tws_ShutdownConn(tws_conn_t *conn, int force) {
         fprintf(stderr, "close failed\n");
     }
 
-    DBG(fprintf(stderr, "done shutdown\n"));
+    DBG2(printf("done shutdown\n"));
 }
 
 int tws_CloseConn(tws_conn_t *conn, int force) {
@@ -168,7 +175,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
         return TCL_OK;
     }
 
-    DBG(fprintf(stderr, "CloseConn - client: %d force: %d keepalive: %d wait_mask: %d\n", conn->client, force,
+    DBG2(printf("CloseConn - client: %d force: %d keepalive: %d wait_mask: %d\n", conn->client, force,
                 conn->keepalive, conn->wait_mask));
 
     Tcl_DStringSetLength(&conn->inout_ds, 0);
@@ -183,16 +190,23 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     conn->req_dict_ptr = NULL;
     conn->ready = 0;
     conn->inprogress = 0;
+//    conn->handshaked = 0;
+    for (Tcl_Size i = 0; i < conn->n_chunks; i++) {
+        Tcl_DStringFree(&conn->chunks_ds[i]);
+    }
+    ckfree(conn->chunks_ds);
+    conn->n_chunks = 0;
+    conn->chunk_offset = 0;
 
     if (force) {
         if (tws_UnregisterConnName(conn->handle)) {
-            tws_ShutdownConn(conn, force);
+            tws_ShutdownConn(conn);
             tws_QueueFreeConnEvent(conn);
         }
     } else {
         if (!conn->keepalive) {
             if (tws_UnregisterConnName(conn->handle)) {
-                tws_ShutdownConn(conn, 2);
+                tws_ShutdownConn(conn);
                 tws_QueueFreeConnEvent(conn);
             }
         } else {
@@ -213,33 +227,54 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
 static int tws_HandleWrite(tws_conn_t *conn) {
     assert(valid_conn_handle(conn));
 
-    Tcl_Size reply_length = Tcl_DStringLength(&conn->inout_ds);
-    const char *reply = Tcl_DStringValue(&conn->inout_ds);
+    Tcl_DString *ds_ptr = &conn->inout_ds;
+    if (conn->chunk_offset > 0) {
+        ds_ptr = &conn->chunks_ds[conn->chunk_offset - 1];
+    }
+
+    DBG2(printf("chunk_offset: %ld n_chunks: %ld write_offset: %ld\n", conn->chunk_offset, conn->n_chunks, conn->write_offset));
+
+    Tcl_Size reply_length = Tcl_DStringLength(ds_ptr);
+    const char *reply = Tcl_DStringValue(ds_ptr);
 
     int rc = conn->accept_ctx->write_fn(conn, reply + conn->write_offset, reply_length - conn->write_offset);
 
     if (rc == TWS_AGAIN) {
+        DBG2(printf("TWS_AGAIN write_offset: %ld reply_length: %ld n_chunks: %ld\n", conn->write_offset, reply_length, conn->n_chunks));
         return 0;
     } else if (rc == TWS_ERROR) {
+        DBG2(printf("TWS_ERROR\n"));
         conn->error = 1;
         tws_CloseConn(conn, 1);
         return 1;
     }
 
+    DBG2(printf("TWS_DONE write_offset: %ld reply_length: %ld n_chunks: %ld\n", conn->write_offset, reply_length, conn->n_chunks));
+
+    if (conn->n_chunks > 0) {
+        conn->write_offset = 0;
+        conn->chunk_offset++;
+        if (conn->chunk_offset <= conn->n_chunks) {
+            return 0;
+        }
+    }
+
     // TWS_DONE
     tws_CloseConn(conn, 0);
 
-    DBG(fprintf(stderr, "------------done\n"));
+    DBG2(printf("------------done\n"));
     return 1;
 }
 
 static int tws_HandleWriteEventInThread(Tcl_Event *evPtr, int flags) {
+    UNUSED(flags);
+
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
 
     assert(valid_conn_handle(conn));
 
-    DBG(fprintf(stderr, "HandleWriteEventInThread: %s\n", conn->handle));
+    DBG2(printf("HandleWriteEventInThread: %s\n", conn->handle));
 
     if (conn->shutdown) {
         return 1;
@@ -257,11 +292,11 @@ static int tws_HandleWriteEventInThread(Tcl_Event *evPtr, int flags) {
 static void tws_QueueWriteEvent(tws_conn_t *conn) {
     assert(valid_conn_handle(conn));
 
-    DBG(fprintf(stderr, "QueueWriteEvent - threadId: %p conn: %s\n", conn->threadId, conn->handle));
+    DBG2(printf("QueueWriteEvent - threadId: %p conn: %s\n", conn->threadId, conn->handle));
     conn->write_offset = 0;
     tws_StartConnTimer(conn, 0);
     tws_QueueConnEvent(conn, tws_HandleWriteEventInThread);
-    DBG(fprintf(stderr, "QueueWriteEvent done - threadId: %p\n", conn->threadId));
+    DBG2(printf("QueueWriteEvent done - threadId: %p\n", conn->threadId));
 
 }
 
@@ -283,13 +318,11 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(statusCodeKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, statusCodeKeyPtr, &statusCodePtr)) {
         Tcl_DecrRefCount(statusCodeKeyPtr);
-        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(statusCodeKeyPtr);
     if (!statusCodePtr) {
-        tws_CloseConn(conn, 1);
         SetResult("statusCode not found");
         return TCL_ERROR;
     }
@@ -299,7 +332,6 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(headersKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, headersKeyPtr, &headersPtr)) {
         Tcl_DecrRefCount(headersKeyPtr);
-        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
@@ -310,7 +342,6 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(multiValueHeadersKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, multiValueHeadersKeyPtr, &multiValueHeadersPtr)) {
         Tcl_DecrRefCount(multiValueHeadersKeyPtr);
-        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
@@ -321,14 +352,12 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(bodyKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, bodyKeyPtr, &bodyPtr)) {
         Tcl_DecrRefCount(bodyKeyPtr);
-        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
     Tcl_DecrRefCount(bodyKeyPtr);
 
     if (!bodyPtr) {
-        tws_CloseConn(conn, 1);
         SetResult("body not found");
         return TCL_ERROR;
     }
@@ -338,7 +367,6 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_IncrRefCount(isBase64EncodedKeyPtr);
     if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, isBase64EncodedKeyPtr, &isBase64EncodedPtr)) {
         Tcl_DecrRefCount(isBase64EncodedKeyPtr);
-        tws_CloseConn(conn, 1);
         SetResult("error reading from dict");
         return TCL_ERROR;
     }
@@ -364,7 +392,6 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
             Tcl_Obj *listPtr;
             if (multiValueHeadersPtr) {
                 if (TCL_OK != Tcl_DictObjGet(interp, multiValueHeadersPtr, keyPtr, &listPtr)) {
-                    tws_CloseConn(conn, 1);
                     SetResult("error reading from dict");
                     return TCL_ERROR;
                 }
@@ -424,18 +451,15 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_Size body_length = 0;
     char *body = NULL;
     int body_alloc = 0;
-    int rc;
     if (isBase64Encoded) {
 
         Tcl_Size b64_body_length;
         const char *b64_body = Tcl_GetStringFromObj(bodyPtr, &b64_body_length);
         if (b64_body_length > 0) {
-            body = Tcl_Alloc(3 * b64_body_length / 4 + 2);
+            body = ckalloc(3 * b64_body_length / 4 + 2);
             body_alloc = 1;
             if (base64_decode(b64_body, b64_body_length, body, &body_length)) {
-//                Tcl_DStringFree(&ds);
-                Tcl_Free(body);
-                tws_CloseConn(conn, 1);
+                ckfree(body);
                 SetResult("base64 decode error");
                 return TCL_ERROR;
             }
@@ -456,11 +480,9 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         Tcl_IncrRefCount(contentTypeKeyPtr);
         if (TCL_OK != Tcl_DictObjGet(interp, headersPtr, contentTypeKeyPtr, &contentTypePtr)) {
             Tcl_DecrRefCount(contentTypeKeyPtr);
-//            Tcl_DStringFree(&ds);
             if (body_alloc) {
-                Tcl_Free(body);
+                ckfree(body);
             }
-            tws_CloseConn(conn, 1);
             SetResult("error reading from dict");
             return TCL_ERROR;
         }
@@ -476,14 +498,14 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
                 if (p) {
                     contentType = tws_strndup(contentType, p - contentType);
                 }
-                DBG(fprintf(stderr, "contentType: %s\n", contentType));
+                DBG2(printf("contentType: %s\n", contentType));
                 Tcl_HashEntry *entry = Tcl_FindHashEntry(&conn->accept_ctx->server->gzip_types_HT, contentType);
                 if (!entry) {
-                    DBG(fprintf(stderr, "not found contentType: %s\n", contentType));
+                    DBG2(printf("not found contentType: %s\n", contentType));
                     gzip_p = 0;
                 }
                 if (p) {
-                    Tcl_Free(contentType);
+                    ckfree(contentType);
                 }
             }
         }
@@ -503,11 +525,9 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         if (Tcl_ZlibDeflate(interp, TCL_ZLIB_FORMAT_GZIP, baObj,
                             TCL_ZLIB_COMPRESS_FAST, NULL)) {
             Tcl_DecrRefCount(baObj);
-//            Tcl_DStringFree(&ds);
             if (body_alloc) {
-                Tcl_Free(body);
+                ckfree(body);
             }
-            tws_CloseConn(conn, 1);
             SetResult("gzip compression error");
             return TCL_ERROR;
         }
@@ -515,7 +535,7 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         compressed = Tcl_GetObjResult(interp);
         Tcl_IncrRefCount(compressed);
         if (body_alloc) {
-            Tcl_Free(body);
+            ckfree(body);
         }
         body = (char *) Tcl_GetByteArrayFromObj(compressed, &body_length);
         Tcl_ResetResult(interp);
@@ -528,19 +548,53 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
     Tcl_DStringAppend(&conn->inout_ds, "Content-Length: ", 16);
     Tcl_DStringAppend(&conn->inout_ds, content_length_str, content_length_str_len);
-    Tcl_DStringAppend(&conn->inout_ds, "\r\n\r\n", 4);
-    Tcl_DecrRefCount(contentLengthPtr);
 
-    if (body_length > 0) {
-        Tcl_DStringAppend(&conn->inout_ds, body, body_length);
+    if (body_length < MAX_CHUNK_SIZE) {
+        Tcl_DStringAppend(&conn->inout_ds, "\r\n\r\n", 4);
+        if (body_length > 0) {
+            Tcl_DStringAppend(&conn->inout_ds, body, body_length);
+        }
+    } else {
+        Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
+        Tcl_DStringAppend(&conn->inout_ds, "Transfer-Encoding: chunked", 26);
+        Tcl_DStringAppend(&conn->inout_ds, "\r\n\r\n", 4);
+
+        // chunk the body
+        // it should be:
+        // 1. chunk size in hex
+        // 2. \r\n
+        // 3. chunk data
+        // 4. \r\n
+        // 5. repeat 1-4 until all data is sent
+        // 6. 0
+        // 7. \r\n
+        // 8. \r\n
+
+        conn->n_chunks = (body_length / MAX_CHUNK_SIZE) + 1;
+        DBG2(printf("n_chunks: %ld\n", conn->n_chunks));
+        conn->chunks_ds = (Tcl_DString *) ckalloc(sizeof(Tcl_DString) * conn->n_chunks);
+        Tcl_Size chunk_index = 0;
+        for (Tcl_Size i = 0; i < body_length; i += MAX_CHUNK_SIZE) {
+            Tcl_DStringInit(&conn->chunks_ds[chunk_index]);
+            Tcl_Size chunk_size = MIN(body_length - i, MAX_CHUNK_SIZE);
+            char chunk_size_str[16];
+            snprintf(chunk_size_str, 16, "%lx", chunk_size);
+            Tcl_DStringAppend(&conn->chunks_ds[chunk_index], chunk_size_str, strlen(chunk_size_str));
+            Tcl_DStringAppend(&conn->chunks_ds[chunk_index], "\r\n", 2);
+            Tcl_DStringAppend(&conn->chunks_ds[chunk_index], body + i, chunk_size);
+            Tcl_DStringAppend(&conn->chunks_ds[chunk_index], "\r\n", 2);
+            chunk_index++;
+        }
+        Tcl_DStringAppend(&conn->chunks_ds[conn->n_chunks - 1], "0\r\n\r\n", -1);
     }
+    Tcl_DecrRefCount(contentLengthPtr);
 
     if (compressed != NULL) {
         Tcl_DecrRefCount(compressed);
     } else if (body_alloc) {
         // if "body" was allocated, free it
         // if we used compression, "body" was freed above
-        Tcl_Free((char *) body);
+        ckfree((char *) body);
     }
 
     tws_QueueWriteEvent(conn);
@@ -553,7 +607,7 @@ int
 tws_ReturnError(Tcl_Interp *interp, tws_conn_t *conn, int status_code, const char *error_text) {
     assert(valid_conn_handle(conn));
 
-    DBG(fprintf(stderr, "ReturnError: %d %s\n", conn->client, conn->handle));
+    DBG2(printf("ReturnError: %d %s\n", conn->client, conn->handle));
     if (conn->error || conn->shutdown) {
         return TCL_ERROR;
     }

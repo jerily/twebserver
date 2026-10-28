@@ -8,8 +8,8 @@ route handler has executed.
 The enter proc has access to the context and request dictionaries.
 The leave proc has access to the context, request, and response dictionaries.
 
-In the future, the current middleware function will be able to
-end the request-response cycle by returning 0 i.e. ```return 0```.
+An enter middleware function can end the request-response cycle by returning "error" e.g.
+```return -code error -options [::twebserver::build_response 429 text/plain "too many requests"]```.
 Otherwise, it should return to continue processing the request.
 
 Router-level middleware is bound to an instance of

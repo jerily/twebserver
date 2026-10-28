@@ -23,10 +23,21 @@ typedef int Tcl_Size;
 #define XSTR(s) STR(s)
 #define STR(s) #s
 
+#define UNUSED(expr) do { (void)(expr); } while (0)
+
 #ifdef DEBUG
 # define DBG(x) x
+#ifndef __FUNCTION_NAME__
+#ifdef _WIN32   // WINDOWS
+#define __FUNCTION_NAME__   __FUNCTION__
+#else          // GCC
+#define __FUNCTION_NAME__   __func__
+#endif
+#endif
+# define DBG2(x) {printf("%s: ", __FUNCTION_NAME__); x; printf("\n"); fflush(stdout);}
 #else
 # define DBG(x)
+# define DBG2(x)
 #endif
 
 #define ObjCmdProc(x) int (x)(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[])
@@ -40,28 +51,12 @@ typedef int Tcl_Size;
 #define SetResult(str) Tcl_ResetResult(interp); \
                      Tcl_SetStringObj(Tcl_GetObjResult(interp), (str), -1)
 
-#define CMD_SERVER_NAME(s, internal) sprintf((s), "_TWS_SERVER_%p", (internal))
-#define CMD_CONN_NAME(s, internal) sprintf((s), "_TWS_CONN_%p", (internal))
-#define CMD_ROUTER_NAME(s, internal) sprintf((s), "_TWS_ROUTER_%p", (internal))
+#define CMD_SERVER_NAME(s, internal) sprintf((s), "_TWS_SERVER_%p", (void *) (internal))
+#define CMD_CONN_NAME(s, internal) sprintf((s), "_TWS_CONN_%p", (void *) (internal))
+#define CMD_ROUTER_NAME(s, internal) sprintf((s), "_TWS_ROUTER_%p", (void *) (internal))
 
 #define CHARTYPE(what, c) (is ## what ((int)((unsigned char)(c))))
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
-
-static const char *ssl_errors[] = {
-        "SSL_ERROR_NONE",
-        "SSL_ERROR_SSL",
-        "SSL_ERROR_WANT_READ",
-        "SSL_ERROR_WANT_WRITE",
-        "SSL_ERROR_WANT_X509_LOOKUP",
-        "SSL_ERROR_SYSCALL",
-        "SSL_ERROR_ZERO_RETURN",
-        "SSL_ERROR_WANT_CONNECT",
-        "SSL_ERROR_WANT_ACCEPT",
-        "SSL_ERROR_WANT_ASYNC",
-        "SSL_ERROR_WANT_ASYNC_JOB",
-        "SSL_ERROR_WANT_CLIENT_HELLO_CB",
-        "SSL_ERROR_WANT_RETRY_VERIFY"
-};
 
 typedef struct tws_listener_t_ {
     int port;
@@ -77,9 +72,9 @@ typedef struct tws_listener_t_ {
 
 typedef struct {
     int option_router;
-    Tcl_Obj *cmdPtr;
-    Tcl_Obj *scriptPtr;
-    Tcl_Obj *rootdir_ptr;
+    Tcl_DString cmd_ds;
+    Tcl_DString script_ds;
+    Tcl_DString config_dict_ds;
     Tcl_ThreadId thread_id;
     char handle[30];
     Tcl_Size max_request_read_bytes;
@@ -167,6 +162,9 @@ typedef struct tws_conn_t_ {
     Tcl_Size write_offset;
     Tcl_Size content_length;
     Tcl_Size blank_line_offset;
+    Tcl_DString *chunks_ds;
+    Tcl_Size n_chunks;
+    Tcl_Size chunk_offset;
     char content_type[MAX_CONTENT_TYPE_SIZE];
 
     int error;
@@ -181,7 +179,8 @@ typedef struct {
 
 typedef struct {
     Tcl_Interp *interp;
-    Tcl_Obj *cmdPtr;
+    Tcl_Obj *cmd_ptr;
+    Tcl_Obj *config_dict_ptr;
     tws_server_t *server;
     tws_conn_t *firstConnPtr;
     tws_conn_t *lastConnPtr;
@@ -219,6 +218,8 @@ typedef struct tws_route_s {
     char proc_name[128];
     Tcl_Obj *keys;
     char *pattern;
+    Tcl_Obj *guard_list_ptr;
+    Tcl_Obj *name_ptr;
     struct tws_route_s *nextPtr;
 } tws_route_t;
 
@@ -275,9 +276,11 @@ int tws_IsBinaryType(const char *content_type, size_t content_type_length);
 long long current_time_in_millis();
 void tws_DecrRefCountUntilZero(Tcl_Obj *obj);
 void tws_FreeSslContexts();
+void tws_PrintRefCountObjv(int objc, Tcl_Obj *const objv[]);
 void tws_IncrRefCountObjv(int objc, Tcl_Obj *const objv[]);
 void tws_DecrRefCountObjv(int objc, Tcl_Obj *const objv[]);
 int valid_conn_handle(tws_conn_t *conn);
+const char *tws_GetSslError(int err);
 
 Tcl_Mutex *tws_GetThreadMutex();
 Tcl_ThreadDataKey *tws_GetThreadDataKey();

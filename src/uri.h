@@ -138,8 +138,6 @@ static inline int tws_IsCharOfType(unsigned char c, unsigned char type) {
     return shared_char_type_table[c] & type;
 }
 
-static char hex_digits[] = "0123456789ABCDEF"; // A lookup table for hexadecimal digits
-
 // This lookup table allows fast conversion between ASCII hex letters and their
 // corresponding numerical value. The 8-bit range is divided up into 8
 // regions of 0x20 characters each. Each of the three character types (numbers,

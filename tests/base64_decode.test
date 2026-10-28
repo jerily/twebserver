@@ -14,7 +14,9 @@ test base64_encode_empty {} {::twebserver::base64_decode ""} {}
 test base64_encode_wrong_args {} -body {::twebserver::base64_decode} -returnCodes error -result {wrong # args: should be "::twebserver::base64_decode base64_encoded_string"}
 
 test base64_encode_decode_file {} -body {
-    set fp [open "../examples/Google_2015_logo.png" "rb"]
+
+    set dir [file dirname [info script]]
+    set fp [open "${dir}/../examples/Google_2015_logo.png" "rb"]
     set data [read $fp]
     close $fp
     set encoded [::twebserver::base64_encode $data]

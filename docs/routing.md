@@ -26,10 +26,8 @@ See the [Dictionaries documentation](ctx_req_res_dict.md) for more information o
 Respond with "hello world" for requests to the URL ```/example```
 ```tcl
 proc example_handler {ctx req} {
-    set res [dict create]
-    dict set res statusCode 200
-    dict set res body "hello world"
-    return $res
+    set text "hello world"
+    return [::twebserver::build_response 200 text/plain $text]
 }
 
 ::twebserver::add_route $router GET /example example_handler
@@ -38,10 +36,8 @@ proc example_handler {ctx req} {
 Respond to POST request on the URL ```/example```
 ```tcl
 proc example_handler {ctx req} {
-    set res [dict create]
-    dict set res statusCode 200
-    dict set res body "Got a POST request"
-    return $res
+    set text "Got a POST request"
+    return [::twebserver::build_response 200 text/plain $text]
 }
 
 ::twebserver::add_route $router POST /example example_handler
@@ -72,11 +68,9 @@ shown below.
 
 ```tcl
 proc example_handler {ctx req} {
-    set user_id [dict get $req pathParameters user_id]
-    set res [dict create]
-    dict set res statusCode 200
-    dict set res body "hello user $user_id"
-    return $res
+    set user_id [::twebserver::get_path_param $req user_id]
+    set text "hello user $user_id"
+    return [::twebserver::build_response 200 text/plain $text]
 }
 
 ::twebserver::add_route $router GET /example/:user_id/view example_handler
@@ -90,10 +84,33 @@ and returns a response ```res``` dictionary.
 
 ```tcl
 proc example_handler {ctx req} {
-    set user_id [dict get $req pathParameters user_id]
-    set res [dict create]
-    dict set res statusCode 200
-    dict set res body "hello user $user_id"
-    return $res
+    set user_id [::twebserver::get_path_param $req user_id]
+    set text "hello user $user_id"
+    return [::twebserver::build_response 200 text/plain $text]
 }
+```
+
+### Guard Proc List
+
+A guard proc list is a list of procs that are executed before the route handler.
+The guard procs should accept the context ```ctx``` and the request ```req``` dictionaries
+and return a request dictionary or an error with -options holding a response dictionary.
+
+```tcl
+proc is_logged_in {ctx req} {
+    if { [dict exists $req session is_logged_in] } {
+        return $req
+    }
+    return -code error -options [::twebserver::build_response 401 text/plain "unauthorized"]
+}
+
+proc example_handler {ctx req} {
+    set user_id [::twebserver::get_path_param $req user_id]
+    set text "hello user $user_id"
+    return [::twebserver::build_response 200 text/plain $text]
+}
+
+::twebserver::add_route \
+    -guard_proc_list [list is_logged_in] \
+    $router GET /example/:user_id/view example_handler
 ```

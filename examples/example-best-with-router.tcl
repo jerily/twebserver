@@ -10,21 +10,47 @@ set init_script {
     namespace eval simple_session_manager {
         proc enter {ctx req} {
             dict set req session [dict create id 1234567890]
+            set path [dict get $req path]
+            if { $path eq "/example" } {
+                dict set req session is_logged_in 1
+            }
             return $req
         }
         proc leave {ctx req res} {
-            set res [::twebserver::add_cookie -maxage 3600 $res session_id [dict get $req session id]]
+            set res [::twebserver::add_cookie -samesite None -maxage 3600 $res session_id [dict get $req session id]]
             return $res
         }
     }
 
+    namespace eval rate_limiting_manager {
+        proc enter {ctx req} {
+            set path [dict get $req path]
+            if { $path eq "/test-abort" } {
+                return -code error -options [::twebserver::build_response 429 text/plain "too many requests"]
+            }
+            return $req
+        }
+    }
+
+    proc is_logged_in {ctx req} {
+        if { [dict exists $req session is_logged_in] } {
+            return $req
+        }
+        return -code error -options [::twebserver::build_response 401 text/plain "unauthorized"]
+    }
+
     # create a router
-    ::twebserver::create_router router
+    ::twebserver::create_router -command_name process_conn router
 
     # add middleware to the router
     ::twebserver::add_middleware \
         -enter_proc simple_session_manager::enter \
         -leave_proc simple_session_manager::leave \
+        $router
+
+    # add middleware to the router
+    ::twebserver::add_middleware \
+        -enter_proc rate_limiting_manager::enter \
         $router
 
     # add a route that will be called if the request method is GET and the path is "/"
@@ -38,7 +64,7 @@ set init_script {
     ::twebserver::add_route -strict $router GET /addr get_addr_handler
 
     # add a route that will be called if the request method is POST and the path is "/example"
-    ::twebserver::add_route -strict $router POST /example post_example_handler
+    ::twebserver::add_route -strict -guard_proc_list [list is_logged_in] $router POST /example post_example_handler
 
     # add a route that will be called if the request method is GET and the path is "/logo"
     ::twebserver::add_route -strict $router GET /logo get_logo_handler
@@ -46,11 +72,18 @@ set init_script {
     # add a route that fails with internal server error for testing purposes
     ::twebserver::add_route -strict $router GET /someerror get_someerror_handler
 
+    # add a route that fails with internal server error due to bad response dictionary
+    ::twebserver::add_route -strict $router GET /badresponse get_badresponse_handler
+
+    # add a route that returns a 429 response
+    ::twebserver::add_route -strict $router GET /test-abort get_something_handler
+
+    # add a route that returns a 429 response
+    ::twebserver::add_route -strict -guard_proc_list [list is_logged_in] \
+        $router GET /test-unauthorized get_something_handler
+
     # add a catchall route that will be called if no other route matches a GET request
     ::twebserver::add_route $router GET "*" get_catchall_handler
-
-    # make sure that the router will be called when the server receives a connection
-    interp alias {} process_conn {} $router
 
     proc get_index_page_handler {ctx req} {
         set html {
@@ -62,6 +95,9 @@ set init_script {
                         <li><a href=/blog/123/sayhi>click here to see how path parameters work</a></li>
                         <li><a href=/addr>click here to see your IP address</a></li>
                         <li><form method=post enctype="multipart/form-data" action=/example><input type=text name=field1><input type=file name=field2><input type=submit></form></li>
+                        <li><a href=/someerror>click here to see an internal server error</a></li>
+                        <li><a href=/test-abort>click here to see a 429 response</a></li>
+                        <li><a href=/test-unauthorized>click here to see a 401 response</a></li>
                     </ul>
                 </body>
             </html>
@@ -71,8 +107,7 @@ set init_script {
     }
 
     proc get_logo_handler {ctx req} {
-        set server_handle [dict get $ctx server]
-        set dir [::twebserver::get_rootdir $server_handle]
+        set dir [::twebserver::get_rootdir]
         set filepath [file join $dir plume.png]
         set res [::twebserver::build_response -return_file 200 image/png $filepath]
         return $res
@@ -123,11 +158,19 @@ set init_script {
     proc get_someerror_handler {ctx req} {
         someerror
     }
+
+    proc get_badresponse_handler {ctx req} {
+        return [dict create]
+    }
+
+    proc get_something_handler {ctx req} {
+        return [::twebserver::build_response 200 text/plain "something"]
+    }
 }
 
 # use threads and gzip compression
 set config_dict [dict create \
-    rootdir [file dirname [info script]] \
+    rootdir [file normalize [file dirname [info script]]] \
     gzip on \
     gzip_types [list text/html text/plain application/json] \
     gzip_min_length 8192]

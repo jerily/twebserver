@@ -42,7 +42,7 @@
   ```tcl
   ::twebserver::create_router router
   ```
-* **::twebserver::add_route** *?-prefix?* *?-nocase?* *?-strict?* *router* *method* *path* *handler_proc*
+* **::twebserver::add_route** *?-guard_proc_list proc_list?* *?-prefix?* *?-nocase?* *?-strict?* *router* *method* *path* *handler_proc*
     - adds a route to a router, the handler_proc should accept two arguments: ```context_dict``` and ```request_dict```.
       See [Routing](routing.md) for more information.
   ```tcl
@@ -119,6 +119,13 @@
   set response_dict [::twebserver::build_response -return_file 200 image/png plume.png]
   ```
 
+* **::twebserver::build_redirect** *status_code* *location*
+    - builds a redirect response dictionary
+  ```tcl
+  set response_dict [::twebserver::build_redirect 301 "https://www.example.com"]
+  set response_dict [::twebserver::build_redirect 302 "/"]
+  ```
+
 * **::twebserver::wait_signal**
     - an alternative to vwait that waits for a signal (SIGINT or SIGTERM) to be sent to the server
   ```tcl
@@ -191,8 +198,11 @@ These commands are provided for convenience.
 
 #### Info
 
-* **::twebserver::get_rootdir** *?server_handle?*
-    - returns the root directory of the current server or the specified server
+* **::twebserver::get_rootdir**
+  - returns the root directory of the current server
+
+* **::twebserver::get_config_dict**
+  - returns the config dict of the current server
 
 * **::twebserver::info_conn** *handle*
     - returns information about a connection:

@@ -336,34 +336,34 @@ static int create_socket(Tcl_Interp *interp, tws_server_t *server, const char *h
 
     int reuseaddr = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (char *) &reuseaddr, sizeof(reuseaddr))) {
-        DBG(fprintf(stderr, "setsockopt SO_REUSEADDR failed"));
+        DBG2(printf("setsockopt SO_REUSEADDR failed"));
     }
 
     int reuseport = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEPORT, (char *) &reuseport, sizeof(reuseport))) {
-        DBG(fprintf(stderr, "setsockopt SO_REUSEPORT failed"));
+        DBG2(printf("setsockopt SO_REUSEPORT failed"));
     }
 
     if (server->keepalive) {
         if (setsockopt(server_fd, SOL_SOCKET, SO_KEEPALIVE, &server->keepalive, sizeof(int))) {
-            DBG(fprintf(stderr, "setsockopt SO_KEEPALIVE failed"));
+            DBG2(printf("setsockopt SO_KEEPALIVE failed"));
         }
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
 #else
         // Set the TCP_KEEPIDLE option on the socket
         if (setsockopt(server_fd, IPPROTO_TCP, TCP_KEEPIDLE, &server->keepidle, sizeof(int)) == -1) {
-            DBG(fprintf(stderr, "setsockopt TCP_KEEPIDLE failed"));
+            DBG2(printf("setsockopt TCP_KEEPIDLE failed"));
         }
 
         // Set the TCP_KEEPINTVL option on the socket
         if (setsockopt(server_fd, IPPROTO_TCP, TCP_KEEPINTVL, &server->keepintvl, sizeof(int)) == -1) {
-            DBG(fprintf(stderr, "setsockopt TCP_KEEPINTVL failed"));
+            DBG2(printf("setsockopt TCP_KEEPINTVL failed"));
         }
 
         // Set the TCP_KEEPCNT option on the socket
         if (setsockopt(server_fd, IPPROTO_TCP, TCP_KEEPCNT, &server->keepcnt, sizeof(int)) == -1) {
-            DBG(fprintf(stderr, "setsockopt TCP_KEEPCNT failed"));
+            DBG2(printf("setsockopt TCP_KEEPCNT failed"));
         }
 #endif
     }
@@ -432,14 +432,14 @@ static int create_epoll_fd(Tcl_Interp *interp, int server_fd, int *epoll_sock) {
 tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip[INET6_ADDRSTRLEN]) {
     tws_SetBlockingMode(client, TWS_MODE_NONBLOCKING);
 
-    tws_conn_t *conn = (tws_conn_t *) Tcl_Alloc(sizeof(tws_conn_t));
+    tws_conn_t *conn = (tws_conn_t *) ckalloc(sizeof(tws_conn_t));
 
     if (accept_ctx->option_http) {
         conn->ssl = NULL;
     } else {
         SSL *ssl = SSL_new(accept_ctx->ssl_ctx);
         if (ssl == NULL) {
-            Tcl_Free((char *) conn);
+            ckfree((char *) conn);
             return NULL;
         }
         SSL_set_fd(ssl, client);
@@ -474,6 +474,9 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->content_length = 0;
     conn->error = 0;
     conn->blank_line_offset = 0;
+    conn->n_chunks = 0;
+    conn->chunks_ds = NULL;
+    conn->chunk_offset = 0;
 
 //        fprintf(stderr, "tws_NewConn - num_threads: %d\n", accept_ctx->server->num_threads);
 //        fprintf(stderr, "tws_NewConn - client: %d\n", client);
@@ -489,7 +492,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
 }
 
 static int tws_HandleProcessing(tws_conn_t *conn) {
-    DBG(fprintf(stderr, ">>>>>>>>>>>>>>>>> HandleProcessing: %s\n", conn->handle));
+    DBG2(printf(">>>>>>>>>>>>>>>>> HandleProcessing: %s\n", conn->handle));
 
     tws_accept_ctx_t *accept_ctx = conn->accept_ctx;
 
@@ -497,27 +500,21 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
     // Get the interp from the thread data
 
+    Tcl_Obj *dup_req_dict_ptr = conn->req_dict_ptr;
+    conn->req_dict_ptr = NULL;
+
     if (accept_ctx->server->option_router) {
-        Tcl_Interp *targetInterpPtr;
-        const char *targetCmdPtr;
-        Tcl_Size objc;
-        Tcl_Obj **objv;
-        if (TCL_OK != Tcl_GetAliasObj(dataPtr->interp, Tcl_GetString(accept_ctx->server->cmdPtr), &targetInterpPtr, &targetCmdPtr, &objc, &objv)) {
-            fprintf(stderr, "error getting alias\n");
-            tws_CloseConn(conn, 1);
-            return 1;
+        Tcl_CmdInfo cmd_info;
+        int found = Tcl_GetCommandInfo(dataPtr->interp, Tcl_GetString(dataPtr->cmd_ptr), &cmd_info);
+        if (found) {
+            const char *handle = (const char *) cmd_info.objClientData;
+            tws_router_t *router = tws_GetInternalFromRouterName(handle);
+            if (router != NULL) {
+                DBG2(printf("found command info while using router\n"));
+                tws_HandleRouteEventInThread(router, conn, dup_req_dict_ptr);
+                return 1;
+            }
         }
-
-        DBG(fprintf(stderr, "targetCmdPtr=%s\n", targetCmdPtr));
-
-        tws_router_t *router = tws_GetInternalFromRouterName(targetCmdPtr);
-        if (router == NULL) {
-            fprintf(stderr, "error getting router\n");
-            tws_CloseConn(conn, 1);
-            return 1;
-        }
-        tws_HandleRouteEventInThread(router, conn, conn->req_dict_ptr);
-        return 1;
     }
 
     Tcl_Obj *ctx_dict_ptr;
@@ -527,14 +524,13 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
         return 1;
     }
 
-    Tcl_Obj *const cmdobjv[] = {dataPtr->cmdPtr, ctx_dict_ptr, conn->req_dict_ptr, NULL};
+    Tcl_Obj *const cmdobjv[] = {dataPtr->cmd_ptr, ctx_dict_ptr, dup_req_dict_ptr, NULL};
 
-    tws_IncrRefCountObjv(3, cmdobjv);
     Tcl_ResetResult(dataPtr->interp);
     if (TCL_OK != Tcl_EvalObjv(dataPtr->interp, 3, cmdobjv, TCL_EVAL_GLOBAL)) {
         fprintf(stderr, "error evaluating script sock=%d\n", conn->client);
 
-        tws_DecrRefCountObjv(3, cmdobjv);
+        Tcl_DecrRefCount(dup_req_dict_ptr);
         Tcl_DecrRefCount(ctx_dict_ptr);
 
         Tcl_Obj *return_options_dict_ptr = Tcl_GetReturnOptions(dataPtr->interp, TCL_ERROR);
@@ -555,7 +551,8 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
         tws_CloseConn(conn, 1);
         return 1;
     }
-    tws_DecrRefCountObjv(3, cmdobjv);
+
+    Tcl_DecrRefCount(dup_req_dict_ptr);
     Tcl_DecrRefCount(ctx_dict_ptr);
 
     return 1;
@@ -571,14 +568,14 @@ static int tws_FoundBlankLine(tws_conn_t *conn) {
     const char *end = s + Tcl_DStringLength(&conn->inout_ds);
     while (p < end) {
         if ((p < end - 3 && *p == '\r' && *(p + 1) == '\n' && *(p + 2) == '\r' && *(p + 3) == '\n') || (p < end - 1 && *p == '\n' && *(p + 1) == '\n')) {
-            DBG(fprintf(stderr, "FoundBlankLine\n"));
+            DBG2(printf("FoundBlankLine\n"));
             conn->blank_line_offset = -1;
             return 1;
         }
         p++;
     }
 
-    DBG(fprintf(stderr, "NotFoundBlankLine\n"));
+    DBG2(printf("NotFoundBlankLine\n"));
     /* The delimiter may straddle two socket reads. */
     conn->blank_line_offset = p - s > 3 ? p - s - 3 : 0;
     return 0;
@@ -602,12 +599,12 @@ static int tws_ShouldReadMore(tws_conn_t *conn) {
 
 
 static int tws_HandleRecv(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "HandleRecv: %d %s\n", conn->client, conn->handle));
+    DBG2(printf("HandleRecv: %d %s\n", conn->client, conn->handle));
 
     assert(valid_conn_handle(conn));
 
     if (conn->ready) {
-        DBG(fprintf(stderr, "HandleRecv - already ready\n"));
+        DBG2(printf("HandleRecv - already ready\n"));
         return 1;
     }
 
@@ -628,7 +625,7 @@ static int tws_HandleRecv(tws_conn_t *conn) {
     // return 400 if we exceeded read timeout
     long long elapsed = current_time_in_millis() - conn->start_read_millis;
     if (elapsed > conn->accept_ctx->server->read_timeout_millis) {
-        DBG(fprintf(stderr, "exceeded read timeout: %lld\n", elapsed));
+        DBG2(printf("exceeded read timeout: %lld\n", elapsed));
         // ProcessEventInThread will return Bad Request and close the connection
         Tcl_DStringSetLength(&conn->parse_ds, 0);
         conn->ready = 1;
@@ -647,16 +644,17 @@ static int tws_HandleRecv(tws_conn_t *conn) {
         tws_CloseConn(conn, 2);
         return 1;
     } else if (TWS_DONE == ret && Tcl_DStringLength(&conn->inout_ds) == 0) {
+        conn->error = 1;
         // peer closed connection?
         tws_CloseConn(conn, 1);
         return 1;
     }
 
-    DBG(fprintf(stderr, "rubicon ret=%d dslen=%ld content_length=%ld\n", ret,
+    DBG2(printf("rubicon ret=%d dslen=%ld content_length=%ld\n", ret,
                 Tcl_DStringLength(&conn->inout_ds), conn->content_length));
 
     if (tws_ShouldParseTopPart(conn)) {
-        DBG(fprintf(stderr, "parse top part after without defer reqdictptr=%p\n", conn->req_dict_ptr));
+        DBG2(printf("parse top part after without defer reqdictptr=%p\n", conn->req_dict_ptr));
         // case when we have read as much as we could without deferring
         int error_num = 0;
         if (TCL_OK != tws_ParseTopPart(conn, &error_num)) {
@@ -688,17 +686,17 @@ static int tws_HandleRecv(tws_conn_t *conn) {
             return 1;
         }
     } else {
-        DBG(fprintf(stderr, "conn->parse_ds len: %ld\n", Tcl_DStringLength(&conn->parse_ds)));
+        DBG2(printf("conn->parse_ds len: %ld\n", Tcl_DStringLength(&conn->parse_ds)));
 
         if (!Tcl_DStringLength(&conn->parse_ds)) {
-            DBG(fprintf(stderr, "parse ds is empty, inout_ds: %s\n", Tcl_DStringValue(&conn->inout_ds)));
+            DBG2(printf("parse ds is empty, inout_ds: %s\n", Tcl_DStringValue(&conn->inout_ds)));
             conn->ready = 1;
             // ProcessEventInThread will return Bad Request and close the connection
             return 1;
         }
     }
 
-    DBG(fprintf(stderr, "HandleRecv done\n"));
+    DBG2(printf("HandleRecv done\n"));
 
     conn->ready = 1;
     return 1;
@@ -716,7 +714,7 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
     ERR_clear_error();
     int rc = SSL_accept(conn->ssl);
     if (rc == 1) {
-        DBG(fprintf(stderr, "HandleHandshake: success\n"));
+        DBG2(printf("HandleHandshake: success\n"));
         conn->handshaked = 1;
         conn->handle_conn_fn = tws_HandleRecv;
         return 1;
@@ -725,11 +723,11 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
     int err = SSL_get_error(conn->ssl, rc);
     if (err == SSL_ERROR_WANT_READ) {
         conn->io_mask = TCL_READABLE;
-        DBG(fprintf(stderr, "HandleHandshake: SSL_ERROR_WANT_READ\n"));
+        DBG2(printf("HandleHandshake: SSL_ERROR_WANT_READ\n"));
         return 0;
     } else if (err == SSL_ERROR_WANT_WRITE) {
         conn->io_mask = TCL_WRITABLE;
-        DBG(fprintf(stderr, "HandleHandshake: SSL_ERROR_WANT_WRITE\n"));
+        DBG2(printf("HandleHandshake: SSL_ERROR_WANT_WRITE\n"));
         return 0;
     } else if (err == SSL_ERROR_ZERO_RETURN || ERR_peek_error() == 0) {
         fprintf(stderr, "peer closed connection in SSL handshake\n");
@@ -737,7 +735,7 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
         tws_CloseConn(conn, 1);
         return 1;
     }
-    fprintf(stderr, "SSL_accept <= 0 client: %d err=%s\n", conn->client, ssl_errors[err]);
+    fprintf(stderr, "SSL_accept <= 0 client: %d err=%s\n", conn->client, tws_GetSslError(err));
     conn->error = 1;
     tws_CloseConn(conn, 1);
     ERR_print_errors_fp(stderr);
@@ -745,6 +743,9 @@ int tws_HandleSslHandshake(tws_conn_t *conn) {
 }
 
 int tws_HandleTermEventInThread(Tcl_Event *evPtr, int flags) {
+    UNUSED(evPtr);
+    UNUSED(flags);
+
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -776,17 +777,19 @@ static int tws_SetDefaultBodyIfNeeded(Tcl_Interp *interp, tws_conn_t *conn) {
 }
 
 static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
+    UNUSED(flags);
+
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
 
     assert(valid_conn_handle(conn));
 
     if (conn->ready || conn->shutdown) {
-        DBG(fprintf(stderr, "HandleProcessEventInThread: ready: %d shutdown: %d\n", conn->ready, conn->shutdown));
+        DBG2(printf("HandleProcessEventInThread: ready: %d shutdown: %d\n", conn->ready, conn->shutdown));
         return 1;
     }
 
-    DBG(fprintf(stderr, "HandleProcessEventInThread: %s (%p)\n", conn->handle, conn->handle_conn_fn));
+    DBG2(printf("HandleProcessEventInThread: %s (%p)\n", conn->handle, conn->handle_conn_fn));
     conn->io_mask = 0;
     conn->handle_conn_fn(conn);
     if (conn->shutdown) {
@@ -801,7 +804,7 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
         }
         return 1;
     }
-    DBG(fprintf(stderr, "HandleProcessEventInThread: ready=%d (%p)\n", conn->ready, conn->handle_conn_fn));
+    DBG2(printf("HandleProcessEventInThread: ready=%d (%p)\n", conn->ready, conn->handle_conn_fn));
 
     int ready = conn->ready;
     if (ready) {
@@ -824,7 +827,8 @@ static int tws_HandleProcessEventInThread(Tcl_Event *evPtr, int flags) {
             conn->req_dict_ptr = Tcl_DStringToObj(&conn->parse_ds);
 #else
             Tcl_DStringResult(dataPtr->interp, &conn->parse_ds);
-            conn->req_dict_ptr = Tcl_GetObjResult(dataPtr->interp);
+            conn->req_dict_ptr = Tcl_DuplicateObj(Tcl_GetObjResult(dataPtr->interp));
+            Tcl_ResetResult(dataPtr->interp);
 #endif
             Tcl_IncrRefCount(conn->req_dict_ptr);
             if (TCL_OK != tws_SetDefaultBodyIfNeeded(dataPtr->interp, conn)) {
@@ -847,7 +851,7 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
 
-    DBG(fprintf(stderr, "current thread: %p conn->threadId: %p\n", Tcl_GetCurrentThread(), conn->threadId));
+    DBG2(printf("current thread: %p conn->threadId: %p\n", Tcl_GetCurrentThread(), conn->threadId));
 
     if (tws_AddConnToThreadList(conn)) {
         tws_StartConnTimer(conn, 1);
@@ -859,14 +863,14 @@ static int tws_HandleConnEventInThread(Tcl_Event *evPtr, int flags) {
 // this is called from the main thread
 // to queue the event in the thread that the connection will be processed
 static void tws_ThreadQueueConnEvent(tws_conn_t *conn) {
-    DBG(fprintf(stderr, "ThreadQueueConnEvent - threadId: %p\n", conn->threadId));
-    tws_event_t *connEvPtr = (tws_event_t *) Tcl_Alloc(sizeof(tws_event_t));
+    DBG2(printf("ThreadQueueConnEvent - threadId: %p\n", conn->threadId));
+    tws_event_t *connEvPtr = (tws_event_t *) ckalloc(sizeof(tws_event_t));
     connEvPtr->proc = tws_HandleConnEventInThread;
     connEvPtr->nextPtr = NULL;
     connEvPtr->clientData = (ClientData *) conn;
     Tcl_ThreadQueueEvent(conn->threadId, (Tcl_Event *) connEvPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(conn->threadId);
-    DBG(fprintf(stderr, "ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
+    DBG2(printf("ThreadQueueConnEvent done - threadId: %p\n", conn->threadId));
 }
 #endif
 
@@ -874,16 +878,17 @@ static int tws_HandleKeepaliveEventInThread(Tcl_Event *evPtr, int flags) {
     tws_event_t *connEvPtr = (tws_event_t *) evPtr;
     tws_conn_t *conn = (tws_conn_t *) connEvPtr->clientData;
 
-    DBG(fprintf(stderr, "current thread: %p conn->threadId: %p\n", Tcl_GetCurrentThread(), conn->threadId));
+    DBG2(printf("current thread: %p conn->threadId: %p\n", Tcl_GetCurrentThread(), conn->threadId));
     tws_StartConnTimer(conn, 1);
     tws_QueueProcessEvent(conn);
 
     return 1;
 }
 
-
 int tws_InfoConnCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "InfoConnCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("InfoConnCmd\n"));
     CheckArgs(2, 2, 1, "conn_handle");
 
     const char *conn_handle = Tcl_GetString(objv[1]);
@@ -934,7 +939,7 @@ static int tws_AddConnToThreadList(tws_conn_t *conn) {
         Tcl_FreeEncoding(conn->encoding);
         Tcl_DStringFree(&conn->inout_ds);
         Tcl_DStringFree(&conn->parse_ds);
-        Tcl_Free((char *) conn);
+        ckfree((char *) conn);
         Tcl_MutexUnlock(tws_GetThreadMutex());
         return 0;
     }
@@ -949,7 +954,7 @@ static int tws_AddConnToThreadList(tws_conn_t *conn) {
     }
     dataPtr->num_conns++;
 
-    DBG(fprintf(stderr, "AddConnToThreatList - dataKey: %p thread: %p numConns: %d FD_SETSIZE: %d thread_limit: %d\n", tws_GetThreadDataKey(), Tcl_GetCurrentThread(), dataPtr->num_conns, FD_SETSIZE, thread_limit));
+    DBG2(printf("AddConnToThreatList - dataKey: %p thread: %p numConns: %d FD_SETSIZE: %d thread_limit: %d\n", tws_GetThreadDataKey(), Tcl_GetCurrentThread(), dataPtr->num_conns, FD_SETSIZE, thread_limit));
 
     Tcl_MutexUnlock(tws_GetThreadMutex());
 
@@ -957,7 +962,9 @@ static int tws_AddConnToThreadList(tws_conn_t *conn) {
 }
 
 void tws_AcceptConn(void *data, int mask) {
-    DBG(fprintf(stderr, "-------------------tws_AcceptConn\n"));
+    UNUSED(mask);
+
+    DBG2(printf("-------------------tws_AcceptConn\n"));
 
     tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) data;
 
@@ -966,7 +973,7 @@ void tws_AcceptConn(void *data, int mask) {
         struct sockaddr_in6 client_addr;
         unsigned int len = sizeof(client_addr);
         int client = accept(accept_ctx->server_fd, (struct sockaddr *) &client_addr, &len);
-        DBG(fprintf(stderr, "client: %d\n", client));
+        DBG2(printf("client: %d\n", client));
         if (client < 0) {
             fprintf(stderr, "Unable to accept\n");
             return;
@@ -975,14 +982,14 @@ void tws_AcceptConn(void *data, int mask) {
         // get the client IP address
         char client_ip[INET6_ADDRSTRLEN];
         inet_ntop(AF_INET6, &client_addr.sin6_addr, client_ip, sizeof(client_ip));
-        DBG(fprintf(stderr, "Client connected from %s\n", client_ip));
+        DBG2(printf("Client connected from %s\n", client_ip));
 
         tws_conn_t *conn = tws_NewConn(accept_ctx, client, client_ip);
         if (conn == NULL) {
             shutdown(client, SHUT_WR);
             shutdown(client, SHUT_RD);
             close(client);
-            DBG(fprintf(stderr, "Unable to create SSL connection"));
+            DBG2(printf("Unable to create SSL connection"));
             return;
         }
 
@@ -999,6 +1006,20 @@ void tws_AcceptConn(void *data, int mask) {
 
 }
 
+Tcl_Obj *tws_DStringToObj(Tcl_DString *ds_ptr) {
+    return Tcl_NewStringObj(Tcl_DStringValue(ds_ptr), Tcl_DStringLength(ds_ptr));
+}
+
+Tcl_Obj *tws_DStringToDict(Tcl_DString *ds_ptr) {
+    Tcl_Obj *dict_ptr = tws_DStringToObj(ds_ptr);
+    Tcl_Size size;
+    if (TCL_OK != Tcl_DictObjSize(NULL, dict_ptr, &size)) {
+        fprintf(stderr, "error getting dict size\n");
+        return NULL;
+    }
+    return dict_ptr;
+}
+
 Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 
     tws_thread_ctrl_t *ctrl = (tws_thread_ctrl_t *) clientData;
@@ -1007,7 +1028,11 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
     // Create a new interp for this thread and store it in the thread data
     dataPtr->interp = Tcl_CreateInterp();
-    dataPtr->cmdPtr = Tcl_DuplicateObj(ctrl->server->cmdPtr);
+    dataPtr->cmd_ptr = tws_DStringToObj(&ctrl->server->cmd_ds);
+    Tcl_IncrRefCount(dataPtr->cmd_ptr);
+    dataPtr->config_dict_ptr = tws_DStringToDict(&ctrl->server->config_dict_ds);
+    Tcl_IncrRefCount(dataPtr->config_dict_ptr);
+
     dataPtr->server = ctrl->server;
     dataPtr->thread_index = ctrl->thread_index;
     dataPtr->terminate = 0;
@@ -1023,16 +1048,12 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 #endif
     tws_SetBlockingMode(dataPtr->epoll_fd, TWS_MODE_NONBLOCKING);
 
-    Tcl_IncrRefCount(dataPtr->cmdPtr);
-
-    DBG(fprintf(stderr, "created interp=%p\n", dataPtr->interp));
+    DBG2(printf("created interp=%p\n", dataPtr->interp));
 
     Tcl_InitMemory(dataPtr->interp);
     if (TCL_OK != Tcl_Init(dataPtr->interp)) {
-        DBG(fprintf(stderr, "error initializing Tcl\n"));
-        Tcl_FinalizeThread();
-        Tcl_ExitThread(TCL_ERROR);
-        TCL_THREAD_CREATE_RETURN;
+        DBG2(printf("error initializing Tcl\n"));
+        goto error;
     }
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -1041,22 +1062,18 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     int epoll_fd;
     if (TCL_OK != create_socket(dataPtr->interp, ctrl->server, ctrl->host, ctrl->port, &server_fd) || server_fd < 0) {
         fprintf(stderr, "failed to create socket on thread\n");
-        Tcl_FinalizeThread();
-        Tcl_ExitThread(TCL_ERROR);
-        TCL_THREAD_CREATE_RETURN;
+        goto error;
     }
 
     if (TCL_OK != create_epoll_fd(dataPtr->interp, server_fd, &epoll_fd) || epoll_fd < 0) {
         fprintf(stderr, "failed to create epoll fd on thread\n");
-        Tcl_FinalizeThread();
-        Tcl_ExitThread(TCL_ERROR);
-        TCL_THREAD_CREATE_RETURN;
+        goto error;
     }
 
-    DBG(fprintf(stderr, "port: %s - created listening socket on thread: %d\n", ctrl->port, ctrl->thread_index));
+    DBG2(printf("port: %s - created listening socket on thread: %d\n", ctrl->port, ctrl->thread_index));
 #endif
 
-    tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_Alloc(sizeof(tws_accept_ctx_t));
+    tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) ckalloc(sizeof(tws_accept_ctx_t));
 
     if (ctrl->option_http) {
         accept_ctx->read_fn = tws_ReadHttpConnAsync;
@@ -1074,10 +1091,8 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
 #else
         // it is an https server, so we need to create an SSL_CTX
         if (TCL_OK != tws_CreateSslContext(dataPtr->interp, &accept_ctx->ssl_ctx)) {
-            Tcl_Free((char *) accept_ctx);
-            Tcl_FinalizeThread();
-            Tcl_ExitThread(TCL_ERROR);
-            TCL_THREAD_CREATE_RETURN;
+            ckfree((char *) accept_ctx);
+            goto error;
         }
         SSL_CTX_set_client_hello_cb(accept_ctx->ssl_ctx, tws_ClientHelloCallback, NULL);
 #endif
@@ -1100,7 +1115,10 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     // create a file handler for the epoll fd for this thread
     Tcl_CreateFileHandler(dataPtr->epoll_fd, TCL_READABLE, tws_ConnReadyHandler, NULL);
 
-    if (TCL_OK != Tcl_EvalObj(dataPtr->interp, ctrl->server->scriptPtr)) {
+    Tcl_Obj *script_ptr = tws_DStringToObj(&ctrl->server->script_ds);
+    Tcl_IncrRefCount(script_ptr);
+    if (TCL_OK != Tcl_EvalObj(dataPtr->interp, script_ptr)) {
+        Tcl_DecrRefCount(script_ptr);
         fprintf(stderr, "error evaluating init script\n");
         fprintf(stderr, "error=%s\n", Tcl_GetString(Tcl_GetObjResult(dataPtr->interp)));
 
@@ -1113,18 +1131,15 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
                                      &errorinfo_ptr)) {
             Tcl_DecrRefCount(errorinfo_key_ptr);
             Tcl_DecrRefCount(return_options_dict_ptr);
-            Tcl_FinalizeThread();
-            Tcl_ExitThread(TCL_ERROR);
-            TCL_THREAD_CREATE_RETURN;
+            goto error;
         }
         Tcl_DecrRefCount(errorinfo_key_ptr);
         fprintf(stderr, "HandleConnThread: errorInfo: %s\n", Tcl_GetString(errorinfo_ptr));
         Tcl_DecrRefCount(return_options_dict_ptr);
 
-        Tcl_FinalizeThread();
-        Tcl_ExitThread(TCL_ERROR);
-        TCL_THREAD_CREATE_RETURN;
+        goto error;
     }
+    Tcl_DecrRefCount(script_ptr);
 
     dataPtr->cleanup_timer = Tcl_CreateTimerHandler(
             ctrl->server->garbage_collection_interval_millis, tws_CleanupTimer, dataPtr);
@@ -1132,7 +1147,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     // notify the main thread that we are done initializing
     Tcl_ConditionNotify(ctrl->cond_wait_ptr);
 
-    DBG(fprintf(stderr, "HandleConnThread: in (%p)\n", Tcl_GetCurrentThread()));
+    DBG2(printf("HandleConnThread: in (%p)\n", Tcl_GetCurrentThread()));
     do {
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
         if (dataPtr->terminate && dataPtr->num_conns) {
@@ -1143,6 +1158,7 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         }
     } while (!dataPtr->terminate);
 
+    DBG2(printf("exited event loop - thread: %p\n", Tcl_GetCurrentThread()));
     Tcl_DeleteTimerHandler(dataPtr->cleanup_timer);
     Tcl_DeleteFileHandler(dataPtr->epoll_fd);
     close(dataPtr->epoll_fd);
@@ -1153,20 +1169,29 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
         SSL_CTX_free(accept_ctx->ssl_ctx);
     }
 #endif
-    tws_DecrRefCountUntilZero(dataPtr->cmdPtr);
+    tws_DecrRefCountUntilZero(dataPtr->cmd_ptr);
+    tws_DecrRefCountUntilZero(dataPtr->config_dict_ptr);
     Tcl_DeleteInterp(dataPtr->interp);
-    Tcl_Free(accept_ctx);
+    ckfree((char *) accept_ctx);
 
-    DBG(fprintf(stderr, "HandleConnThread: out (%p)\n", Tcl_GetCurrentThread()));
+    DBG2(printf("HandleConnThread: out (%p)\n", Tcl_GetCurrentThread()));
 
-    Tcl_FinalizeThread();
     Tcl_ExitThread(TCL_OK);
+    goto thread_create_return;
+
+    error:
+    Tcl_ExitThread(TCL_ERROR);
+
+    thread_create_return:
     TCL_THREAD_CREATE_RETURN;
+
 }
 
 static void tws_ConnReadyHandler(void *data, int mask) {
+    UNUSED(data);
+    UNUSED(mask);
 
-        DBG(fprintf(stderr, "KeepaliveConnHandler\n"));
+        DBG2(printf("KeepaliveConnHandler\n"));
 
 
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
@@ -1191,7 +1216,7 @@ static void tws_ConnReadyHandler(void *data, int mask) {
     }
 #endif
 
-    DBG(fprintf(stderr, "KeepaliveConnHandler - nfds: %d\n", nfds));
+    DBG2(printf("KeepaliveConnHandler - nfds: %d\n", nfds));
 
     for (int i = 0; i < nfds; i++) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -1219,11 +1244,11 @@ static void tws_AddListenerToServer(tws_server_t *server, tws_listener_t *listen
 
 int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int option_num_threads, const char *host, const char *port) {
 
-    tws_listener_t *listener = (tws_listener_t *) Tcl_Alloc(sizeof(tws_listener_t));
+    tws_listener_t *listener = (tws_listener_t *) ckalloc(sizeof(tws_listener_t));
     listener->port = atoi(port);
     listener->option_http = option_http;
     listener->option_num_threads = option_num_threads;
-    listener->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(option_num_threads * sizeof(Tcl_ThreadId));
+    listener->conn_thread_ids = (Tcl_ThreadId *) ckalloc(option_num_threads * sizeof(Tcl_ThreadId));
     listener->nextPtr = NULL;
     listener->cond_wait = NULL;
 
@@ -1242,7 +1267,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
         return TCL_ERROR;
     }
 
-    tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) Tcl_Alloc(sizeof(tws_accept_ctx_t));
+    tws_accept_ctx_t *accept_ctx = (tws_accept_ctx_t *) ckalloc(sizeof(tws_accept_ctx_t));
 
     if (option_http) {
         accept_ctx->read_fn = tws_ReadHttpConnAsync;
@@ -1254,7 +1279,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
         accept_ctx->handle_conn_fn = tws_HandleSslHandshake;
 
         if (TCL_OK != tws_CreateSslContext(interp, &accept_ctx->ssl_ctx)) {
-            Tcl_Free((char *) accept_ctx);
+            ckfree((char *) accept_ctx);
             SetResult("Failed to create SSL context");
             return TCL_ERROR;
         }
@@ -1273,9 +1298,9 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
 
     Tcl_CreateFileHandler(server_fd, TCL_READABLE, tws_AcceptConn, accept_ctx);
 
-    DBG(fprintf(stderr, "port: %s - created listening socket (%d) on main thread\n", port, server_fd));
+    DBG2(printf("port: %s - created listening socket (%d) on main thread\n", port, server_fd));
 
-    accept_ctx->conn_thread_ids = (Tcl_ThreadId *) Tcl_Alloc(option_num_threads * sizeof(Tcl_ThreadId));
+    accept_ctx->conn_thread_ids = (Tcl_ThreadId *) ckalloc(option_num_threads * sizeof(Tcl_ThreadId));
     listener->server_fd = server_fd;
 #else
 #endif
@@ -1294,15 +1319,15 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
             Tcl_CreateThread(&id, tws_HandleConnThread, &ctrl, server->thread_stacksize, TCL_THREAD_JOINABLE)) {
             Tcl_MutexUnlock(tws_GetThreadMutex());
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-            Tcl_Free((char *) accept_ctx);
+            ckfree((char *) accept_ctx);
 #endif
             SetResult("Unable to create thread");
             return TCL_ERROR;
         }
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
-        DBG(fprintf(stderr, "Listen - created thread: %p\n", id));
+        DBG2(printf("Listen - created thread: %p\n", id));
         accept_ctx->conn_thread_ids[i] = id;
-        DBG(fprintf(stderr, "Listen - created thread: %p (check)\n", accept_ctx->conn_thread_ids[i]));
+        DBG2(printf("Listen - created thread: %p (check)\n", accept_ctx->conn_thread_ids[i]));
 #endif
 
         listener->conn_thread_ids[i] = id;
@@ -1311,7 +1336,7 @@ int tws_Listen(Tcl_Interp *interp, tws_server_t *server, int option_http, int op
         Tcl_ConditionWait(&listener->cond_wait, tws_GetThreadMutex(), NULL);
         Tcl_MutexUnlock(tws_GetThreadMutex());
         Tcl_ConditionFinalize(&listener->cond_wait);
-        DBG(fprintf(stderr, "Listen - created thread: %p\n", id));
+        DBG2(printf("Listen - created thread: %p\n", id));
     }
 
     tws_AddListenerToServer(server, listener);

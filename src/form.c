@@ -163,7 +163,7 @@ static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const cha
 
 //        fprintf(stderr, "filename=%.*s\n", (int) (filename_end - filename), filename);
 
-    int filename_length = filename_end - filename;
+    Tcl_Size filename_length = filename_end == NULL || filename == NULL ? 0 : filename_end - filename;
 
     // extract and save the part body as base64-encoded string in "multipart_form_data_ptr" as key-value pairs
 
@@ -187,22 +187,23 @@ static int tws_ParseMultipartEntry(Tcl_Interp *interp, const char *bs, const cha
     Tcl_Obj *field_value_ptr = NULL;
     if (filename_length > 0) {
         Tcl_Size block_length = be - bs;
-        char *block_body = Tcl_Alloc(block_length * 2);
-        Tcl_Size block_body_length;
-        if (base64_encode(bs, block_length, block_body, &block_body_length)) {
-            Tcl_Free(block_body);
-            SetResult("tws_ParseMultipartForm: base64_encode failed");
-            return TCL_ERROR;
-        }
+        if (block_length > 0) {
+            char *block_body = ckalloc(block_length * 2);
+            Tcl_Size block_body_length;
+            if (base64_encode(bs, block_length, block_body, &block_body_length)) {
+                ckfree(block_body);
+                SetResult("tws_ParseMultipartForm: base64_encode failed");
+                return TCL_ERROR;
+            }
 
-        if (TCL_OK != Tcl_DictObjPut(interp, mp_form_files_ptr, Tcl_NewStringObj(filename, filename_end - filename),
-                                     Tcl_NewStringObj(block_body, block_body_length))) {
-            Tcl_Free(block_body);
-            SetResult("tws_ParseMultipartForm: multipart/form-data dict write error");
-            return TCL_ERROR;
+            if (TCL_OK != Tcl_DictObjPut(interp, mp_form_files_ptr, Tcl_NewStringObj(filename, filename_end - filename),
+                                         Tcl_NewStringObj(block_body, block_body_length))) {
+                ckfree(block_body);
+                SetResult("tws_ParseMultipartForm: multipart/form-data dict write error");
+                return TCL_ERROR;
+            }
+            ckfree(block_body);
         }
-        Tcl_Free(block_body);
-
         field_value_ptr = Tcl_NewStringObj(filename, filename_length);
     } else {
         field_value_ptr = Tcl_NewStringObj(bs, be - bs);
@@ -436,7 +437,7 @@ tws_AddUrlEncodedFormField(Tcl_Interp *interp, Tcl_Obj *fields_ptr, Tcl_Obj *mul
 }
 
 static int tws_ParseUrlEncodedForm(Tcl_Interp *interp, Tcl_Obj *body_ptr, Tcl_Obj *result_ptr) {
-    DBG(fprintf(stderr, "ParseUrlEncodedForm\n"));
+    DBG2(printf("ParseUrlEncodedForm\n"));
 
     Tcl_Size body_length;
     const char *body = Tcl_GetStringFromObj(body_ptr, &body_length);
@@ -500,7 +501,9 @@ static int tws_ParseUrlEncodedForm(Tcl_Interp *interp, Tcl_Obj *body_ptr, Tcl_Ob
 }
 
 int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "GetFormCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("GetFormCmd\n"));
     CheckArgs(2, 2, 1, "request_dict");
 
     //    fprintf(stderr, "req=%s\n", Tcl_GetString(objv[1]));
@@ -533,27 +536,27 @@ int tws_GetFormCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj 
     Tcl_Obj *result_ptr = Tcl_NewDictObj();
     Tcl_IncrRefCount(result_ptr);
     if (multipart_boundary_ptr) {
-        DBG(fprintf(stderr, "multipart form data with boundary=%s\n", Tcl_GetString(multipart_boundary_ptr)));
+        DBG2(printf("multipart form data with boundary=%s\n", Tcl_GetString(multipart_boundary_ptr)));
 
         Tcl_Size body_b64_length;
         const char *body_b64 = Tcl_GetStringFromObj(body_ptr, &body_b64_length);
 
-        char *body = Tcl_Alloc(3 * body_b64_length / 4 + 2);
+        char *body = ckalloc(3 * body_b64_length / 4 + 2);
         Tcl_Size body_length;
         if (base64_decode(body_b64, body_b64_length, body, &body_length)) {
             Tcl_DecrRefCount(result_ptr);
-            Tcl_Free(body);
+            ckfree(body);
             SetResult("base64_decode failed");
             return TCL_ERROR;
         }
 
         if (TCL_OK != tws_ParseMultipartForm(interp, body, body_length, multipart_boundary_ptr, result_ptr)) {
             Tcl_DecrRefCount(result_ptr);
-            Tcl_Free(body);
+            ckfree(body);
             SetResult("get_form: error parsing multipart form data");
             return TCL_ERROR;
         }
-        Tcl_Free(body);
+        ckfree(body);
     } else {
         // check if "content-type" is "application/x-form-urlencoded"
 

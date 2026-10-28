@@ -21,6 +21,7 @@
 #include <signal.h>
 #include <sys/stat.h>
 #include <stdlib.h>
+
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
 #include <unistd.h>
 #endif
@@ -29,7 +30,7 @@ static int tws_ModuleInitialized;
 static int signal_flag = 0;
 
 static void tws_ThreadQueueTermEvent(Tcl_ThreadId threadId) {
-    Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
+    Tcl_Event *evPtr = (Tcl_Event *) ckalloc(sizeof(Tcl_Event));
     evPtr->proc = tws_HandleTermEventInThread;
     Tcl_ThreadQueueEvent(threadId, evPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(threadId);
@@ -37,14 +38,14 @@ static void tws_ThreadQueueTermEvent(Tcl_ThreadId threadId) {
 
 static void tws_StopServer(tws_server_t *server) {
     tws_listener_t *listener = server->first_listener_ptr;
-    while(listener) {
+    while (listener) {
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
         fprintf(stderr, "closing listener->server_fd %d\n", listener->server_fd);
         Tcl_DeleteFileHandler(listener->server_fd);
         close(listener->server_fd);
 #endif
         for (int i = 0; i < listener->option_num_threads; i++) {
-            DBG(fprintf(stderr, "Stopping thread %p\n", listener->conn_thread_ids[i]));
+            DBG2(printf("Stopping thread %p\n", listener->conn_thread_ids[i]));
             tws_ThreadQueueTermEvent(listener->conn_thread_ids[i]);
         }
         listener = listener->nextPtr;
@@ -53,20 +54,20 @@ static void tws_StopServer(tws_server_t *server) {
     fprintf(stderr, "Waiting for threads to exit\n");
 
     listener = server->first_listener_ptr;
-    while(listener) {
+    while (listener) {
         for (int i = 0; i < listener->option_num_threads; i++) {
-            DBG(fprintf(stderr, "Waiting for thread %p\n", listener->conn_thread_ids[i]));
+            DBG2(printf("Waiting for thread %p\n", listener->conn_thread_ids[i]));
             if (TCL_OK != Tcl_JoinThread(listener->conn_thread_ids[i], NULL)) {
                 fprintf(stderr, "Error joining thread %p\n", listener->conn_thread_ids[i]);
             }
-            DBG(fprintf(stderr, "Thread %p exited\n", listener->conn_thread_ids[i]));
+            DBG2(printf("Thread %p exited\n", listener->conn_thread_ids[i]));
         }
         listener = listener->nextPtr;
     }
 }
 
 int tws_Destroy(Tcl_Interp *interp, const char *handle) {
-    DBG(fprintf(stderr, "Destroy\n"));
+    DBG2(printf("Destroy\n"));
 
     tws_server_t *server = tws_GetInternalFromServerName(handle);
     if (!server) {
@@ -82,44 +83,31 @@ int tws_Destroy(Tcl_Interp *interp, const char *handle) {
     }
 
     tws_listener_t *listener = server->first_listener_ptr;
-    while(listener) {
-        DBG(fprintf(stderr, "deleting listener\n"));
-        Tcl_Free((char *) listener->conn_thread_ids);
+    while (listener) {
+        DBG2(printf("deleting listener\n"));
+        ckfree((char *) listener->conn_thread_ids);
         tws_listener_t *next_listener = listener->nextPtr;
-        Tcl_Free((char *) listener);
+        ckfree((char *) listener);
         listener = next_listener;
     }
 
-    tws_DecrRefCountUntilZero(server->cmdPtr);
-    if (server->scriptPtr != NULL) {
-        tws_DecrRefCountUntilZero(server->scriptPtr);
-    }
-    if (server->rootdir_ptr != NULL) {
-        tws_DecrRefCountUntilZero(server->rootdir_ptr);
-    }
+    DBG2(printf("listeners freed\n"));
 
+    Tcl_DStringFree(&server->cmd_ds);
+    Tcl_DStringFree(&server->script_ds);
+    Tcl_DStringFree(&server->config_dict_ds);
+
+    DBG2(printf("dstrings freed\n"));
     tws_FreeSslContexts();
+    DBG2(printf("ssl contexts freed\n"));
 
     Tcl_DeleteCommand(interp, handle);
-    Tcl_Free((char *) server);
+    ckfree((char *) server);
+    DBG2(printf("server destroyed\n"));
     return TCL_OK;
 }
 
 static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server_ctx, Tcl_Obj *const configDictPtr) {
-    Tcl_Obj *rootdirPtr;
-    Tcl_Obj *rootdirKeyPtr = Tcl_NewStringObj("rootdir", -1);
-    Tcl_IncrRefCount(rootdirKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, configDictPtr, rootdirKeyPtr, &rootdirPtr)) {
-        Tcl_DecrRefCount(rootdirKeyPtr);
-        SetResult("error reading dict");
-        return TCL_ERROR;
-    }
-    Tcl_DecrRefCount(rootdirKeyPtr);
-    if (rootdirPtr) {
-        server_ctx->rootdir_ptr = rootdirPtr;
-        Tcl_IncrRefCount(server_ctx->rootdir_ptr);
-    }
-
     Tcl_Obj *maxRequestReadBytesPtr;
     Tcl_Obj *maxRequestReadBytesKeyPtr = Tcl_NewStringObj("max_request_read_bytes", -1);
     Tcl_IncrRefCount(maxRequestReadBytesKeyPtr);
@@ -408,7 +396,7 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
             if (newEntry) {
                 Tcl_SetHashValue(entryPtr, (ClientData) NULL);
             }
-            DBG(fprintf(stderr, "gzip_types: %s\n", gzip_type));
+            DBG2(printf("gzip_types: %s\n", gzip_type));
         }
     }
 
@@ -478,12 +466,14 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
 }
 
 static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "CreateCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("CreateCmd\n"));
 
     int option_router = 0;
     Tcl_ArgvInfo ArgTable[] = {
-            {TCL_ARGV_CONSTANT, "-with_router", INT2PTR(1), &option_router, "whether cmd_name is a router"},
-            {TCL_ARGV_END, NULL,         NULL, NULL, NULL}
+            {TCL_ARGV_CONSTANT, "-with_router", INT2PTR(1), &option_router, "whether cmd_name is a router", NULL},
+            {TCL_ARGV_END, NULL,                NULL, NULL, NULL,                                           NULL}
     };
 
     Tcl_Obj **remObjv;
@@ -491,28 +481,29 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 4) || (objc > 4)) {
-        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "config_dict cmd_name init_script");
+        ckfree(remObjv);
         return TCL_ERROR;
     }
 
-    tws_server_t *server_ptr = (tws_server_t *) Tcl_Alloc(sizeof(tws_server_t));
+    tws_server_t *server_ptr = (tws_server_t *) ckalloc(sizeof(tws_server_t));
     if (!server_ptr) {
         ckfree(remObjv);
         SetResult("Unable to allocate memory");
         return TCL_ERROR;
     }
 
-    DBG(fprintf(stderr, "option_router=%d\n", option_router));
+    DBG2(printf("option_router=%d\n", option_router));
 
     server_ptr->option_router = option_router;
-    server_ptr->cmdPtr = Tcl_DuplicateObj(remObjv[2]);
-    Tcl_IncrRefCount(server_ptr->cmdPtr);
-    server_ptr->scriptPtr = Tcl_DuplicateObj(remObjv[3]);
-    Tcl_IncrRefCount(server_ptr->scriptPtr);
+    Tcl_DStringInit(&server_ptr->config_dict_ds);
+    Tcl_DStringAppend(&server_ptr->config_dict_ds, Tcl_GetString(remObjv[1]), -1);
+    Tcl_DStringInit(&server_ptr->cmd_ds);
+    Tcl_DStringAppend(&server_ptr->cmd_ds, Tcl_GetString(remObjv[2]), -1);
+    Tcl_DStringInit(&server_ptr->script_ds);
+    Tcl_DStringAppend(&server_ptr->script_ds, Tcl_GetString(remObjv[3]), -1);
 
     server_ptr->thread_id = Tcl_GetCurrentThread();
-    server_ptr->rootdir_ptr = NULL;
     server_ptr->first_listener_ptr = NULL;
 
     // configuration
@@ -543,7 +534,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
     server_ptr->thread_max_concurrent_conns = 0;
 
     if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ptr, remObjv[1])) {
-        Tcl_Free((char *) server_ptr);
+        ckfree((char *) server_ptr);
         return TCL_ERROR;
     }
 
@@ -556,7 +547,9 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
 }
 
 static int tws_DestroyServerCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "DestroyCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("DestroyCmd\n"));
     CheckArgs(2, 2, 1, "handle");
 
     return tws_Destroy(interp, Tcl_GetString(objv[1]));
@@ -564,24 +557,26 @@ static int tws_DestroyServerCmd(ClientData clientData, Tcl_Interp *interp, int o
 }
 
 static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "ListenCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("ListenCmd\n"));
 
     int option_http = 0;
     int option_num_threads = 0;
     const char *host = NULL;
     Tcl_ArgvInfo ArgTable[] = {
-            {TCL_ARGV_CONSTANT, "-http", INT2PTR(1), &option_http, "http (not https) listener"},
-            {TCL_ARGV_INT, "-num_threads", NULL, &option_num_threads, "num threads for listener"},
-            {TCL_ARGV_STRING, "-host", NULL, &host, "host for listener"},
-            {TCL_ARGV_END, NULL,         NULL, NULL, NULL}
+            {TCL_ARGV_CONSTANT, "-http",        INT2PTR(1), &option_http,        "http (not https) listener", NULL},
+            {TCL_ARGV_INT,      "-num_threads", NULL,       &option_num_threads, "num threads for listener",  NULL},
+            {TCL_ARGV_STRING,   "-host",        NULL,       &host,               "host for listener",         NULL},
+            {TCL_ARGV_END, NULL,                NULL, NULL, NULL,                                             NULL}
     };
     Tcl_Obj **remObjv;
     Tcl_Size objc = incoming_objc;
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 3) || (objc > 3)) {
-        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "server_handle port");
+        ckfree(remObjv);
         return TCL_ERROR;
     }
 
@@ -617,16 +612,18 @@ static int tws_ListenCmd(ClientData clientData, Tcl_Interp *interp, int incoming
 }
 
 static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "AddContextCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("AddContextCmd\n"));
 
     int option_verify_client = 0;
     char *cafile = NULL;
     char *cadir = NULL;
     Tcl_ArgvInfo ArgTable[] = {
-            {TCL_ARGV_CONSTANT, "-verify_client", INT2PTR(1), &option_verify_client, "enables client verification"},
-            {TCL_ARGV_STRING, "-cafile", NULL, &cafile, "CA file for client verification"},
-            {TCL_ARGV_STRING, "-cadir", NULL, &cadir, "CA directory for client verification"},
-            {TCL_ARGV_END, NULL,         NULL, NULL, NULL}
+            {TCL_ARGV_CONSTANT, "-verify_client", INT2PTR(1), &option_verify_client, "enables client verification",          NULL},
+            {TCL_ARGV_STRING,   "-cafile",        NULL,       &cafile,               "CA file for client verification",      NULL},
+            {TCL_ARGV_STRING,   "-cadir",         NULL,       &cadir,                "CA directory for client verification", NULL},
+            {TCL_ARGV_END, NULL,                  NULL, NULL, NULL,                                                          NULL}
     };
 
     Tcl_Obj **remObjv;
@@ -634,8 +631,8 @@ static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int inco
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 5) || (objc > 5)) {
-        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "server_handle hostname key cert");
+        ckfree(remObjv);
         return TCL_ERROR;
     }
 
@@ -716,7 +713,9 @@ static int tws_AddContextCmd(ClientData clientData, Tcl_Interp *interp, int inco
 }
 
 static int tws_EncodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "EncodeURIComponentCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("EncodeURIComponentCmd\n"));
     CheckArgs(2, 2, 1, "text");
 
     int enc_flags = CHAR_COMPONENT;
@@ -725,7 +724,7 @@ static int tws_EncodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
     const char *text = Tcl_GetStringFromObj(objv[1], &length);
 
     Tcl_Obj *valuePtr;
-    if (TCL_OK != tws_UrlEncode(interp, enc_flags, text, length, &valuePtr)) {
+    if (TCL_OK != tws_UrlEncode(enc_flags, text, length, &valuePtr)) {
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
@@ -733,7 +732,9 @@ static int tws_EncodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
 }
 
 static int tws_EncodeQueryCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "EncodeQueryCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("EncodeQueryCmd\n"));
     CheckArgs(2, 2, 1, "text");
 
     int enc_flags = CHAR_QUERY;
@@ -742,7 +743,7 @@ static int tws_EncodeQueryCmd(ClientData clientData, Tcl_Interp *interp, int obj
     const char *text = Tcl_GetStringFromObj(objv[1], &length);
 
     Tcl_Obj *valuePtr;
-    if (TCL_OK != tws_UrlEncode(interp, enc_flags, text, length, &valuePtr)) {
+    if (TCL_OK != tws_UrlEncode(enc_flags, text, length, &valuePtr)) {
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
@@ -751,7 +752,9 @@ static int tws_EncodeQueryCmd(ClientData clientData, Tcl_Interp *interp, int obj
 
 
 static int tws_DecodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "DecodeURIComponentCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("DecodeURIComponentCmd\n"));
     CheckArgs(2, 3, 1, "encoded_text ?encoding_name?");
 
     Tcl_Size length;
@@ -779,54 +782,63 @@ static int tws_DecodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
 }
 
 static int tws_Base64EncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "Base64EncodeCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("Base64EncodeCmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
     Tcl_Size input_length;
-    const char *input = (const char *) Tcl_GetByteArrayFromObj(objv[1], &input_length);
+    const unsigned char *input = Tcl_GetByteArrayFromObj(objv[1], &input_length);
 
-    char *output = Tcl_Alloc(input_length * 2);
+    if (input_length == 0) {
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("", 0));
+        return TCL_OK;
+    }
+
+    char *output = ckalloc(input_length * 2);
     Tcl_Size output_length;
     if (base64_encode(input, input_length, output, &output_length)) {
-        Tcl_Free(output);
+        ckfree(output);
         SetResult("base64_encode failed");
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, Tcl_NewStringObj(output, output_length));
-    Tcl_Free(output);
+    ckfree(output);
     return TCL_OK;
 }
 
 static int tws_Base64DecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "Base64DecodeCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("Base64DecodeCmd\n"));
     CheckArgs(2, 2, 1, "base64_encoded_string");
 
     Tcl_Size input_length;
     const char *input = Tcl_GetStringFromObj(objv[1], &input_length);
 
-    char *output = Tcl_Alloc(3 * input_length / 4 + 2);
+    char *output = ckalloc(3 * input_length / 4 + 2);
     Tcl_Size output_length;
     if (base64_decode(input, input_length, output, &output_length)) {
-        Tcl_Free(output);
+        ckfree(output);
         SetResult("base64_decode failed");
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, Tcl_NewByteArrayObj(output, output_length));
-    Tcl_Free(output);
+    ckfree(output);
     return TCL_OK;
 }
 
-static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *const responseDictPtr, Tcl_Obj *headerNamePtr, Tcl_Obj *headerValuePtr,
-                         Tcl_Obj **resultPtr) {
-    Tcl_Obj *dupResponseDictPtr = Tcl_IsShared(responseDictPtr) ? Tcl_DuplicateObj(responseDictPtr) : responseDictPtr;
-//    Tcl_Obj *dupResponseDictPtr = responseDictPtr;
+static int
+tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *const responseDictPtr, Tcl_Obj *headerNamePtr, Tcl_Obj *headerValuePtr,
+              Tcl_Obj **resultPtr) {
+    Tcl_Obj *dupResponseDictPtr = Tcl_DuplicateObj(responseDictPtr);
     Tcl_IncrRefCount(dupResponseDictPtr);
 
     // check if the header exists in "multiValueHeaders" first
     Tcl_Obj *multiValueHeadersPtr;
     Tcl_Obj *multiValueHeadersKeyPtr = Tcl_NewStringObj("multiValueHeaders", -1);
     Tcl_IncrRefCount(multiValueHeadersKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, multiValueHeadersKeyPtr, &multiValueHeadersPtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, dupResponseDictPtr, multiValueHeadersKeyPtr, &multiValueHeadersPtr)) {
         Tcl_DecrRefCount(multiValueHeadersKeyPtr);
         Tcl_DecrRefCount(dupResponseDictPtr);
         SetResult("add_header: error reading response dict for multiValueHeaders");
@@ -858,7 +870,7 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *const responseDictPtr, Tcl
             return TCL_ERROR;
         }
 
-        if (TCL_OK != Tcl_DictObjPut(interp, responseDictPtr, multiValueHeadersKeyPtr, multiValueHeadersPtr)) {
+        if (TCL_OK != Tcl_DictObjPut(interp, dupResponseDictPtr, multiValueHeadersKeyPtr, multiValueHeadersPtr)) {
             Tcl_DecrRefCount(multiValueHeadersKeyPtr);
             Tcl_DecrRefCount(dupResponseDictPtr);
             SetResult("add_header: error writing multiValueHeaders back to response dict");
@@ -873,7 +885,7 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *const responseDictPtr, Tcl
     Tcl_Obj *headersPtr;
     Tcl_Obj *headersKeyPtr = Tcl_NewStringObj("headers", -1);
     Tcl_IncrRefCount(headersKeyPtr);
-    if (TCL_OK != Tcl_DictObjGet(interp, responseDictPtr, headersKeyPtr, &headersPtr)) {
+    if (TCL_OK != Tcl_DictObjGet(interp, dupResponseDictPtr, headersKeyPtr, &headersPtr)) {
         Tcl_DecrRefCount(headersKeyPtr);
         Tcl_DecrRefCount(multiValueHeadersKeyPtr);
         Tcl_DecrRefCount(dupResponseDictPtr);
@@ -920,7 +932,8 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *const responseDictPtr, Tcl
             Tcl_DecrRefCount(listValuePtr);
 
             // write "multiValueHeaders" dict to response dict
-            if (TCL_OK != Tcl_DictObjPut(interp, responseDictPtr, multiValueHeadersKeyPtr, newMultiValueHeadersPtr)) {
+            if (TCL_OK !=
+                Tcl_DictObjPut(interp, dupResponseDictPtr, multiValueHeadersKeyPtr, newMultiValueHeadersPtr)) {
                 Tcl_DecrRefCount(headersKeyPtr);
                 Tcl_DecrRefCount(multiValueHeadersKeyPtr);
                 Tcl_DecrRefCount(dupResponseDictPtr);
@@ -991,7 +1004,9 @@ static int tws_AddHeader(Tcl_Interp *interp, Tcl_Obj *const responseDictPtr, Tcl
 }
 
 static int tws_ParseCookieCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "ParseCookieCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("ParseCookieCmd\n"));
     CheckArgs(2, 2, 1, "cookie_header");
 
     Tcl_Size cookie_header_len;
@@ -1061,7 +1076,8 @@ static int tws_ParseCookieCmd(ClientData clientData, Tcl_Interp *interp, int obj
             }
         }
 
-        if (TCL_OK != Tcl_DictObjPut(interp, cookie_dict, keyPtr, Tcl_NewStringObj(Tcl_DStringValue(&value_ds), Tcl_DStringLength(&value_ds)))) {
+        if (TCL_OK != Tcl_DictObjPut(interp, cookie_dict, keyPtr,
+                                     Tcl_NewStringObj(Tcl_DStringValue(&value_ds), Tcl_DStringLength(&value_ds)))) {
             Tcl_DecrRefCount(keyPtr);
             Tcl_DecrRefCount(cookie_dict);
             Tcl_DStringFree(&value_ds);
@@ -1086,7 +1102,9 @@ static int tws_ParseCookieCmd(ClientData clientData, Tcl_Interp *interp, int obj
 
 
 static int tws_ParseQueryCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "ParseCookieCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("ParseCookieCmd\n"));
     CheckArgs(2, 3, 1, "query_string ?encoding?");
 
     Tcl_Size query_string_len;
@@ -1101,7 +1119,8 @@ static int tws_ParseQueryCmd(ClientData clientData, Tcl_Interp *interp, int objc
     Tcl_DStringInit(&parse_ds);
 
     int error_num = 0;
-    if (TCL_OK != tws_ParseQueryStringParameters(Tcl_GetEncoding(interp, encoding_name), query_string, query_string_len, &parse_ds, &error_num)) {
+    if (TCL_OK != tws_ParseQueryStringParameters(Tcl_GetEncoding(interp, encoding_name), query_string, query_string_len,
+                                                 &parse_ds, &error_num)) {
         Tcl_DStringFree(&parse_ds);
         SetResult(tws_parse_error_messages[error_num]);
         return TCL_ERROR;
@@ -1115,7 +1134,9 @@ static int tws_ParseQueryCmd(ClientData clientData, Tcl_Interp *interp, int objc
 
 
 static int tws_AddHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "AddHeaderCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("AddHeaderCmd\n"));
     CheckArgs(4, 4, 1, "response_dict header_name header_value");
 
     Tcl_Obj *responseDictPtr;
@@ -1128,7 +1149,9 @@ static int tws_AddHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc,
 }
 
 static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "AddCookieCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("AddCookieCmd\n"));
 
     const char *option_path = NULL;
     const char *option_domain = NULL;
@@ -1139,15 +1162,15 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incom
     int option_partitioned = 0;
     int option_insecure = 0;
     Tcl_ArgvInfo ArgTable[] = {
-            {TCL_ARGV_STRING,   "-path",        NULL,       &option_path,        "value for the Path attribute"},
-            {TCL_ARGV_STRING,   "-domain",      NULL,       &option_domain,      "value for the Domain attribute"},
-            {TCL_ARGV_STRING,   "-samesite",    NULL,       &option_samesite,    "value for the SameSite attribute"},
-            {TCL_ARGV_STRING,   "-expires",    NULL,       &option_expires,    "value for the Expires attribute"},
-            {TCL_ARGV_INT,      "-maxage",      NULL,       &option_maxage,      "number of seconds until the cookie expires"},
-            {TCL_ARGV_CONSTANT, "-httponly",    INT2PTR(1), &option_httponly,    "HttpOnly attribute is set"},
-            {TCL_ARGV_CONSTANT, "-partitioned", INT2PTR(1), &option_partitioned, "indicates that the cookie should be stored using partitioned storage"},
-            {TCL_ARGV_CONSTANT, "-insecure",    INT2PTR(1), &option_insecure,    "indicates whether to not set the Secure attribute"},
-            {TCL_ARGV_END, NULL,                NULL, NULL, NULL}
+            {TCL_ARGV_STRING,   "-path",        NULL,       &option_path,        "value for the Path attribute",                                         NULL},
+            {TCL_ARGV_STRING,   "-domain",      NULL,       &option_domain,      "value for the Domain attribute",                                       NULL},
+            {TCL_ARGV_STRING,   "-samesite",    NULL,       &option_samesite,    "value for the SameSite attribute",                                     NULL},
+            {TCL_ARGV_STRING,   "-expires",     NULL,       &option_expires,     "value for the Expires attribute",                                      NULL},
+            {TCL_ARGV_INT,      "-maxage",      NULL,       &option_maxage,      "number of seconds until the cookie expires",                           NULL},
+            {TCL_ARGV_CONSTANT, "-httponly",    INT2PTR(1), &option_httponly,    "HttpOnly attribute is set",                                            NULL},
+            {TCL_ARGV_CONSTANT, "-partitioned", INT2PTR(1), &option_partitioned, "indicates that the cookie should be stored using partitioned storage", NULL},
+            {TCL_ARGV_CONSTANT, "-insecure",    INT2PTR(1), &option_insecure,    "indicates whether to not set the Secure attribute",                    NULL},
+            {TCL_ARGV_END, NULL,                NULL, NULL, NULL,                                                                                        NULL}
     };
 
     Tcl_Obj **remObjv;
@@ -1155,8 +1178,8 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incom
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 4) || (objc > 4)) {
-        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "response_dict cookie_name cookie_value");
+        ckfree(remObjv);
         return TCL_ERROR;
     }
 
@@ -1174,7 +1197,7 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incom
     Tcl_Obj *cookieValuePtr;
     Tcl_Size cookie_value_length;
     const char *cookie_value = Tcl_GetStringFromObj(remObjv[3], &cookie_value_length);
-    if (TCL_OK != tws_UrlEncode(interp, enc_flags, cookie_value, cookie_value_length, &cookieValuePtr)) {
+    if (TCL_OK != tws_UrlEncode(enc_flags, cookie_value, cookie_value_length, &cookieValuePtr)) {
         ckfree(remObjv);
         Tcl_DStringFree(&header_value_ds);
         return TCL_ERROR;
@@ -1233,7 +1256,8 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incom
         Tcl_DecrRefCount(option_maxage_ptr);
     }
 
-    Tcl_Obj *header_value_ptr = Tcl_NewStringObj(Tcl_DStringValue(&header_value_ds), Tcl_DStringLength(&header_value_ds));
+    Tcl_Obj *header_value_ptr = Tcl_NewStringObj(Tcl_DStringValue(&header_value_ds),
+                                                 Tcl_DStringLength(&header_value_ds));
     Tcl_IncrRefCount(header_value_ptr);
     Tcl_DStringFree(&header_value_ds);
 
@@ -1257,12 +1281,14 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incom
 }
 
 static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "BuildResponseCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("BuildResponseCmd\n"));
 
     int option_file = 0;
     Tcl_ArgvInfo ArgTable[] = {
-            {TCL_ARGV_CONSTANT, "-return_file",    INT2PTR(1), &option_file,    "indicates whether the last parameter is a file path"},
-            {TCL_ARGV_END, NULL,                NULL, NULL, NULL}
+            {TCL_ARGV_CONSTANT, "-return_file", INT2PTR(1), &option_file, "indicates whether the last parameter is a file path", NULL},
+            {TCL_ARGV_END, NULL,                NULL, NULL, NULL,                                                                NULL}
     };
 
     Tcl_Obj **remObjv;
@@ -1270,8 +1296,8 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 4) || (objc > 4)) {
-        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "status_code mimetype body");
+        ckfree(remObjv);
         return TCL_ERROR;
     }
 
@@ -1348,10 +1374,10 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
             return TCL_ERROR;
         }
 
-        char *file_data = Tcl_Alloc(file_data_length);
+        char *file_data = ckalloc(file_data_length);
         Tcl_Size bytes_read = Tcl_ReadRaw(channel, file_data, file_data_length);
         if (bytes_read < 0) {
-            Tcl_Free(file_data);
+            ckfree(file_data);
             Tcl_DecrRefCount(response_dict_ptr);
             ckfree(remObjv);
             SetResult("build_response: error reading file");
@@ -1362,11 +1388,11 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
         Tcl_Close(interp, channel);
 
         input_ptr = is_binary_type ?
-                Tcl_NewByteArrayObj(file_data, file_data_length)
-                : Tcl_NewStringObj(file_data, file_data_length);
+                    Tcl_NewByteArrayObj(file_data, file_data_length)
+                                   : Tcl_NewStringObj(file_data, file_data_length);
 
         Tcl_IncrRefCount(input_ptr);
-        Tcl_Free(file_data);
+        ckfree(file_data);
     } else {
         input_ptr = remObjv[3];
     }
@@ -1391,13 +1417,13 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
         // base64 encode the body
         Tcl_Size input_length;
         const char *input = Tcl_GetByteArrayFromObj(input_ptr, &input_length);
-        char *output = Tcl_Alloc(input_length * 2);
+        char *output = ckalloc(input_length * 2);
         size_t output_length;
         if (TCL_OK != base64_encode(input, input_length, output, &output_length)) {
             if (option_file) {
                 Tcl_DecrRefCount(input_ptr);
             }
-            Tcl_Free(output);
+            ckfree(output);
             Tcl_DecrRefCount(response_dict_ptr);
             ckfree(remObjv);
             SetResult("build_response: error base64 encoding body");
@@ -1415,14 +1441,14 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
             Tcl_DecrRefCount(body_key_ptr);
             Tcl_DecrRefCount(value_ptr);
             Tcl_DecrRefCount(response_dict_ptr);
-            Tcl_Free(output);
+            ckfree(output);
             ckfree(remObjv);
             SetResult("build_response: error writing body to response_dict");
             return TCL_ERROR;
         }
         Tcl_DecrRefCount(body_key_ptr);
         Tcl_DecrRefCount(value_ptr);
-        Tcl_Free(output);
+        ckfree(output);
 
     } else {
         Tcl_Obj *body_key_ptr = Tcl_NewStringObj("body", -1);
@@ -1449,7 +1475,79 @@ static int tws_BuildResponseCmd(ClientData clientData, Tcl_Interp *interp, int i
     return TCL_OK;
 }
 
-static int tws_GetQueryParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *param_name_ptr, int option_multi, Tcl_Obj **result_ptr) {
+static int tws_BuildRedirectCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
+    DBG2(printf("BuildRedirectCmd\n"));
+    CheckArgs(3, 3, 1, "status_code location");
+
+    // check status_code is 301 or 302
+    int status_code;
+    if (TCL_OK != Tcl_GetIntFromObj(interp, objv[1], &status_code)) {
+        return TCL_ERROR;
+    }
+
+    if (status_code != 301 && status_code != 302) {
+        SetResult("build_redirect: status_code must be 301 or 302");
+        return TCL_ERROR;
+    }
+
+    Tcl_Obj *response_dict_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(response_dict_ptr);
+
+    Tcl_Obj *status_code_key_ptr = Tcl_NewStringObj("statusCode", -1);
+    Tcl_IncrRefCount(status_code_key_ptr);
+    if (TCL_OK != Tcl_DictObjPut(interp, response_dict_ptr, status_code_key_ptr, objv[1])) {
+        Tcl_DecrRefCount(status_code_key_ptr);
+        Tcl_DecrRefCount(response_dict_ptr);
+        SetResult("build_redirect: error writing status_code to response_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(status_code_key_ptr);
+
+    Tcl_Obj *headers_key_ptr = Tcl_NewStringObj("headers", -1);
+    Tcl_IncrRefCount(headers_key_ptr);
+    Tcl_Obj *headers_dict_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(headers_dict_ptr);
+
+    Tcl_Obj *location_key_ptr = Tcl_NewStringObj("Location", -1);
+    Tcl_IncrRefCount(location_key_ptr);
+    if (TCL_OK != Tcl_DictObjPut(interp, headers_dict_ptr, location_key_ptr, objv[2])) {
+        Tcl_DecrRefCount(location_key_ptr);
+        Tcl_DecrRefCount(headers_dict_ptr);
+        Tcl_DecrRefCount(headers_key_ptr);
+        Tcl_DecrRefCount(response_dict_ptr);
+        SetResult("build_redirect: error writing Location to headers_dict");
+        return TCL_ERROR;
+    }
+
+    if (TCL_OK != Tcl_DictObjPut(interp, response_dict_ptr, headers_key_ptr, headers_dict_ptr)) {
+        Tcl_DecrRefCount(headers_key_ptr);
+        Tcl_DecrRefCount(headers_dict_ptr);
+        Tcl_DecrRefCount(response_dict_ptr);
+        SetResult("build_redirect: error writing headers to response_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(headers_key_ptr);
+    Tcl_DecrRefCount(headers_dict_ptr);
+
+    Tcl_Obj *body_key_ptr = Tcl_NewStringObj("body", -1);
+    Tcl_IncrRefCount(body_key_ptr);
+    if (TCL_OK != Tcl_DictObjPut(interp, response_dict_ptr, body_key_ptr, Tcl_NewStringObj("", -1))) {
+        Tcl_DecrRefCount(body_key_ptr);
+        Tcl_DecrRefCount(response_dict_ptr);
+        SetResult("build_response: error writing body to response_dict");
+        return TCL_ERROR;
+    }
+    Tcl_DecrRefCount(body_key_ptr);
+
+    Tcl_SetObjResult(interp, response_dict_ptr);
+    Tcl_DecrRefCount(response_dict_ptr);
+    return TCL_OK;
+}
+
+static int tws_GetQueryParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *param_name_ptr, int option_multi,
+                             Tcl_Obj **result_ptr) {
     // Check request_dict for the following keys:
     //    multiValueQueryStringParameters
     //    queryStringParameters
@@ -1522,7 +1620,9 @@ static int tws_GetQueryParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj 
 }
 
 int tws_GetQueryParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "GetQueryParamCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("GetQueryParamCmd\n"));
     CheckArgs(3, 4, 1, "request_dict param_name ?return_list?");
 
     int option_multi = 0;
@@ -1549,7 +1649,8 @@ int tws_GetQueryParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tc
     return TCL_OK;
 }
 
-static int tws_GetPathParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *param_name_ptr, int option_multi, Tcl_Obj **result_ptr) {
+static int tws_GetPathParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *param_name_ptr, int option_multi,
+                            Tcl_Obj **result_ptr) {
     // Check if "pathParameters" exists, check if "param_name" is part of it and return it
 
     Tcl_Obj *path_parameters_key_ptr = Tcl_NewStringObj("pathParameters", -1);
@@ -1591,7 +1692,9 @@ static int tws_GetPathParam(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *
 }
 
 int tws_GetPathParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "GetPathParamCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("GetPathParamCmd\n"));
     CheckArgs(3, 4, 1, "request_dict param_name ?return_list?");
 
     int option_multi = 0;
@@ -1618,7 +1721,8 @@ int tws_GetPathParamCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl
     return TCL_OK;
 }
 
-static int tws_GetHeader(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *param_name_ptr, int option_multi, Tcl_Obj **result_ptr) {
+static int tws_GetHeader(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *param_name_ptr, int option_multi,
+                         Tcl_Obj **result_ptr) {
     // Check request_dict for the following keys:
     //    multiValueHeaders
     //    headers
@@ -1691,7 +1795,9 @@ static int tws_GetHeader(Tcl_Interp *interp, Tcl_Obj *req_dict_ptr, Tcl_Obj *par
 }
 
 int tws_GetHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "GetPathParamCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("GetPathParamCmd\n"));
     CheckArgs(3, 4, 1, "request_dict header_name ?return_list?");
 
     int option_multi = 0;
@@ -1719,18 +1825,20 @@ int tws_GetHeaderCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
 }
 
 int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "GetParamCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("GetParamCmd\n"));
 
     int option_multi = 0;
     int option_query = 0;
     int option_path = 0;
     int option_header = 0;
     Tcl_ArgvInfo ArgTable[] = {
-            {TCL_ARGV_CONSTANT, "-return_list", INT2PTR(1), &option_multi,  "return a list of values"},
-            {TCL_ARGV_CONSTANT, "-from_query",  INT2PTR(1), &option_query,  "return query parameter"},
-            {TCL_ARGV_CONSTANT, "-from_path",   INT2PTR(1), &option_path,   "return path parameter"},
-            {TCL_ARGV_CONSTANT, "-from_header", INT2PTR(1), &option_header, "return header value"},
-            {TCL_ARGV_END, NULL,                NULL, NULL, NULL}
+            {TCL_ARGV_CONSTANT, "-return_list", INT2PTR(1), &option_multi,  "return a list of values", NULL},
+            {TCL_ARGV_CONSTANT, "-from_query",  INT2PTR(1), &option_query,  "return query parameter",  NULL},
+            {TCL_ARGV_CONSTANT, "-from_path",   INT2PTR(1), &option_path,   "return path parameter",   NULL},
+            {TCL_ARGV_CONSTANT, "-from_header", INT2PTR(1), &option_header, "return header value",     NULL},
+            {TCL_ARGV_END, NULL,                NULL, NULL, NULL,                                      NULL}
     };
 
     Tcl_Obj **remObjv;
@@ -1738,8 +1846,8 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
     Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
 
     if ((objc < 3) || (objc > 3)) {
-        ckfree(remObjv);
         Tcl_WrongNumArgs(interp, 1, remObjv, "request_dict param_name");
+        ckfree(remObjv);
         return TCL_ERROR;
     }
 
@@ -1748,7 +1856,8 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
     Tcl_Obj *result_ptr = NULL;
 
     if (check_all_p || option_path) {
-        if (TCL_OK == tws_GetPathParam(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
+        if (TCL_OK == tws_GetPathParam(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) &&
+            result_ptr != NULL) {
             ckfree(remObjv);
             Tcl_SetObjResult(interp, result_ptr);
             return TCL_OK;
@@ -1756,7 +1865,8 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
     }
 
     if (check_all_p || option_query) {
-        if (TCL_OK == tws_GetQueryParam(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) && result_ptr != NULL) {
+        if (TCL_OK == tws_GetQueryParam(interp, remObjv[1], remObjv[2], option_multi, &result_ptr) &&
+            result_ptr != NULL) {
             ckfree(remObjv);
             Tcl_SetObjResult(interp, result_ptr);
             return TCL_OK;
@@ -1776,7 +1886,9 @@ int tws_GetParamCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc
 }
 
 int tws_IpV6ToIpV4Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "IpV6ToIpV4Cmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("IpV6ToIpV4Cmd\n"));
     CheckArgs(2, 2, 1, "ipv6_address");
 
     // check if the input is a valid IPv6 address and whether it can be mapped to IPv4
@@ -1807,7 +1919,9 @@ int tws_IpV6ToIpV4Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_O
 }
 
 int tws_ReturnResponseCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "ReturnResponseCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("ReturnResponseCmd\n"));
     CheckArgs(3, 4, 1, "conn_handle response_dict ?encoding?");
 
     const char *conn_handle = Tcl_GetString(objv[1]);
@@ -1831,12 +1945,15 @@ int tws_ReturnResponseCmd(ClientData clientData, Tcl_Interp *interp, int objc, T
 }
 
 static int tws_HandleBreakLoopInMainThread(Tcl_Event *evPtr, int flags) {
+    UNUSED(evPtr);
+    UNUSED(flags);
+
     signal_flag = 1;
     return 1;
 }
 
 void tws_QueueBreakLoopEvent() {
-    Tcl_Event *evPtr = (Tcl_Event *) Tcl_Alloc(sizeof(Tcl_Event));
+    Tcl_Event *evPtr = (Tcl_Event *) ckalloc(sizeof(Tcl_Event));
     evPtr->proc = tws_HandleBreakLoopInMainThread;
     Tcl_QueueEvent(evPtr, TCL_QUEUE_TAIL);
     Tcl_ThreadAlert(Tcl_GetCurrentThread());
@@ -1852,7 +1969,9 @@ void tws_SignalHandler(int signum) {
 }
 
 static int tws_WaitSignalCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "VarWaitCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("VarWaitCmd\n"));
     CheckArgs(1, 1, 1, "");
 
     signal_flag = 0;
@@ -1863,39 +1982,75 @@ static int tws_WaitSignalCmd(ClientData clientData, Tcl_Interp *interp, int objc
         Tcl_DoOneEvent(TCL_ALL_EVENTS);
     } while (!signal_flag);
 
+    signal(SIGTERM, SIG_DFL);
+    signal(SIGINT, SIG_DFL);
+
     return TCL_OK;
+}
+
+Tcl_Obj *tws_GetConfigDict() {
+    tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(),
+                                                                         sizeof(tws_thread_data_t));
+    return dataPtr->config_dict_ptr;
 }
 
 static int tws_GetRootdirCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "GetRootdirCmd\n"));
-    CheckArgs(1, 2, 1, "?server_handle?");
+    UNUSED(clientData);
 
-    tws_server_t *server = NULL;
-    if (objc == 2) {
-        Tcl_Size handle_len;
-        const char *handle = Tcl_GetStringFromObj(objv[1], &handle_len);
-        server = tws_GetInternalFromServerName(handle);
-    } else {
-        server = tws_GetCurrentServer();
-    }
+    DBG2(printf("GetRootdirCmd\n"));
+    CheckArgs(1, 2, 1, "");
 
-    if (!server) {
-        SetResult("server handle not found");
+    Tcl_Obj *config_dict_ptr = tws_GetConfigDict();
+    if (config_dict_ptr == NULL) {
+        SetResult("get_rootdir: config_dict not found");
         return TCL_ERROR;
     }
 
-    if (server->rootdir_ptr != NULL) {
-        Tcl_SetObjResult(interp, server->rootdir_ptr);
+    Tcl_Obj *rootdir_key_ptr = Tcl_NewStringObj("rootdir", -1);
+    Tcl_IncrRefCount(rootdir_key_ptr);
+    Tcl_Obj *rootdir_ptr;
+    if (TCL_OK != Tcl_DictObjGet(interp, config_dict_ptr, rootdir_key_ptr, &rootdir_ptr)) {
+        Tcl_DecrRefCount(rootdir_key_ptr);
+        SetResult("get_rootdir: error reading rootdir from config_dict");
+        return TCL_ERROR;
     }
+    Tcl_DecrRefCount(rootdir_key_ptr);
+
+    if (rootdir_ptr == NULL) {
+        SetResult("get_rootdir: rootdir not found in config_dict");
+        return TCL_ERROR;
+    }
+
+    Tcl_SetObjResult(interp, Tcl_DuplicateObj(rootdir_ptr));
     return TCL_OK;
 }
 
-static void tws_ExitHandler(ClientData unused) {
-    DBG(fprintf(stderr, "Exit Handler\n"));
+static int tws_GetConfigDictCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    UNUSED(clientData);
+
+    DBG2(printf("GetConfigDictCmd\n"));
+    CheckArgs(1, 1, 1, "");
+
+    Tcl_Obj *config_dict_ptr = tws_GetConfigDict();
+    if (config_dict_ptr == NULL) {
+        SetResult("get_rootdir: config_dict not found");
+        return TCL_ERROR;
+    }
+
+    Tcl_SetObjResult(interp, Tcl_DuplicateObj(config_dict_ptr));
+    return TCL_OK;
+}
+
+static void tws_ExitHandler(ClientData clientData) {
+    UNUSED(clientData);
+
+    DBG2(printf("Exit Handler: start\n"));
     tws_DeleteServerNameHT();
     tws_DeleteConnNameHT();
     tws_DeleteHostNameHT();
     tws_DeleteRouterNameHT();
+
+    DBG2(printf("Exit Handler: done\n"));
 }
 
 void tws_InitModule() {
@@ -1940,6 +2095,7 @@ int Twebserver_Init(Tcl_Interp *interp) {
 
     Tcl_CreateObjCommand(interp, "::twebserver::wait_signal", tws_WaitSignalCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::get_rootdir", tws_GetRootdirCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::get_config_dict", tws_GetConfigDictCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::info_conn", tws_InfoConnCmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::encode_uri_component", tws_EncodeURIComponentCmd, NULL, NULL);
@@ -1959,6 +2115,7 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::add_header", tws_AddHeaderCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_cookie", tws_AddCookieCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::build_response", tws_BuildResponseCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::build_redirect", tws_BuildRedirectCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::parse_query", tws_ParseQueryCmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::random_bytes", tws_RandomBytesCmd, NULL, NULL);

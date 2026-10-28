@@ -19,6 +19,7 @@ TCL Web Server Extension
 
 * [thtml](https://github.com/jerily/thtml) - HTML Templating Engine for TCL
 * [tjson](https://github.com/jerily/tjson) - parse and serialize json in TCL
+* [valkey-tcl](https://github.com/jerily/valkey-tcl) - interface to the Valkey (redis) store.
 * [tink-tcl](https://github.com/jerily/tink-tcl) - cryptographic APIs that are secure, easy to use correctly, and hard(er) to misuse.
 * [aws-sdk-tcl](https://github.com/jerily/aws-sdk-tcl) - use AWS services with TCL (S3, DynamoDB, Lambda, SQS and some IAM and SSM support)
 * [ksuid-tcl](https://github.com/jerily/ksuid-tcl) - K-Sortable Unique Identifiers (KSUIDs) in TCL

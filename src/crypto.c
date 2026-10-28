@@ -9,7 +9,9 @@
 
 
 int tws_RandomBytesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "RandomBytesCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("RandomBytesCmd\n"));
     CheckArgs(2, 2, 1, "num_bytes");
 
     int num_bytes;
@@ -19,7 +21,7 @@ int tws_RandomBytesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_
     }
 
     // Allocate memory for the array
-    unsigned char *output = (unsigned char *) Tcl_Alloc(num_bytes);
+    unsigned char *output = (unsigned char *) ckalloc(num_bytes);
 
     // Check if the allocation was successful
     if (output == NULL) {
@@ -32,18 +34,20 @@ int tws_RandomBytesCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_
 
     // Check if the return value was 1, indicating success
     if (status != 1) {
-        Tcl_Free((char *) output);
+        ckfree((char *) output);
         SetResult("RAND_bytes failed");
         return TCL_ERROR;
     }
 
     Tcl_SetObjResult(interp, Tcl_NewByteArrayObj(output, num_bytes));
-    Tcl_Free((char *) output);
+    ckfree((char *) output);
     return TCL_OK;
 }
 
 int tws_Sha1Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "Sha1Cmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("Sha1Cmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
     Tcl_Size num_bytes;
@@ -57,7 +61,9 @@ int tws_Sha1Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *co
 }
 
 int tws_Sha256Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "Sha256Cmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("Sha256Cmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
     Tcl_Size num_bytes;
@@ -71,7 +77,9 @@ int tws_Sha256Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *
 }
 
 int tws_Sha512Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "Sha512Cmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("Sha512Cmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
     Tcl_Size num_bytes;
@@ -85,7 +93,9 @@ int tws_Sha512Cmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *
 }
 
 int tws_HexEncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "HexEncodeCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("HexEncodeCmd\n"));
     CheckArgs(2, 2, 1, "bytes");
 
     Tcl_Size num_bytes;
@@ -93,20 +103,22 @@ int tws_HexEncodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
 
     const char sep = '\0';
     Tcl_Size str_n = num_bytes * 2 + 1;
-    char *str = Tcl_Alloc(str_n);
+    char *str = ckalloc(str_n);
     if (!OPENSSL_buf2hexstr_ex(str, str_n, NULL, bytes, num_bytes, sep)) {
-        Tcl_Free(str);
+        ckfree(str);
         SetResult("Could not encode bytes to hex string");
         return TCL_ERROR;
     }
 
     Tcl_SetObjResult(interp, Tcl_NewStringObj(str, str_n - 1));
-    Tcl_Free(str);
+    ckfree(str);
     return TCL_OK;
 }
 
 int tws_HexDecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
-    DBG(fprintf(stderr, "HexDecodeCmd\n"));
+    UNUSED(clientData);
+
+    DBG2(printf("HexDecodeCmd\n"));
     CheckArgs(2, 2, 1, "hex_encoded_string");
 
     Tcl_Size hex_length;
@@ -114,15 +126,15 @@ int tws_HexDecodeCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Ob
 
     const char sep = '\0';
     Tcl_Size buf_n = hex_length / 2;
-    unsigned char *buf = (unsigned char *) Tcl_Alloc(buf_n);
+    unsigned char *buf = (unsigned char *) ckalloc(buf_n);
 
     if (!OPENSSL_hexstr2buf_ex(buf, buf_n, NULL, hex_str, sep)) {
-        Tcl_Free((char *) buf);
+        ckfree((char *) buf);
         SetResult("Could not decode hex string");
         return TCL_ERROR;
     }
 
     Tcl_SetObjResult(interp, Tcl_NewByteArrayObj(buf, buf_n));
-    Tcl_Free((char *) buf);
+    ckfree((char *) buf);
     return TCL_OK;
 }

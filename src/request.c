@@ -8,6 +8,8 @@
 #include "uri.h"
 #include "base64.h"
 
+static char hex_digits[] = "0123456789ABCDEF"; // A lookup table for hexadecimal digits
+
 // search a string for any of a set of bytes
 const char *tws_strpbrk(const char *s, const char *end, const char *accept) {
     while (s < end && *s != '\0') {
@@ -38,7 +40,7 @@ int tws_UrlDecode(Tcl_Encoding encoding, const char *value, Tcl_Size value_lengt
     // decode "value" into "valuePtr"
 
     // allocate memory for "valuePtr"
-    char *valuePtr = (char *) Tcl_Alloc(value_length + 1);
+    char *valuePtr = (char *) ckalloc(value_length + 1);
     char *q = valuePtr;
     while (p != NULL) {
         // copy the part of "value" before the first "%"
@@ -49,12 +51,12 @@ int tws_UrlDecode(Tcl_Encoding encoding, const char *value, Tcl_Size value_lengt
             // decode "%xx" into a single char
             value++;
             if (value + 2 > end) {
-                Tcl_Free(valuePtr);
+                ckfree(valuePtr);
                 *error_num = ERROR_URLDECODE_INVALID_SEQUENCE;
                 return TCL_ERROR;
             }
             if (!tws_IsCharOfType(value[0], CHAR_HEX) || !tws_IsCharOfType(value[1], CHAR_HEX)) {
-                Tcl_Free(valuePtr);
+                ckfree(valuePtr);
                 *error_num = ERROR_URLDECODE_INVALID_SEQUENCE;
                 return TCL_ERROR;
             }
@@ -81,19 +83,19 @@ int tws_UrlDecode(Tcl_Encoding encoding, const char *value, Tcl_Size value_lengt
             q - valuePtr,
             value_ds_ptr);
     if (ret == NULL) {
-        Tcl_Free(valuePtr);
+        ckfree(valuePtr);
         *error_num = ERROR_URLDECODE_INVALID_SEQUENCE;
         return TCL_ERROR;
     }
 
-    Tcl_Free(valuePtr);
+    ckfree(valuePtr);
     return TCL_OK;
 }
 
-int tws_UrlEncode(Tcl_Interp *interp, int enc_flags, const char *value, Tcl_Size value_length, Tcl_Obj **valuePtrPtr) {
+int tws_UrlEncode(int enc_flags, const char *value, Tcl_Size value_length, Tcl_Obj **valuePtrPtr) {
     // use "enc" to encode "value" into "valuePtr"
     // allocate memory for "valuePtr"
-    char *valuePtr = (char *) Tcl_Alloc(3 * value_length + 1);
+    char *valuePtr = (char *) ckalloc(3 * value_length + 1);
     char *q = valuePtr;
     const char *p = value;
     const char *end = value + value_length;
@@ -121,7 +123,7 @@ int tws_UrlEncode(Tcl_Interp *interp, int enc_flags, const char *value, Tcl_Size
         p++;
     }
     *valuePtrPtr = Tcl_NewStringObj(valuePtr, q - valuePtr);
-    Tcl_Free(valuePtr);
+    ckfree(valuePtr);
     return TCL_OK;
 }
 
@@ -147,7 +149,7 @@ static int tws_AddQueryStringParameter(Tcl_Encoding encoding, Tcl_HashTable *que
         if (existing_mv_entry_ptr == NULL) {
             // it does not exist, create a new list and add the existing value from queryStringParameters
             Tcl_DString *existing_value_ds_ptr = Tcl_GetHashValue(existing_entry_ptr);
-            Tcl_DString *multi_value_ds_ptr = Tcl_Alloc(sizeof(Tcl_DString));
+            Tcl_DString *multi_value_ds_ptr = (Tcl_DString *) ckalloc(sizeof(Tcl_DString));
             Tcl_DStringInit(multi_value_ds_ptr);
             Tcl_DStringAppendElement(multi_value_ds_ptr, Tcl_DStringValue(existing_value_ds_ptr));
             // append the new value to the list
@@ -161,7 +163,7 @@ static int tws_AddQueryStringParameter(Tcl_Encoding encoding, Tcl_HashTable *que
             Tcl_DStringAppendElement(multi_value_ds_ptr, Tcl_DStringValue(&value_ds));
         }
     } else {
-        Tcl_DString *value_ds_ptr = Tcl_Alloc(sizeof(Tcl_DString));
+        Tcl_DString *value_ds_ptr = (Tcl_DString *) ckalloc(sizeof(Tcl_DString));
         Tcl_DStringInit(value_ds_ptr);
         Tcl_DStringAppend(value_ds_ptr, Tcl_DStringValue(&value_ds), Tcl_DStringLength(&value_ds));
         int newEntry = 0;
@@ -170,7 +172,7 @@ static int tws_AddQueryStringParameter(Tcl_Encoding encoding, Tcl_HashTable *que
     }
 
     Tcl_DStringFree(&value_ds);
-    Tcl_Free(key_ptr);
+    ckfree(key_ptr);
     return TCL_OK;
 }
 
@@ -180,7 +182,7 @@ static void tws_FreeParseHashTable(Tcl_HashTable *ht_ptr) {
     for (entry = Tcl_FirstHashEntry(ht_ptr, &search); entry != NULL; entry = Tcl_NextHashEntry(&search)) {
         Tcl_DString *value_ds_ptr = Tcl_GetHashValue(entry);
         Tcl_DStringFree(value_ds_ptr);
-        Tcl_Free(value_ds_ptr);
+        ckfree((char *) value_ds_ptr);
     }
     Tcl_DeleteHashTable(ht_ptr);
 }
@@ -530,7 +532,7 @@ static int tws_ParseRequestLine(Tcl_Encoding encoding, const char **currPtr, con
 }
 
 static int tws_AddHeader(Tcl_HashTable *headers_HT_ptr, Tcl_HashTable *multi_value_headers_HT_ptr, const char *key,
-                         const char *value, int *error_num) {
+                         const char *value) {
 
     // check if "key" already exists in "headers"
     Tcl_HashEntry *existing_entry_ptr = Tcl_FindHashEntry(headers_HT_ptr, key);
@@ -542,7 +544,7 @@ static int tws_AddHeader(Tcl_HashTable *headers_HT_ptr, Tcl_HashTable *multi_val
             // it does not exist, create a new list and add the existing value from headers
 
             Tcl_DString *existing_value_ds_ptr = Tcl_GetHashValue(existing_entry_ptr);
-            Tcl_DString *multi_value_ds_ptr = Tcl_Alloc(sizeof(Tcl_DString));
+            Tcl_DString *multi_value_ds_ptr = (Tcl_DString *) ckalloc(sizeof(Tcl_DString));
             Tcl_DStringInit(multi_value_ds_ptr);
             Tcl_DStringAppendElement(multi_value_ds_ptr, Tcl_DStringValue(existing_value_ds_ptr));
             // append the new value to the list
@@ -556,7 +558,7 @@ static int tws_AddHeader(Tcl_HashTable *headers_HT_ptr, Tcl_HashTable *multi_val
             Tcl_DStringAppendElement(multi_value_ds_ptr, value);
         }
     } else {
-        Tcl_DString *value_ds_ptr = Tcl_Alloc(sizeof(Tcl_DString));
+        Tcl_DString *value_ds_ptr = (Tcl_DString *) ckalloc(sizeof(Tcl_DString));
         Tcl_DStringInit(value_ds_ptr);
         Tcl_DStringAppend(value_ds_ptr, value, strlen(value));
 
@@ -568,7 +570,8 @@ static int tws_AddHeader(Tcl_HashTable *headers_HT_ptr, Tcl_HashTable *multi_val
 }
 
 static int tws_ParseHeaders(const char **currPtr, const char *end, Tcl_HashTable *headers_HT_ptr,
-                            Tcl_HashTable *multi_value_headers_HT_ptr, Tcl_DString *parse_ds_ptr, int *error_num) {
+                            Tcl_HashTable *multi_value_headers_HT_ptr, int *error_num) {
+
     // parse the headers, each header is a line of the form "key: value"
     // stop when we reach an empty line denoted by "\r\n" or "\n"
     const char *curr = *currPtr;
@@ -614,7 +617,7 @@ static int tws_ParseHeaders(const char **currPtr, const char *end, Tcl_HashTable
         Tcl_DStringInit(&value_ds);
         Tcl_DStringAppend(&value_ds, p, valuelen);
 
-        DBG(fprintf(stderr, "key=%s value=%s\n", key, Tcl_DStringValue(&value_ds)));
+        DBG2(printf("key=%s value=%s\n", key, Tcl_DStringValue(&value_ds)));
 
         // skip spaces until end of line denoted by "\r\n" or "\n"
         while (curr < end && CHARTYPE(space, *curr) != 0 && *curr != '\r' && *curr != '\n') {
@@ -623,12 +626,12 @@ static int tws_ParseHeaders(const char **currPtr, const char *end, Tcl_HashTable
 
         // check if we reached the end
         if (curr == end) {
-            if (TCL_OK != tws_AddHeader(headers_HT_ptr, multi_value_headers_HT_ptr, key, Tcl_DStringValue(&value_ds), error_num)) {
-                Tcl_Free(key);
+            if (TCL_OK != tws_AddHeader(headers_HT_ptr, multi_value_headers_HT_ptr, key, Tcl_DStringValue(&value_ds))) {
+                ckfree(key);
                 Tcl_DStringFree(&value_ds);
                 return TCL_ERROR;
             }
-            Tcl_Free(key);
+            ckfree(key);
             Tcl_DStringFree(&value_ds);
             break;
         }
@@ -647,24 +650,24 @@ static int tws_ParseHeaders(const char **currPtr, const char *end, Tcl_HashTable
 
         // check if we reached the end
         if (curr == end) {
-            if (TCL_OK != tws_AddHeader(headers_HT_ptr, multi_value_headers_HT_ptr, key, Tcl_DStringValue(&value_ds), error_num)) {
+            if (TCL_OK != tws_AddHeader(headers_HT_ptr, multi_value_headers_HT_ptr, key, Tcl_DStringValue(&value_ds))) {
 //                Tcl_DecrRefCount(keyPtr);
 //                Tcl_DecrRefCount(valuePtr);
 //                SetResult("ParseHeaders: failed adding header (2)");
-                Tcl_Free(key);
+                ckfree(key);
                 Tcl_DStringFree(&value_ds);
                 return TCL_ERROR;
             }
 //            Tcl_DecrRefCount(keyPtr);
 //            Tcl_DecrRefCount(valuePtr);
-            Tcl_Free(key);
+            ckfree(key);
             Tcl_DStringFree(&value_ds);
             break;
         }
 
         // check if the line starts with a space, if so, it is a continuation of the previous header
         while (curr < end && *curr == ' ') {
-            DBG(fprintf(stderr, "continuation curr=%p end=%p intchar=%d\n", curr, end, (int) curr[0]));
+            DBG2(printf("continuation curr=%p end=%p intchar=%d\n", curr, end, (int) curr[0]));
             // skip spaces
             while (curr < end && CHARTYPE(space, *curr) != 0) {
                 curr++;
@@ -682,7 +685,7 @@ static int tws_ParseHeaders(const char **currPtr, const char *end, Tcl_HashTable
             char *continuation_value = tws_strndup(p, continuation_valuelen);
             // append the continuation value to the previous value
             Tcl_DStringAppend(&value_ds, continuation_value, continuation_valuelen);
-            Tcl_Free(continuation_value);
+            ckfree(continuation_value);
 
             // skip "\r\n" or "\n" at most once
             if (curr + 1 < end && *curr == '\r' && *(curr + 1) == '\n') {
@@ -695,17 +698,12 @@ static int tws_ParseHeaders(const char **currPtr, const char *end, Tcl_HashTable
 
         }
 
-        if (TCL_OK != tws_AddHeader(headers_HT_ptr, multi_value_headers_HT_ptr, key, Tcl_DStringValue(&value_ds), error_num)) {
-//            Tcl_DecrRefCount(keyPtr);
-//            Tcl_DecrRefCount(valuePtr);
-//            SetResult("ParseHeaders: failed adding header (3)");
-            Tcl_Free(key);
+        if (TCL_OK != tws_AddHeader(headers_HT_ptr, multi_value_headers_HT_ptr, key, Tcl_DStringValue(&value_ds))) {
+            ckfree(key);
             Tcl_DStringFree(&value_ds);
             return TCL_ERROR;
         }
-//        Tcl_DecrRefCount(keyPtr);
-//        Tcl_DecrRefCount(valuePtr);
-        Tcl_Free(key);
+        ckfree(key);
         Tcl_DStringFree(&value_ds);
 
         // print 3 chars from curr
@@ -735,7 +733,7 @@ int tws_ParseBody(tws_conn_t *conn, const char *curr, const char *end, int *erro
     const char *content_type = conn->content_type;
     size_t content_type_length = strnlen(content_type, sizeof(conn->content_type));
 
-    DBG(fprintf(stderr, "content_type: %s\n", content_type));
+    DBG2(printf("content_type: %s\n", content_type));
 
     int base64_encode_it = 0;
     if (content_type_length > 0) {
@@ -786,16 +784,16 @@ int tws_ParseBody(tws_conn_t *conn, const char *curr, const char *end, int *erro
 
     if (base64_encode_it) {
         // base64 encode the body and remember as "body"
-        char *body = Tcl_Alloc(content_length * 2);
+        char *body = ckalloc(content_length * 2);
         Tcl_Size body_length;
         if (base64_encode(curr, content_length, body, &body_length)) {
-            Tcl_Free(body);
+            ckfree(body);
 //            SetResult("base64_encode failed");
             *error_num = ERROR_BASE64_ENCODE_BODY;
             return TCL_ERROR;
         }
 //        if (TCL_OK != Tcl_DictObjPut(interp, result_ptr, Tcl_NewStringObj("body", -1), Tcl_NewStringObj(body, body_length))) {
-//            Tcl_Free(body);
+//            ckfree(body);
 //            SetResult("dict put error");
 //            return TCL_ERROR;
 //        }
@@ -805,7 +803,7 @@ int tws_ParseBody(tws_conn_t *conn, const char *curr, const char *end, int *erro
         Tcl_DStringAppend(&conn->parse_ds, body, body_length);
         Tcl_DStringEndSublist(&conn->parse_ds);
 
-        Tcl_Free(body);
+        ckfree(body);
     } else {
         // mark the end of the token and remember as "body"
         char *body = tws_strndup(curr, content_length);
@@ -815,7 +813,7 @@ int tws_ParseBody(tws_conn_t *conn, const char *curr, const char *end, int *erro
         Tcl_DStringAppend(&conn->parse_ds, body, content_length);
         Tcl_DStringEndSublist(&conn->parse_ds);
 
-        Tcl_Free(body);
+        ckfree(body);
     }
 
     return TCL_OK;
@@ -849,7 +847,7 @@ int tws_ParseRequest(tws_conn_t *conn, int *error_num) {
     if (TCL_OK != tws_ParseRequestLine(encoding, &curr, end, parse_ds_ptr, error_num)) {
         return TCL_ERROR;
     }
-    DBG(fprintf(stderr, "parse dstring after parse request line: %s\n", Tcl_DStringValue(parse_ds_ptr)));
+    DBG2(printf("parse dstring after parse request line: %s\n", Tcl_DStringValue(parse_ds_ptr)));
 
     Tcl_HashTable headers_HT;
     Tcl_InitHashTable(&headers_HT, TCL_STRING_KEYS);
@@ -861,7 +859,7 @@ int tws_ParseRequest(tws_conn_t *conn, int *error_num) {
 //    Tcl_Obj *multiValueHeadersPtr = Tcl_NewDictObj();
 //    Tcl_IncrRefCount(multiValueHeadersPtr);
 
-    if (TCL_OK != tws_ParseHeaders(&curr, end, &headers_HT, &multi_value_headers_HT, parse_ds_ptr, error_num)) {
+    if (TCL_OK != tws_ParseHeaders(&curr, end, &headers_HT, &multi_value_headers_HT, error_num)) {
 //        Tcl_DecrRefCount(multiValueHeadersPtr);
 //        Tcl_DecrRefCount(headersPtr);
         tws_FreeParseHashTable(&headers_HT);
@@ -1070,7 +1068,7 @@ int tws_ParseAcceptEncoding(Tcl_HashTable *headers_HT_ptr, tws_compression_metho
 }
 
 int tws_ParseTopPart(tws_conn_t *conn, int *error_num) {
-    DBG(fprintf(stderr, "parse top part: start %d\n", conn->client));
+    DBG2(printf("parse top part: start %d\n", conn->client));
 
     if (TCL_OK != tws_ParseRequest(conn, error_num)) {
         return TCL_ERROR;
@@ -1080,7 +1078,7 @@ int tws_ParseTopPart(tws_conn_t *conn, int *error_num) {
 }
 
 int tws_ParseBottomPart(tws_conn_t *conn, int *error_num) {
-    DBG(fprintf(stderr, "parse bottom part\n"));
+    DBG2(printf("parse bottom part\n"));
 
     if (conn->content_length > 0) {
         const char *remaining_unprocessed_ptr = Tcl_DStringValue(&conn->inout_ds) + conn->top_part_offset;

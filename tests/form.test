@@ -23,7 +23,7 @@ proc setup {} {
     global server_file
     set TCLSH tclsh[info tclversion]
     set server_pid [exec -ignorestderr -- $TCLSH [file join $dir ${server_file}] &]
-    sleep 100
+    sleep 1000
 }
 
 proc cleanup {} {

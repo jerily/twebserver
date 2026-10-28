@@ -14,7 +14,7 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
     Tcl_Size max_buffer_size =
             size == 0 ? conn->accept_ctx->server->max_read_buffer_size : MIN(size, conn->accept_ctx->server->max_read_buffer_size);
 
-    char *buf = (char *) Tcl_Alloc(max_buffer_size);
+    char *buf = (char *) ckalloc(max_buffer_size);
     Tcl_Size total_read = 0;
     ssize_t rc;
     for (;;) {
@@ -25,24 +25,24 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
             conn->latest_millis = current_time_in_millis();
             total_read += rc;
             if (total_read > max_request_read_bytes) {
-                Tcl_Free(buf);
+                ckfree(buf);
                 return TWS_ERROR;
             }
             Tcl_DStringAppend(dsPtr, buf, rc);
             if (total_read == size) {
-                Tcl_Free(buf);
+                ckfree(buf);
                 return TWS_DONE;
             }
             if (size == 0) {
                 /* Let the parser examine this chunk before waiting for more. */
-                Tcl_Free(buf);
+                ckfree(buf);
                 return TWS_AGAIN;
             }
 
         } else {
             if (rc == 0) {
-                DBG(fprintf(stderr, "peer closed connection %d\n", conn->client));
-                Tcl_Free(buf);
+                DBG2(printf("peer closed connection %d\n", conn->client));
+                ckfree(buf);
                 return TWS_DONE;
             } else {
                 if (errno == EINTR) {
@@ -50,11 +50,11 @@ int tws_ReadHttpConnAsync(tws_conn_t *conn, Tcl_DString *dsPtr, Tcl_Size size) {
                 }
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
                     conn->io_mask = TCL_READABLE;
-                    Tcl_Free(buf);
+                    ckfree(buf);
                     return TWS_AGAIN;
                 } else {
-                    DBG(fprintf(stderr, "read error: %d\n", conn->client));
-                    Tcl_Free(buf);
+                    DBG2(printf("read error: %d\n", conn->client));
+                    ckfree(buf);
                     return TWS_ERROR;
                 }
             }
