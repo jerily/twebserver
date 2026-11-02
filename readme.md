@@ -11,9 +11,22 @@ TCL Web Server Extension
 * It supports multiple certificates for different hosts (SNI).
 * Keepalive connections
 * Compression (gzip)
-* Routing & Middleware functionality
+* Routing via the optional [tpathexp](https://github.com/jerily/tpathexp) package
 * Client Certificate Verification
 
+
+## Version 2.0.0
+
+The bundled path matcher and native router implementation have been removed.
+The old router commands and `-with_router` option remain as deprecated
+compatibility APIs backed by tpathexp. New applications use the ordinary
+`create_server config callback init_script` interface and send responses with
+`return_response`. Routing examples use tpathexp 1.1.0 or later
+and native C commands in twebserver for middleware, guards, and connection
+adaptation. Each worker loads both packages and binds its router with one alias
+to `::twebserver::process_conn`. See [Routing](docs/routing.md) for migration
+details. tpathexp is an example/test dependency, not a linked dependency of the
+server extension. The compatibility router also loads it on demand.
 
 ## Modules and Extensions
 
@@ -48,4 +61,6 @@ TCL Web Server Extension
 
 ## Examples
 
-* [Threads & Routing & Middleware example](examples/example-best-with-router.tcl)
+* [Threads, tpathexp routing, and middleware](examples/example-best-with-router.tcl)
+* [SQLite with tpathexp](examples/example-with-sqlite.tcl)
+* [Server without routing](examples/example-without-routing.tcl)

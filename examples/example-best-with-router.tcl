@@ -2,10 +2,11 @@
 # SPDX-FileCopyrightText: 2024 Neofytos Dimitriou (neo@jerily.cy)
 # SPDX-License-Identifier: MIT.
 
-package require twebserver
+package require twebserver 2.0.0
 
 set init_script {
-    package require twebserver
+    package require twebserver 2.0.0
+    package require tpathexp 1.1.0
 
     namespace eval simple_session_manager {
         proc enter {ctx req} {
@@ -39,51 +40,31 @@ set init_script {
         return -code error -options [::twebserver::build_response 401 text/plain "unauthorized"]
     }
 
-    # create a router
-    ::twebserver::create_router -command_name process_conn router
+    # Each worker owns a precompiled route table.
+    set router [::tpathexp::router]
+    set middleware {
+        {::simple_session_manager::enter ::simple_session_manager::leave}
+        {::rate_limiting_manager::enter {}}
+    }
 
-    # add middleware to the router
-    ::twebserver::add_middleware \
-        -enter_proc simple_session_manager::enter \
-        -leave_proc simple_session_manager::leave \
-        $router
+    foreach {method path handler guards} {
+        GET  /                    ::get_index_page_handler  {}
+        GET  /blog/:user_id/sayhi  ::get_blog_entry_handler  {}
+        GET  /addr                ::get_addr_handler        {}
+        POST /example             ::post_example_handler    {::is_logged_in}
+        GET  /logo                ::get_logo_handler        {}
+        GET  /someerror           ::get_someerror_handler   {}
+        GET  /badresponse         ::get_badresponse_handler {}
+        GET  /test-abort          ::get_something_handler   {}
+        GET  /test-unauthorized   ::get_something_handler   {::is_logged_in}
+    } {
+        $router add $method $path \
+            [list ::twebserver::invoke_handler $handler $middleware $guards] -strict true
+    }
+    $router add GET {/:path(.*)} \
+        [list ::twebserver::invoke_handler ::get_catchall_handler $middleware {}]
 
-    # add middleware to the router
-    ::twebserver::add_middleware \
-        -enter_proc rate_limiting_manager::enter \
-        $router
-
-    # add a route that will be called if the request method is GET and the path is "/"
-    ::twebserver::add_route -strict $router GET / get_index_page_handler
-
-    # add a route that has a path parameter called "user_id"
-    # when the route path expression matches, it will call "get_blog_entry_handler" proc
-    ::twebserver::add_route -strict $router GET /blog/:user_id/sayhi get_blog_entry_handler
-
-    # add a route that will be called if the request method is GET and the path is "/addr"
-    ::twebserver::add_route -strict $router GET /addr get_addr_handler
-
-    # add a route that will be called if the request method is POST and the path is "/example"
-    ::twebserver::add_route -strict -guard_proc_list [list is_logged_in] $router POST /example post_example_handler
-
-    # add a route that will be called if the request method is GET and the path is "/logo"
-    ::twebserver::add_route -strict $router GET /logo get_logo_handler
-
-    # add a route that fails with internal server error for testing purposes
-    ::twebserver::add_route -strict $router GET /someerror get_someerror_handler
-
-    # add a route that fails with internal server error due to bad response dictionary
-    ::twebserver::add_route -strict $router GET /badresponse get_badresponse_handler
-
-    # add a route that returns a 429 response
-    ::twebserver::add_route -strict $router GET /test-abort get_something_handler
-
-    # add a route that returns a 429 response
-    ::twebserver::add_route -strict -guard_proc_list [list is_logged_in] \
-        $router GET /test-unauthorized get_something_handler
-
-    # add a catchall route that will be called if no other route matches a GET request
-    ::twebserver::add_route $router GET "*" get_catchall_handler
+    interp alias {} process_conn {} ::twebserver::process_conn $router
 
     proc get_index_page_handler {ctx req} {
         set html {
@@ -176,7 +157,7 @@ set config_dict [dict create \
     gzip_min_length 8192]
 
 # create the server
-set server_handle [::twebserver::create_server -with_router $config_dict process_conn $init_script]
+set server_handle [::twebserver::create_server $config_dict process_conn $init_script]
 
 # add SSL context to the server
 set dir [file dirname [info script]]

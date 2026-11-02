@@ -1,0 +1,7 @@
+.git
+build
+cmake-build-*
+docker/build
+docker/local
+*.o
+*.so

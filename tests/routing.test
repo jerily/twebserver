@@ -80,7 +80,7 @@ test internal-server-error-1 {} -setup setup -cleanup cleanup -body {
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
     set response [exec -ignorestderr -keepnewline -- {*}${cmd} -tls1_3 << $request 2> /dev/null]
     escape $response
-} -result {HTTP/1.1 500\nContent-Length: 21\n\nInternal Server Error}
+} -result {HTTP/1.1 500\nContent-Type: text/plain\nContent-Length: 21\n\nInternal Server Error}
 
 sleep 200
 test match-prefix-1 {} -setup setup -cleanup cleanup -body {

@@ -58,11 +58,25 @@ jobs:
             exit 1
           }
 
+      - name: Checkout tpathexp
+        uses: actions/checkout@v4
+        with:
+          repository: jerily/tpathexp
+          ref: v1.1.0
+          path: tpathexp
+      - name: Build tpathexp for the routing tests
+        run: |
+          cmake -S tpathexp -B tpathexp/build -DBUILD_TESTING=OFF \
+            -DTCL_INCLUDE_PATH=/usr/include/tcl8.6 \
+            -DTCL_LIBRARY=/usr/lib/x86_64-linux-gnu/libtcl8.6.so \
+            -DTCL_STUB_LIBRARY=/usr/lib/x86_64-linux-gnu/libtclstub8.6.a
+          cmake --build tpathexp/build -j
+
       - name: Configure
         run: |
           mkdir build
           cd build
-          cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/twebserver_install -DCMAKE_PREFIX_PATH=$HOME/twebserver_install -DTCL_INCLUDE_DIR=/usr/include/tcl8.6 -DTCL_LIBRARY_DIR=/usr/lib/x86_64-linux-gnu
+          cmake .. -DTPATHEXP_LIBRARY_DIR="$GITHUB_WORKSPACE/tpathexp/build" -DCMAKE_INSTALL_PREFIX=$HOME/twebserver_install -DCMAKE_PREFIX_PATH=$HOME/twebserver_install -DTCL_INCLUDE_DIR=/usr/include/tcl8.6 -DTCL_LIBRARY_DIR=/usr/lib/x86_64-linux-gnu
       - name: Build
         working-directory: build
         run: |

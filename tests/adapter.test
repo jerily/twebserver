@@ -1,0 +1,190 @@
+package require tcltest 2
+package require twebserver 2.0.0
+package require tpathexp 1.1.0
+namespace import -force ::tcltest::test
+
+namespace eval ::adapter_tests {
+    variable root [file normalize [file join [file dirname [info script]] ..]]
+    variable events {}
+
+    proc enter {name ctx req} {
+        variable events
+        lappend events enter-$name
+        dict lappend req visited $name
+        return $req
+    }
+    proc leave {name ctx req res} {
+        variable events
+        lappend events leave-$name
+        return $res
+    }
+    proc guard {ctx req} {
+        variable events
+        lappend events guard
+        dict set req authorized yes
+        return $req
+    }
+    proc handler {ctx req} {
+        variable events
+        lappend events handler
+        return [::twebserver::build_response 200 text/plain [list \
+            [dict get $ctx addr] [dict get $req httpMethod] \
+            [dict get $req visited] [dict get $req authorized] \
+            [::twebserver::get_path_param $req id]]]
+    }
+    proc abort {status ctx req} {
+        return -code error -options [::twebserver::build_response $status text/plain denied]
+    }
+    proc middleware {{middleEnter {::adapter_tests::enter two}}} {
+        return [list \
+            {{::adapter_tests::enter one} {::adapter_tests::leave one}} \
+            [list $middleEnter {::adapter_tests::leave two}] \
+            {{::adapter_tests::enter three} {::adapter_tests::leave three}}]
+    }
+
+    # Evaluate the actual example worker without listening or changing its DB.
+    proc example {relative} {
+        variable root
+        set child [interp create]
+        $child eval [list set auto_path $::auto_path]
+        $child eval {
+            package require twebserver 2.0.0
+            rename ::twebserver::create_server ::twebserver::real_create_server
+            proc ::twebserver::create_server {config callback init} {
+                set ::worker $init
+                set ::config $config
+                return -code error -errorcode EXAMPLE_CAPTURED captured
+            }
+            rename ::twebserver::return_response ::twebserver::real_return_response
+            proc ::twebserver::return_response {conn res args} {set ::response $res}
+            rename ::twebserver::get_rootdir ::twebserver::real_get_rootdir
+            proc ::twebserver::get_rootdir {} {dict get $::config rootdir}
+        }
+        try {
+            catch {$child eval [list source [file join $root $relative]]} message options
+            if {![dict exists $options -errorcode] || [dict get $options -errorcode] ne "EXAMPLE_CAPTURED"} {
+                error "could not capture $relative: $message"
+            }
+            if {[file tail $relative] eq "example-with-sqlite.tcl"} {
+                $child eval {
+                    package require sqlite3
+                    rename ::sqlite3 ::real_sqlite3
+                    proc ::sqlite3 {name path args} {::real_sqlite3 $name :memory: {*}$args}
+                }
+            }
+            $child eval [$child eval {set worker}]
+        } on error {message options} {
+            interp delete $child
+            return -options $options $message
+        }
+        return $child
+    }
+    proc request {child method path {body {}}} {
+        set ctx {conn test addr ::ffff:127.0.0.1 isSecureProto 0}
+        set req [dict create httpMethod $method path $path body $body \
+            headers {content-type application/x-www-form-urlencoded} isBase64Encoded false]
+        $child eval [list process_conn $ctx $req]
+        return [$child eval {set response}]
+    }
+    proc cookie {response} {string match {*session_id=1234567890*} $response}
+}
+
+test adapter-order {middleware/guard mutations and path parameters reach the old handler} -setup {
+    set r [::tpathexp::router]
+    set ::adapter_tests::events {}
+    $r add GET /users/:id [list ::twebserver::invoke_handler \
+        ::adapter_tests::handler [::adapter_tests::middleware] {::adapter_tests::guard}]
+} -body {
+    set res [$r dispatch {method GET httpMethod GET path /users/42} {addr client}]
+    list [dict get $res body] $::adapter_tests::events
+} -cleanup {$r destroy} -result {{client GET {one two three} yes 42} {enter-one enter-two enter-three guard handler leave-three leave-two leave-one}}
+
+test adapter-enter-abort {only reached middleware leaves run after a 429} -setup {
+    set r [::tpathexp::router]
+    set ::adapter_tests::events {}
+    $r add GET / [list ::twebserver::invoke_handler \
+        ::adapter_tests::handler [::adapter_tests::middleware {::adapter_tests::abort 429}] {}]
+} -body {
+    set res [$r dispatch {method GET path /}]
+    list [dict get $res statusCode] $::adapter_tests::events
+} -cleanup {$r destroy} -result {429 {enter-one leave-two leave-one}}
+
+test adapter-guard-abort {a 401 skips the handler and runs all reached leave hooks} -setup {
+    set r [::tpathexp::router]
+    set ::adapter_tests::events {}
+    $r add GET / [list ::twebserver::invoke_handler \
+        ::adapter_tests::handler [::adapter_tests::middleware] {{::adapter_tests::abort 401}}]
+} -body {
+    set res [$r dispatch {method HEAD path /}]
+    list [dict get $res statusCode] [dict get $res body] $::adapter_tests::events
+} -cleanup {$r destroy} -result {401 {} {enter-one enter-two enter-three leave-three leave-two leave-one}}
+
+test adapter-example-session {main example: sessions, parameters, guards, rate limit, and strict routes} -setup {
+    set child [::adapter_tests::example examples/example-best-with-router.tcl]
+} -body {
+    set result {}
+    foreach {method path body} {
+        GET /blog/123/sayhi {}
+        GET /test-unauthorized {}
+        GET /test-abort {}
+        POST /example field1=hello
+        GET /blog/123/sayhi/ {}
+    } {
+        set res [::adapter_tests::request $child $method $path $body]
+        lappend result [dict get $res statusCode] [::adapter_tests::cookie $res]
+        if {$path eq "/blog/123/sayhi"} {
+            lappend result [string match {*user_id=123*addr=::ffff:127.0.0.1*isSecureProto=0*} [dict get $res body]]
+        }
+        if {$method eq "POST"} {
+            lappend result [string match {*fields=field1 hello*} [dict get $res body]]
+        }
+    }
+    set result
+} -cleanup {interp delete $child} -result {200 1 1 401 1 429 1 200 1 1 404 1}
+
+test adapter-example-errors {handler errors and malformed responses become 500; HEAD errors have no body} -setup {
+    set child [::adapter_tests::example examples/example-best-with-router.tcl]
+} -body {
+    set result {}
+    foreach {method path} {GET /someerror GET /badresponse HEAD /someerror HEAD /badresponse} {
+        set res [::adapter_tests::request $child $method $path]
+        lappend result [dict get $res statusCode] [dict get $res body]
+    }
+    set result
+} -cleanup {interp delete $child} -result {500 {Internal Server Error} 500 {Internal Server Error} 500 {} 500 {}}
+
+foreach example {examples/example-best-with-router.tcl docker/examples/example-best-with-router.tcl} {
+    test adapter-file-$example {file response and HEAD work in both router examples} -setup {
+        set child [::adapter_tests::example $example]
+    } -body {
+        set res [::adapter_tests::request $child GET /logo]
+        set head [::adapter_tests::request $child HEAD /logo]
+        set f [open [file join $::adapter_tests::root [file dirname $example] plume.png] rb]
+        try {set bytes [read $f]} finally {close $f}
+        list [dict get $res statusCode] [dict get $res isBase64Encoded] \
+            [expr {[binary decode base64 [dict get $res body]] eq $bytes}] \
+            [::adapter_tests::cookie $res] [dict get $head statusCode] [dict get $head body]
+    } -cleanup {interp delete $child} -result {200 1 1 1 200 {}}
+}
+
+test adapter-methods {adapter maps method, sends automatic 405 and preserves its Allow header} -setup {
+    set child [::adapter_tests::example docker/examples/example-best-with-router.tcl]
+} -body {
+    set res [::adapter_tests::request $child DELETE /addr]
+    set head [::adapter_tests::request $child HEAD /missing]
+    list [dict get $res statusCode] [dict get $res headers Allow] \
+        [dict get $head statusCode] [dict get $head body]
+} -cleanup {interp delete $child} -result {405 {GET, HEAD} 404 {}}
+
+::tcltest::testConstraint adapter_sqlite [expr {![catch {package require sqlite3}]}]
+test adapter-sqlite {SQLite example inserts form data and redirects, then renders the row} -constraints adapter_sqlite -setup {
+    set child [::adapter_tests::example examples/example-with-sqlite.tcl]
+} -body {
+    set res [::adapter_tests::request $child POST /add-row first_name=Ada&last_name=Lovelace]
+    set index [::adapter_tests::request $child GET /]
+    list [dict get $res statusCode] [dict get $res headers Location] \
+        [dict get $index statusCode] [string match {*Ada Lovelace*} [dict get $index body]]
+} -cleanup {interp delete $child} -result {302 / 200 1}
+
+namespace delete ::adapter_tests
+::tcltest::cleanupTests
