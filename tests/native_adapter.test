@@ -1,0 +1,119 @@
+package require tcltest 2
+package require twebserver 2.0.0
+package require tpathexp 1.1.0
+namespace import -force ::tcltest::test
+
+namespace eval ::native_adapter_tests {
+    variable events {}
+    variable router
+    proc enter {ctx req} {
+        variable events
+        lappend events enter-[dict get $req pathParameters id]
+        return $req
+    }
+    proc leave {ctx req res} {
+        variable events
+        lappend events leave-[dict get $req pathParameters id]
+        return $res
+    }
+    proc recurse {ctx req} {
+        variable router
+        set id [dict get $req pathParameters id]
+        if {$id eq "outer"} {
+            set inner [$router dispatch {method GET path /inner} $ctx]
+            $router destroy
+            return [dict create statusCode 200 body [list [dict get $inner body] $id]]
+        }
+        return [dict create statusCode 200 body $id]
+    }
+    proc fail {ctx req} {return -code error -errorcode {APP FAILED} failure}
+    proc echo {marker ctx req} {dict create statusCode 200 body $marker}
+    proc fail_leave {ctx req res} {
+        variable events
+        lappend events failed-leave
+        return -code error -errorcode {APP LEAVE} leave-failure
+    }
+}
+
+test native-adapter-recursion {recursive dispatch and router deletion preserve outer request and leaves} -setup {
+    set r [::tpathexp::router]
+    set ::native_adapter_tests::router $r
+    set ::native_adapter_tests::events {}
+    $r add GET /:id [list ::twebserver::invoke_handler ::native_adapter_tests::recurse \
+        {{::native_adapter_tests::enter ::native_adapter_tests::leave}} {}]
+} -body {
+    set res [$r dispatch {method GET path /outer}]
+    list [dict get $res body] $::native_adapter_tests::events [info commands $r]
+} -cleanup {
+    if {[namespace which -command $r] ne {}} {$r destroy}
+} -result {{inner outer} {enter-outer enter-inner leave-inner leave-outer} {}}
+
+test native-adapter-error {ordinary errors retain error codes and skip response-transforming leaves} -setup {
+    set ::native_adapter_tests::events {}
+} -body {
+    set rc [catch {
+        ::twebserver::invoke_handler ::native_adapter_tests::fail \
+            {{::native_adapter_tests::enter ::native_adapter_tests::leave}} {} \
+            {pathParameters {id failed}} {} {}
+    } message options]
+    list $rc $message [dict get $options -errorcode] $::native_adapter_tests::events
+} -result {1 failure {APP FAILED} enter-failed}
+
+test native-adapter-leave-error {a failing leave hook preserves its error and stops remaining leaves} -setup {
+    set ::native_adapter_tests::events {}
+} -body {
+    set rc [catch {
+        ::twebserver::invoke_handler {::native_adapter_tests::echo response} \
+            {{{} ::native_adapter_tests::leave} {{} ::native_adapter_tests::fail_leave}} {} \
+            {pathParameters {id failed}} {} {}
+    } message options]
+    list $rc $message [dict get $options -errorcode] $::native_adapter_tests::events
+} -result {1 leave-failure {APP LEAVE} failed-leave}
+
+test native-adapter-prefix {handler prefix arguments remain literal objects} -body {
+    set marker {a; [error injected] $variable}
+    set response [::twebserver::invoke_handler [list ::native_adapter_tests::echo $marker] {} {} {} {} {}]
+    expr {[dict get $response body] eq $marker}
+} -result 1
+
+test native-adapter-malformed {invalid lists and prefixes produce Tcl errors, not crashes} -body {
+    set bad "\{"
+    set result {}
+    foreach command [list \
+        [list ::twebserver::invoke_handler] \
+        [list ::twebserver::invoke_handler {} {} {} {} {} {}] \
+        [list ::twebserver::invoke_handler $bad {} {} {} {} {}] \
+        [list ::twebserver::invoke_handler unused $bad {} {} {} {}] \
+        [list ::twebserver::invoke_handler unused [list $bad] {} {} {} {}] \
+        [list ::twebserver::invoke_handler unused {} $bad {} {} {}] \
+        [list ::twebserver::invoke_handler unused {} [list $bad] {} {} {}] \
+        [list ::twebserver::process_conn]] {
+        lappend result [catch {uplevel #0 $command}]
+    }
+    set result
+} -result {1 1 1 1 1 1 1 1}
+
+test native-adapter-copy {method adaptation and HEAD suppression do not change shared caller values} -setup {
+    interp create native_child
+    native_child eval [list set auto_path $auto_path]
+} -body {
+    native_child eval {
+        package require twebserver 2.0.0
+        rename ::twebserver::return_response ::twebserver::real_return_response
+        proc ::twebserver::return_response {conn res} {set ::sent $res}
+        set shared_response {statusCode 200 body payload headers {X-Test yes}}
+        proc backend {subcommand req ctx} {
+            set ::received $req
+            return $::shared_response
+        }
+        set original {httpMethod HEAD path / headers {X-Request retained}}
+        ::twebserver::process_conn backend {conn test} $original
+        list [dict exists $original method] [dict get $received method] \
+            [dict get $received headers X-Request] [dict get $shared_response body] \
+            [dict get $sent body] [dict get $sent headers X-Test] \
+            [package provide tpathexp]
+    }
+} -cleanup {interp delete native_child} -result {0 HEAD retained payload {} yes {}}
+
+namespace delete ::native_adapter_tests
+::tcltest::cleanupTests

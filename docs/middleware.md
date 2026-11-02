@@ -1,37 +1,56 @@
-# Router-level Middleware
+# Middleware and guards
 
-There are two types of router-level middleware procs in twebserver:
-enter and leave. The enter proc is called before the matched route handler
-is called and the leave proc is called after the matched
-route handler has executed.
+In twebserver 2.0.0, the native C command `::twebserver::invoke_handler`
+composes application middleware around tpathexp route handlers. The deprecated
+`::twebserver::add_middleware` compatibility command uses the same native
+implementation. Application hooks remain ordinary Tcl command prefixes.
 
-The enter proc has access to the context and request dictionaries.
-The leave proc has access to the context, request, and response dictionaries.
+Middleware is a list of `{enter leave}` command-prefix pairs. Enter hooks accept
+`ctx req` and return the updated request. Leave hooks accept `ctx req res` and
+return the updated response. Either hook can be an empty list. Enter hooks run
+in registration order; leave hooks run in reverse order.
 
-An enter middleware function can end the request-response cycle by returning "error" e.g.
-```return -code error -options [::twebserver::build_response 429 text/plain "too many requests"]```.
-Otherwise, it should return to continue processing the request.
-
-Router-level middleware is bound to an instance of
-a router:
-    
 ```tcl
-set router [::twebserver::create_router]
-
-proc example_enter {ctx req} {
-    puts "entering example"
+proc session_enter {ctx req} {
+    dict set req session [dict create id 1234567890]
     return $req
 }
-
-proc example_leave {ctx req res} {
-    puts "leaving example"
-    return $res
+proc session_leave {ctx req res} {
+    return [::twebserver::add_cookie -maxage 3600 \
+        $res session_id [dict get $req session id]]
+}
+proc require_login {ctx req} {
+    if {![dict exists $req session user_id]} {
+        return -code error -options \
+            [::twebserver::build_response 401 text/plain "unauthorized"]
+    }
+    return $req
+}
+proc dashboard {ctx req} {
+    return [::twebserver::build_response 200 text/plain "Dashboard"]
 }
 
-::twebserver::add_middleware \
-  -enter_proc example_enter \
-  -leave_proc example_leave \
-  $router
+set middleware {{::session_enter ::session_leave}}
+$router add GET /dashboard \
+    [list ::twebserver::invoke_handler ::dashboard $middleware {::require_login}] \
+    -strict true
 ```
 
-See [tsession](https://github.com/jerily/tsession) for an example of router-level middleware.
+This code runs in the worker after loading both packages and creating `$router`.
+Guards run after middleware enters and before the handler, and can return an
+updated request. The native wrapper supports intentional-response errors via
+`return -code error -options $response`, where `$response` includes `statusCode`
+and `body`. On these responses, it runs the leave hooks for layers already
+entered (including the layer whose enter hook aborted), then tpathexp validates
+the response. Later middleware and the handler are skipped.
+
+Unexpected Tcl errors propagate to the connection callback and become logged
+500 responses; leave hooks are not run after those errors. Malformed response
+dictionaries also become 500 responses. HEAD bodies are cleared, including on
+error responses.
+
+Middleware wraps matched handlers. Automatically generated tpathexp 404/405
+responses do not pass through these hooks. Register an explicit catch-all to
+apply middleware to custom not-found responses. See the
+[complete example](../examples/example-best-with-router.tcl) for sessions,
+rate limiting, guards, and error handlers together.

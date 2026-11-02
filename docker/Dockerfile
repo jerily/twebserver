@@ -21,15 +21,16 @@ RUN apk add \
     gdb
 
 RUN mkdir -p /var/www/sample-project
-COPY install.sh /var/www/sample-project/install.sh
-COPY start.sh /var/www/sample-project/start.sh
+COPY docker/install.sh /var/www/sample-project/install.sh
+COPY docker/start.sh /var/www/sample-project/start.sh
+COPY . /var/www/sample-project/twebserver
 
 ENV LD_LIBRARY_PATH="/var/www/sample-project/local/lib:/var/www/sample-project/local/lib64"
 
 RUN chmod +x /var/www/sample-project/start.sh
 RUN chmod +x /var/www/sample-project/install.sh && /var/www/sample-project/install.sh
 
-COPY examples /var/www/sample-project/examples
+COPY docker/examples /var/www/sample-project/examples
 
 EXPOSE 8080
 EXPOSE 4443

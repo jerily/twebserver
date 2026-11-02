@@ -35,9 +35,6 @@ static Tcl_Mutex tws_ConnNameToInternal_HT_Mutex;
 static Tcl_HashTable tws_HostNameToInternal_HT;
 static Tcl_Mutex tws_HostNameToInternal_HT_Mutex;
 
-static Tcl_HashTable tws_RouterNameToInternal_HT;
-static Tcl_Mutex tws_RouterNameToInternal_HT_Mutex;
-
 Tcl_ThreadDataKey *tws_GetThreadDataKey() {
     return &dataKey;
 }
@@ -187,53 +184,6 @@ SSL_CTX *tws_GetInternalFromHostName(const char *name) {
     return internal;
 }
 
-int tws_RegisterRouterName(const char *name, tws_router_t *internal) {
-
-    Tcl_HashEntry *entryPtr;
-    int newEntry;
-    Tcl_MutexLock(&tws_RouterNameToInternal_HT_Mutex);
-    entryPtr = Tcl_CreateHashEntry(&tws_RouterNameToInternal_HT, (char *) name, &newEntry);
-    if (newEntry) {
-        Tcl_SetHashValue(entryPtr, (ClientData) internal);
-    }
-    Tcl_MutexUnlock(&tws_RouterNameToInternal_HT_Mutex);
-
-    DBG2(printf("--> RegisterRouterName: name=%s internal=%p %s\n", name, internal,
-                newEntry ? "entered into" : "already in"));
-
-    return newEntry;
-}
-
-int tws_UnregisterRouterName(const char *name) {
-
-    Tcl_HashEntry *entryPtr;
-
-    Tcl_MutexLock(&tws_RouterNameToInternal_HT_Mutex);
-    entryPtr = Tcl_FindHashEntry(&tws_RouterNameToInternal_HT, (char *) name);
-    if (entryPtr != NULL) {
-        Tcl_DeleteHashEntry(entryPtr);
-    }
-    Tcl_MutexUnlock(&tws_RouterNameToInternal_HT_Mutex);
-
-    DBG2(printf("--> UnregisterRouterName: name=%s entryPtr=%p\n", name, entryPtr));
-
-    return entryPtr != NULL;
-}
-
-tws_router_t *tws_GetInternalFromRouterName(const char *name) {
-    tws_router_t *internal = NULL;
-    Tcl_HashEntry *entryPtr;
-
-    Tcl_MutexLock(&tws_RouterNameToInternal_HT_Mutex);
-    entryPtr = Tcl_FindHashEntry(&tws_RouterNameToInternal_HT, (char *) name);
-    if (entryPtr != NULL) {
-        internal = (tws_router_t *) Tcl_GetHashValue(entryPtr);
-    }
-    Tcl_MutexUnlock(&tws_RouterNameToInternal_HT_Mutex);
-
-    return internal;
-}
-
 void tws_InitServerNameHT() {
     Tcl_MutexLock(&tws_ServerNameToInternal_HT_Mutex);
     Tcl_InitHashTable(&tws_ServerNameToInternal_HT, TCL_STRING_KEYS);
@@ -252,12 +202,6 @@ void tws_InitHostNameHT() {
     Tcl_MutexUnlock(&tws_HostNameToInternal_HT_Mutex);
 }
 
-void tws_InitRouterNameHT() {
-    Tcl_MutexLock(&tws_RouterNameToInternal_HT_Mutex);
-    Tcl_InitHashTable(&tws_RouterNameToInternal_HT, TCL_STRING_KEYS);
-    Tcl_MutexUnlock(&tws_RouterNameToInternal_HT_Mutex);
-}
-
 void tws_DeleteServerNameHT() {
     Tcl_MutexLock(&tws_ServerNameToInternal_HT_Mutex);
     Tcl_DeleteHashTable(&tws_ServerNameToInternal_HT);
@@ -274,12 +218,6 @@ void tws_DeleteHostNameHT() {
     Tcl_MutexLock(&tws_HostNameToInternal_HT_Mutex);
     Tcl_DeleteHashTable(&tws_HostNameToInternal_HT);
     Tcl_MutexUnlock(&tws_HostNameToInternal_HT_Mutex);
-}
-
-void tws_DeleteRouterNameHT() {
-    Tcl_MutexLock(&tws_RouterNameToInternal_HT_Mutex);
-    Tcl_DeleteHashTable(&tws_RouterNameToInternal_HT);
-    Tcl_MutexUnlock(&tws_RouterNameToInternal_HT_Mutex);
 }
 
 char *tws_strndup(const char *s, size_t n) {

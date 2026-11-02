@@ -1,0 +1,105 @@
+package require tcltest 2
+package require twebserver 2.0.0
+namespace import -force ::tcltest::test
+
+namespace eval ::compat_tests {
+    proc handler {ctx req} {
+        return [::twebserver::build_response 200 text/plain [list \
+            [dict get $ctx route_name] [dict get $req pathParameters] [dict get $req session]]]
+    }
+    proc enter {ctx req} {dict set req session active; return $req}
+    proc leave {ctx req res} {dict set res headers X-Session [dict get $req session]; return $res}
+    proc denied {ctx req} {
+        return -code error -options [::twebserver::build_response 401 text/plain denied]
+    }
+    proc response {id method path} {
+        set native [::twebserver::compat::require_router $id]
+        return [$native dispatch [dict create method $method httpMethod $method path $path] {}]
+    }
+}
+
+test compat-lazy {requiring the server alone does not load tpathexp} -setup {
+    interp create compat_child
+    compat_child eval [list set auto_path $auto_path]
+} -body {
+    compat_child eval {
+        package require twebserver 2.0.0
+        list [package provide tpathexp] [llength [info commands ::twebserver::add_route]]
+    }
+} -cleanup {interp delete compat_child} -result {{} 1}
+
+test compat-route {old API preserves names, captures, and middleware added after routes} -setup {
+    ::twebserver::create_router -command_name ::compat_tests::process_conn compat_router
+    ::twebserver::add_route -name user -strict $compat_router GET /users/:id ::compat_tests::handler
+    ::twebserver::add_middleware -enter_proc ::compat_tests::enter -leave_proc ::compat_tests::leave $compat_router
+} -body {
+    set res [::compat_tests::response $compat_router GET /users/42]
+    set info [lindex [::twebserver::info_routes $compat_router] 0]
+    list [dict get $res body] [dict get $res headers X-Session] \
+        [dict get $info http_method] [dict get $info path] [dict get $info option_strict]
+} -cleanup {unset compat_router} -result {{user {id 42} active} active GET /users/:id 1}
+
+test compat-guard {legacy guard response still runs session leave hooks} -setup {
+    ::twebserver::create_router compat_router
+    ::twebserver::add_middleware -enter_proc ::compat_tests::enter -leave_proc ::compat_tests::leave $compat_router
+    ::twebserver::add_route -strict -guard_proc_list {::compat_tests::denied} \
+        $compat_router GET /private ::compat_tests::handler
+} -body {
+    set res [::compat_tests::response $compat_router GET /private]
+    list [dict get $res statusCode] [dict get $res body] [dict get $res headers X-Session]
+} -cleanup {unset compat_router} -result {401 denied active}
+
+test compat-patterns {literal strictness, prefix, nocase and bare star translate to tpathexp} -setup {
+    ::twebserver::create_router compat_router
+    ::twebserver::add_middleware -enter_proc ::compat_tests::enter $compat_router
+    ::twebserver::add_route -name exact $compat_router GET /literal ::compat_tests::handler
+    ::twebserver::add_route -prefix -nocase -name prefix $compat_router GET /API ::compat_tests::handler
+    ::twebserver::add_route -name fallback $compat_router GET * ::compat_tests::handler
+} -body {
+    set result {}
+    foreach path {/literal /literal/ /api /API/sub /missing /} {
+        lappend result [dict get [::compat_tests::response $compat_router GET $path] body]
+    }
+    set result
+} -cleanup {unset compat_router} -result {{exact {} active} {fallback {} active} {prefix {} active} {prefix {} active} {fallback {} active} {fallback {} active}}
+
+test compat-lifetime {traced variables are read-only and unset releases both commands and native table} -body {
+    set before [info commands ::tpathexp::router*]
+    ::twebserver::create_router -command_name ::compat_tests::callback compat_router
+    set handle $compat_router
+    set rc [catch {set compat_router changed} message]
+    set retained [expr {$compat_router eq $handle}]
+    unset compat_router
+    list $rc $retained [string match {*var is read-only*} $message] \
+        [info commands ::compat_tests::callback] [info commands ::$handle] \
+        [expr {$before eq [info commands ::tpathexp::router*]}]
+} -result {1 1 1 {} {} 1}
+
+test compat-command-delete {deleting a renamed callback releases its route table} -body {
+    set handle [::twebserver::create_router -command_name ::compat_tests::callback]
+    set native [::twebserver::compat::require_router $handle]
+    rename ::compat_tests::callback ::compat_tests::renamed
+    rename ::compat_tests::renamed {}
+    list [info commands $native] [info commands ::$handle] \
+        [catch {::twebserver::info_routes $handle}]
+} -result {{} {} 1}
+
+test compat-errors {invalid options and paths do not damage existing routes} -setup {
+    ::twebserver::create_router compat_router
+    ::twebserver::add_route -strict $compat_router GET /ok ::compat_tests::handler
+} -body {
+    list [catch {::twebserver::add_route -strict -prefix $compat_router GET /x unused}] \
+        [catch {::twebserver::add_route -unknown $compat_router GET /x unused}] \
+        [catch {::twebserver::add_route $compat_router GET /: unused}] \
+        [catch {::twebserver::add_middleware $compat_router}] \
+        [llength [::twebserver::info_routes $compat_router]]
+} -cleanup {unset compat_router} -result {1 1 1 1 1}
+
+test compat-server-option {deprecated -with_router remains accepted; misspelled -router is rejected} -body {
+    set server [::twebserver::create_server -with_router {} callback {}]
+    ::twebserver::destroy_server $server
+    catch {::twebserver::create_server -router {} callback {}}
+} -result 1
+
+namespace delete ::compat_tests
+::tcltest::cleanupTests

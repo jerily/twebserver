@@ -34,18 +34,49 @@ make install
 ```
 
 ### Build the twebserver extension
+
+From this source checkout:
+
+```bash
+cmake -S . -B build
+# For a custom Tcl install, also pass:
+# -DTCL_LIBRARY_DIR=/your/tcl/lib -DTCL_INCLUDE_DIR=/your/tcl/include
+cmake --build build
+cmake --install build
 ```
-wget https://github.com/jerily/twebserver/archive/refs/tags/v1.47.54.tar.gz
-tar -xzf v1.47.54.tar.gz
-cd twebserver-1.47.54
-mkdir build
-cd build
-cmake ..
-# or if TCL is not in the default path (/usr/local/lib):
-# change "TCL_LIBRARY_DIR" and "TCL_INCLUDE_DIR" to the correct paths
-# cmake .. -DTCL_LIBRARY_DIR=/usr/local/lib -DTCL_INCLUDE_DIR=/usr/local/include
-make
-make install
+
+Version 2.0.0 installs into `lib/twebserver2.0.0`. The server itself does not
+require tpathexp.
+
+### Install routing support for examples and tests
+
+Build [tpathexp](https://github.com/jerily/tpathexp) 1.1.0 or later against the
+same Tcl ABI as twebserver:
+
+```bash
+git clone --branch v1.1.0 https://github.com/jerily/tpathexp.git ../tpathexp
+cmake -S ../tpathexp -B ../tpathexp/build
+cmake --build ../tpathexp/build
+cmake --install ../tpathexp/build
+```
+
+When several Tcl versions are installed, select matching `TCL_INCLUDE_PATH`,
+`TCL_LIBRARY`, `TCL_STUB_LIBRARY`, and `TCL_TCLSH` in the tpathexp configuration.
+A Tcl 8 extension cannot be loaded into Tcl 9 or vice versa.
+
+For tests using an uninstalled tpathexp build:
+
+```bash
+cmake -S . -B build -DTPATHEXP_LIBRARY_DIR="$(pwd)/../tpathexp/build"
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+For examples using uninstalled builds, put both package directories on
+`TCLLIBPATH` (a Tcl list), using the shell for the Tcl version you built:
+
+```bash
+TCLLIBPATH="{$PWD/build} {$PWD/../tpathexp/build}" tclsh9.0 examples/example-best-with-router.tcl
 ```
 
 ### Or you can try your luck with docker

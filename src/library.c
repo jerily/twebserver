@@ -9,10 +9,10 @@
 #include "uri.h"
 #include "conn.h"
 #include "request.h"
-#include "router.h"
 #include "crypto.h"
 #include "form.h"
 #include "return.h"
+#include "router_adapter.h"
 
 #include <sys/socket.h> // for SOMAXCONN
 #include <stdio.h>
@@ -465,43 +465,27 @@ static int tws_InitServerFromConfigDict(Tcl_Interp *interp, tws_server_t *server
     return TCL_OK;
 }
 
-static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int incoming_objc, Tcl_Obj *const objv[]) {
+static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     UNUSED(clientData);
-
-    DBG2(printf("CreateCmd\n"));
-
-    int option_router = 0;
-    Tcl_ArgvInfo ArgTable[] = {
-            {TCL_ARGV_CONSTANT, "-with_router", INT2PTR(1), &option_router, "whether cmd_name is a router", NULL},
-            {TCL_ARGV_END, NULL,                NULL, NULL, NULL,                                           NULL}
-    };
-
-    Tcl_Obj **remObjv;
-    Tcl_Size objc = incoming_objc;
-    Tcl_ParseArgsObjv(interp, ArgTable, &objc, objv, &remObjv);
-
-    if ((objc < 4) || (objc > 4)) {
-        Tcl_WrongNumArgs(interp, 1, remObjv, "config_dict cmd_name init_script");
-        ckfree(remObjv);
+    /* Deprecated compatibility flag: all callbacks now use the normal path. */
+    int offset = objc > 1 && strcmp(Tcl_GetString(objv[1]), "-with_router") == 0;
+    if (objc != 4 + offset) {
+        Tcl_WrongNumArgs(interp, 1, objv, "?-with_router? config_dict cmd_name init_script");
         return TCL_ERROR;
     }
 
     tws_server_t *server_ptr = (tws_server_t *) ckalloc(sizeof(tws_server_t));
     if (!server_ptr) {
-        ckfree(remObjv);
         SetResult("Unable to allocate memory");
         return TCL_ERROR;
     }
 
-    DBG2(printf("option_router=%d\n", option_router));
-
-    server_ptr->option_router = option_router;
     Tcl_DStringInit(&server_ptr->config_dict_ds);
-    Tcl_DStringAppend(&server_ptr->config_dict_ds, Tcl_GetString(remObjv[1]), -1);
+    Tcl_DStringAppend(&server_ptr->config_dict_ds, Tcl_GetString(objv[1 + offset]), -1);
     Tcl_DStringInit(&server_ptr->cmd_ds);
-    Tcl_DStringAppend(&server_ptr->cmd_ds, Tcl_GetString(remObjv[2]), -1);
+    Tcl_DStringAppend(&server_ptr->cmd_ds, Tcl_GetString(objv[2 + offset]), -1);
     Tcl_DStringInit(&server_ptr->script_ds);
-    Tcl_DStringAppend(&server_ptr->script_ds, Tcl_GetString(remObjv[3]), -1);
+    Tcl_DStringAppend(&server_ptr->script_ds, Tcl_GetString(objv[3 + offset]), -1);
 
     server_ptr->thread_id = Tcl_GetCurrentThread();
     server_ptr->first_listener_ptr = NULL;
@@ -533,7 +517,7 @@ static int tws_CreateServerCmd(ClientData clientData, Tcl_Interp *interp, int in
     server_ptr->thread_stacksize = TCL_THREAD_STACK_DEFAULT;
     server_ptr->thread_max_concurrent_conns = 0;
 
-    if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ptr, remObjv[1])) {
+    if (TCL_OK != tws_InitServerFromConfigDict(interp, server_ptr, objv[1 + offset])) {
         ckfree((char *) server_ptr);
         return TCL_ERROR;
     }
@@ -1932,7 +1916,7 @@ int tws_ReturnResponseCmd(ClientData clientData, Tcl_Interp *interp, int objc, T
     }
 
     const char *encoding_name = "utf-8";
-    if (objc == 3) {
+    if (objc == 4) {
         Tcl_Size encoding_name_length;
         encoding_name = Tcl_GetStringFromObj(objv[3], &encoding_name_length);
     }
@@ -2048,7 +2032,6 @@ static void tws_ExitHandler(ClientData clientData) {
     tws_DeleteServerNameHT();
     tws_DeleteConnNameHT();
     tws_DeleteHostNameHT();
-    tws_DeleteRouterNameHT();
 
     DBG2(printf("Exit Handler: done\n"));
 }
@@ -2065,7 +2048,6 @@ void tws_InitModule() {
         tws_InitServerNameHT();
         tws_InitConnNameHT();
         tws_InitHostNameHT();
-        tws_InitRouterNameHT();
 
         Tcl_CreateThreadExitHandler(tws_ExitHandler, NULL);
         tws_ModuleInitialized = 1;
@@ -2106,11 +2088,6 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::hex_encode", tws_HexEncodeCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::hex_decode", tws_HexDecodeCmd, NULL, NULL);
 
-    Tcl_CreateObjCommand(interp, "::twebserver::create_router", tws_CreateRouterCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::twebserver::add_route", tws_AddRouteCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::twebserver::info_routes", tws_InfoRoutesCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "::twebserver::add_middleware", tws_AddMiddlewareCmd, NULL, NULL);
-
     Tcl_CreateObjCommand(interp, "::twebserver::parse_cookie", tws_ParseCookieCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_header", tws_AddHeaderCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::add_cookie", tws_AddCookieCmd, NULL, NULL);
@@ -2132,6 +2109,8 @@ int Twebserver_Init(Tcl_Interp *interp) {
     Tcl_CreateObjCommand(interp, "::twebserver::ipv6_to_ipv4", tws_IpV6ToIpV4Cmd, NULL, NULL);
 
     Tcl_CreateObjCommand(interp, "::twebserver::return_response", tws_ReturnResponseCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::invoke_handler", tws_InvokeHandlerCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "::twebserver::process_conn", tws_RouterProcessConnCmd, NULL, NULL);
 
     return Tcl_PkgProvide(interp, "twebserver", XSTR(VERSION));
 }
