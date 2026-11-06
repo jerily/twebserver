@@ -1,4 +1,4 @@
-# Shared fixture for readiness_test.tcl and readiness_test.py.
+# Server fixture for readiness_test.tcl.
 # Ports and package location come from the runner.
 lassign $argv libdir http_port tls_port
 lappend auto_path $libdir
