@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(twebserver VERSION 1.47.54 LANGUAGES CXX C)
+project(twebserver VERSION 1.47.55 LANGUAGES CXX C)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(TARGET twebserver)
@@ -41,6 +41,16 @@ add_test(NAME AllUnitTests
 set_tests_properties(AllUnitTests
         PROPERTIES ENVIRONMENT TCLLIBPATH=${CMAKE_CURRENT_BINARY_DIR}
 )
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME HeadResponses COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/readiness_test.py
+        --tclsh ${TCL_TCLSH} --libdir ${CMAKE_CURRENT_BINARY_DIR}
+        ReadinessTests.test_head_headers_and_keepalive
+        ReadinessTests.test_head_gzip_matches_get_length
+        ReadinessTests.test_server_owns_response_framing
+        ReadinessTests.test_chunked_response_has_no_content_length)
+endif()
 
 add_custom_target(shell ${CMAKE_COMMAND} -E env TCLLIBPATH=${CMAKE_CURRENT_BINARY_DIR} ${TCL_TCLSH}
         USES_TERMINAL

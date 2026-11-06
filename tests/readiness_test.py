@@ -10,6 +10,7 @@ Pass a unittest test name to select one test, e.g. ReadinessTests.test_slow_http
 """
 
 import argparse
+import http.client
 import os
 from pathlib import Path
 import select
@@ -212,6 +213,52 @@ class ReadinessTests(unittest.TestCase):
                 sock.settimeout(4)
                 self.assertEqual(sock.recv(1), b"", "idle keepalive connection did not expire")
             self.assert_healthy(tls=tls)
+
+    def test_head_headers_and_keepalive(self):
+        for tls in (False, True):
+            for path, length in (("/", 2), ("/large", LARGE_SIZE), ("/chunked", 12 * 1024 * 1024), ("/binary", 4),
+                                 ("/head-length", 12345678901), ("/head-multi", 42)):
+                with self.subTest(tls=tls, path=path), self.connect(tls=tls) as sock:
+                    sock.sendall(f"HEAD {path} HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n".encode())
+                    data = b""
+                    while b"\r\n\r\n" not in data:
+                        data += sock.recv(65536)
+                    head, body = data.split(b"\r\n\r\n", 1)
+                    self.assertEqual(body, b"")
+                    headers = [line.lower() for line in head.split(b"\r\n")[1:]]
+                    self.assertEqual([h for h in headers if h.startswith(b"content-length:")],
+                                     [f"content-length: {length}".encode()])
+                    self.assertFalse(any(h.startswith(b"transfer-encoding:") for h in headers))
+                    sock.sendall(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                    self.assertEqual(self.response(sock), (200, b"ok"))
+                    self.assertEqual(sock.recv(1), b"")
+
+    def test_server_owns_response_framing(self):
+        with self.connect() as sock:
+            sock.sendall(b"GET /framing HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            self.assertEqual(self.response(sock), (200, b"ok"))
+
+    def test_head_gzip_matches_get_length(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.http_port, timeout=5)
+        self.addCleanup(connection.close)
+        connection.request("GET", "/large", headers={"Accept-Encoding": "gzip", "Connection": "keep-alive"})
+        response = connection.getresponse()
+        length = len(response.read())
+        self.assertEqual(response.getheader("Content-Encoding"), "gzip")
+        connection.request("HEAD", "/large", headers={"Accept-Encoding": "gzip"})
+        response = connection.getresponse()
+        self.assertEqual(response.getheader("Content-Encoding"), "gzip")
+        self.assertEqual(int(response.getheader("Content-Length")), length)
+        self.assertEqual(response.read(), b"")
+
+    def test_chunked_response_has_no_content_length(self):
+        connection = http.client.HTTPConnection("127.0.0.1", self.http_port, timeout=5)
+        self.addCleanup(connection.close)
+        connection.request("GET", "/chunked")
+        response = connection.getresponse()
+        self.assertEqual(response.getheader("Transfer-Encoding"), "chunked")
+        self.assertIsNone(response.getheader("Content-Length"))
+        self.assertEqual(response.read(), b"x" * (12 * 1024 * 1024))
 
     def slow_reader(self, tls=False):
         with self.connect(tls=tls, slow_reader=True) as sock:

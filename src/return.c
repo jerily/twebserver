@@ -189,6 +189,7 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     }
     conn->req_dict_ptr = NULL;
     conn->ready = 0;
+    conn->head_only = 0;
     conn->inprogress = 0;
 //    conn->handshaked = 0;
     for (Tcl_Size i = 0; i < conn->n_chunks; i++) {
@@ -379,6 +380,9 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
     const char *status_code = Tcl_GetStringFromObj(statusCodePtr, &status_code_length);
     Tcl_DStringAppend(&conn->inout_ds, status_code, status_code_length);
 
+    // HEAD can supply a representation length without materializing the body.
+    // Framing headers are emitted once by this function.
+    Tcl_WideInt head_length = -1;
     // write each "header" from the "headers" dictionary to the ssl connection
     Tcl_Obj *keyPtr;
     Tcl_Obj *valuePtr;
@@ -399,9 +403,19 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
                     continue;
                 }
             }
-            Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
             Tcl_Size key_length;
             const char *key = Tcl_GetStringFromObj(keyPtr, &key_length);
+            if (strcasecmp(key, "Content-Length") == 0) {
+                if (conn->head_only &&
+                    (Tcl_GetWideIntFromObj(interp, valuePtr, &head_length) != TCL_OK || head_length < 0)) {
+                    Tcl_DictObjDone(&headersSearch);
+                    SetResult("HEAD Content-Length must be a nonnegative integer");
+                    return TCL_ERROR;
+                }
+                continue;
+            }
+            if (strcasecmp(key, "Transfer-Encoding") == 0) { continue; }
+            Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
             Tcl_DStringAppend(&conn->inout_ds, key, key_length);
             Tcl_DStringAppend(&conn->inout_ds, ": ", 2);
             Tcl_Size value_length;
@@ -418,9 +432,24 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
              !done;
              Tcl_DictObjNext(&mvHeadersSearch, &keyPtr, &valuePtr, &done)) {
 
-            Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
             Tcl_Size key_length;
             const char *key = Tcl_GetStringFromObj(keyPtr, &key_length);
+            if (strcasecmp(key, "Content-Length") == 0) {
+                if (conn->head_only) {
+                    Tcl_Size count;
+                    Tcl_Obj *length = NULL;
+                    if (Tcl_ListObjLength(interp, valuePtr, &count) != TCL_OK || count != 1 ||
+                        Tcl_ListObjIndex(interp, valuePtr, 0, &length) != TCL_OK ||
+                        Tcl_GetWideIntFromObj(interp, length, &head_length) != TCL_OK || head_length < 0) {
+                        Tcl_DictObjDone(&mvHeadersSearch);
+                        SetResult("HEAD Content-Length must contain one nonnegative integer");
+                        return TCL_ERROR;
+                    }
+                }
+                continue;
+            }
+            if (strcasecmp(key, "Transfer-Encoding") == 0) { continue; }
+            Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
             Tcl_DStringAppend(&conn->inout_ds, key, key_length);
             Tcl_DStringAppend(&conn->inout_ds, ": ", 2);
 
@@ -541,15 +570,19 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
         Tcl_ResetResult(interp);
     }
 
-    Tcl_Obj *contentLengthPtr = Tcl_NewIntObj(body_length);
+    Tcl_Obj *contentLengthPtr = Tcl_NewWideIntObj(conn->head_only && head_length >= 0 ? head_length : body_length);
     Tcl_IncrRefCount(contentLengthPtr);
     Tcl_Size content_length_str_len;
     const char *content_length_str = Tcl_GetStringFromObj(contentLengthPtr, &content_length_str_len);
-    Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
-    Tcl_DStringAppend(&conn->inout_ds, "Content-Length: ", 16);
-    Tcl_DStringAppend(&conn->inout_ds, content_length_str, content_length_str_len);
+    if (conn->head_only || body_length < MAX_CHUNK_SIZE) {
+        Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
+        Tcl_DStringAppend(&conn->inout_ds, "Content-Length: ", 16);
+        Tcl_DStringAppend(&conn->inout_ds, content_length_str, content_length_str_len);
+    }
 
-    if (body_length < MAX_CHUNK_SIZE) {
+    if (conn->head_only) {
+        Tcl_DStringAppend(&conn->inout_ds, "\r\n\r\n", 4);
+    } else if (body_length < MAX_CHUNK_SIZE) {
         Tcl_DStringAppend(&conn->inout_ds, "\r\n\r\n", 4);
         if (body_length > 0) {
             Tcl_DStringAppend(&conn->inout_ds, body, body_length);

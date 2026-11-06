@@ -48,4 +48,9 @@ TCL Web Server Extension
 
 ## Examples
 
+HEAD responses send headers without a body. By default, `Content-Length` is
+computed from the response body, including base64 decoding and gzip. A HEAD
+handler may instead supply a nonnegative `Content-Length` header and an empty
+body. The server owns response framing and emits each framing header once.
+
 * [Threads & Routing & Middleware example](examples/example-best-with-router.tcl)

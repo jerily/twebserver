@@ -11,7 +11,29 @@ append init_script {
     proc process_conn {ctx req} {
         switch -- [dict get $req path] {
             /large { set body [string repeat x [expr {8 * 1024 * 1024}]] }
+            /chunked { set body [string repeat x [expr {12 * 1024 * 1024}]] }
             /echo { set body [dict get $req body] }
+            /head-length {
+                ::twebserver::return_response [dict get $ctx conn] \
+                    [dict create statusCode 200 body {} headers {content-length 12345678901}]
+                return
+            }
+            /head-multi {
+                ::twebserver::return_response [dict get $ctx conn] \
+                    [dict create statusCode 200 body {} headers {Content-Length 17} \
+                        multiValueHeaders {Content-Length {42}}]
+                return
+            }
+            /binary {
+                ::twebserver::return_response [dict get $ctx conn] \
+                    [dict create statusCode 200 body AAEC/w== isBase64Encoded 1]
+                return
+            }
+            /framing {
+                ::twebserver::return_response [dict get $ctx conn] \
+                    [dict create statusCode 200 body ok headers {Content-Length 999 Transfer-Encoding chunked}]
+                return
+            }
             /nested {
                 after 2500 { set ::handler_done 1 }
                 vwait ::handler_done
@@ -25,7 +47,7 @@ append init_script {
 }
 
 set config [dict create read_timeout_millis 1500 conn_timeout_millis 2000 \
-    num_threads 1 garbage_collection_cleanup_threshold 3 gzip off]
+    num_threads 1 garbage_collection_cleanup_threshold 3 gzip on gzip_types {text/plain} gzip_min_length 8192]
 set server [::twebserver::create_server $config process_conn $init_script]
 set certdir [file normalize [file join [file dirname [info script]] ../certs/host1]]
 ::twebserver::add_context $server localhost \
