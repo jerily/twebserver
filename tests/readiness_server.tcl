@@ -34,6 +34,17 @@ append init_script {
                     [dict create statusCode 200 body ok headers {Content-Length 999 Transfer-Encoding chunked}]
                 return
             }
+            /cookies {
+                ::twebserver::return_response [dict get $ctx conn] \
+                    [dict create statusCode 200 body ok multiValueHeaders \
+                        [dict create Set-Cookie [list {a=1; Path=/} {b=2; Expires=Wed, 21 Oct 2037 07:28:00 GMT}]]]
+                return
+            }
+            /deferred {
+                after 0 [list ::twebserver::return_response [dict get $ctx conn] \
+                    [dict create statusCode 200 body ok]]
+                return
+            }
             /nested {
                 after 2500 { set ::handler_done 1 }
                 vwait ::handler_done

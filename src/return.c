@@ -449,22 +449,21 @@ int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const response
                 continue;
             }
             if (strcasecmp(key, "Transfer-Encoding") == 0) { continue; }
-            Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
-            Tcl_DStringAppend(&conn->inout_ds, key, key_length);
-            Tcl_DStringAppend(&conn->inout_ds, ": ", 2);
-
             // "valuePtr" is a list, iterate over its elements
             Tcl_Size list_length;
-            Tcl_ListObjLength(interp, valuePtr, &list_length);
-            for (int i = 0; i < list_length; i++) {
+            if (Tcl_ListObjLength(interp, valuePtr, &list_length) != TCL_OK) {
+                Tcl_DictObjDone(&mvHeadersSearch);
+                return TCL_ERROR;
+            }
+            for (Tcl_Size i = 0; i < list_length; i++) {
                 Tcl_Obj *elemPtr;
                 Tcl_ListObjIndex(interp, valuePtr, i, &elemPtr);
                 Tcl_Size value_length;
                 const char *value = Tcl_GetStringFromObj(elemPtr, &value_length);
+                Tcl_DStringAppend(&conn->inout_ds, "\r\n", 2);
+                Tcl_DStringAppend(&conn->inout_ds, key, key_length);
+                Tcl_DStringAppend(&conn->inout_ds, ": ", 2);
                 Tcl_DStringAppend(&conn->inout_ds, value, value_length);
-                if (i < value_length - 1) {
-                    Tcl_DStringAppend(&conn->inout_ds, ", ", 2);
-                }
             }
 
         }

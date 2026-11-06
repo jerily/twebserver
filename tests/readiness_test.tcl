@@ -360,6 +360,24 @@ namespace eval ::readiness {
             send $channel "GET /framing HTTP/1.1\r\nHost: localhost\r\n\r\n"
             expect $channel ok
         } -result {}
+    test readiness-repeated-headers {each multi-value header has its own field line} \
+        -setup start -cleanup stop -body {
+            set channel [connect]
+            send $channel "GET /cookies HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            lassign [response $channel] status body headers
+            check {$status == 200 && $body eq "ok"} "response mismatch"
+            check {[dict get $headers set-cookie] eq [list {a=1; Path=/} {b=2; Expires=Wed, 21 Oct 2037 07:28:00 GMT}]} \
+                "cookies must remain separate header fields"
+        } -result {}
+    test readiness-response-arguments {deferred responses accept the optional encoding argument being omitted} \
+        -setup start -cleanup stop -body {
+            for {set i 0} {$i < 30} {incr i} {
+                set channel [connect]
+                send $channel "GET /deferred HTTP/1.1\r\nHost: localhost\r\n\r\n"
+                expect $channel ok
+                closeClient $channel
+            }
+        } -result {}
     test readiness-chunked {large responses omit Content-Length when chunked} \
         -setup start -cleanup stop -body {
             set channel [connect]
