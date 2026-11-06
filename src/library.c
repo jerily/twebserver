@@ -1932,7 +1932,7 @@ int tws_ReturnResponseCmd(ClientData clientData, Tcl_Interp *interp, int objc, T
     }
 
     const char *encoding_name = "utf-8";
-    if (objc == 3) {
+    if (objc == 4) {
         Tcl_Size encoding_name_length;
         encoding_name = Tcl_GetStringFromObj(objv[3], &encoding_name_length);
     }

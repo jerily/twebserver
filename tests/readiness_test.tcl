@@ -1,9 +1,9 @@
 #!/usr/bin/env tclsh
-# Tcl counterpart of readiness_test.py. Requires Tcl, tcltest and openssl.
+# Socket readiness and HTTP framing regressions. Requires Tcl, tcltest and openssl.
 # Run: tclsh9.1 tests/readiness_test.tcl --libdir build
 # Select tests with tcltest options, e.g. -match readiness-fragmented-*.
 # CPU assertions use Linux /proc; functional assertions run on other Unix hosts.
-# Unlike the Python runner, core Tcl cannot explicitly set SO_LINGER/SO_RCVBUF;
+# Core Tcl cannot explicitly set SO_LINGER/SO_RCVBUF;
 # closing an unread response exercises disconnect cleanup without those options.
 
 namespace eval ::readiness {
@@ -227,7 +227,7 @@ proc ::readiness::sleeping {} {
     }
 }
 
-proc ::readiness::response {channel} {
+proc ::readiness::response {channel {headOnly 0}} {
     variable pending
     set data {}
     if {[dict exists $pending $channel]} { set data [dict get $pending $channel]; dict unset pending $channel }
@@ -239,15 +239,49 @@ proc ::readiness::response {channel} {
     }
     set head [string range $data 0 [expr {$split - 1}]]
     check {[regexp {^HTTP/1\.[01] ([0-9]+)} $head -> status]} "invalid response status"
-    check {[regexp -nocase {\r\nContent-Length: *([0-9]+)} $head -> length]} "missing Content-Length"
+    set headers {}
+    foreach line [lrange [split [string map {\r {}} $head] \n] 1 end] {
+        set colon [string first : $line]
+        check {$colon > 0} "invalid response header"
+        dict lappend headers [string tolower [string range $line 0 [expr {$colon-1}]]] \
+            [string trim [string range $line [expr {$colon+1}] end]]
+    }
     set body [string range $data [expr {$split + 4}] end]
+    if {$headOnly} {
+        dict set pending $channel $body
+        return [list $status {} $headers]
+    }
+    if {[dict exists $headers transfer-encoding]} {
+        check {![dict exists $headers content-length]} "chunked response also has Content-Length"
+        check {[dict get $headers transfer-encoding] eq "chunked"} "unexpected Transfer-Encoding"
+        set decoded {}
+        while {1} {
+            while {[set end [string first \r\n $body]] < 0} {append body [chunk $channel $deadline]}
+            check {[scan [string range $body 0 [expr {$end-1}]] %x size] == 1} "invalid chunk size"
+            set body [string range $body [expr {$end+2}] end]
+            while {[string length $body] < $size + 2} {
+                set next [chunk $channel $deadline]
+                check {$next ne {}} "truncated chunk"
+                append body $next
+            }
+            check {[string range $body $size [expr {$size+1}]] eq "\r\n"} "missing chunk terminator"
+            append decoded [string range $body 0 [expr {$size-1}]]
+            set body [string range $body [expr {$size+2}] end]
+            if {$size == 0} {break}
+        }
+        dict set pending $channel $body
+        return [list $status $decoded $headers]
+    }
+    check {[dict exists $headers content-length] && [llength [dict get $headers content-length]] == 1} \
+        "expected one Content-Length"
+    set length [lindex [dict get $headers content-length] 0]
     while {[string length $body] < $length} {
         set next [chunk $channel $deadline]
         check {$next ne {}} "connection closed after [string length $body] of $length bytes"
         append body $next
     }
     dict set pending $channel [string range $body $length end]
-    return [list $status [string range $body 0 [expr {$length - 1}]]]
+    return [list $status [string range $body 0 [expr {$length - 1}]] $headers]
 }
 
 proc ::readiness::expect {channel body {status 200}} {
@@ -288,6 +322,71 @@ proc ::readiness::slowReader {{tls 0}} {
 
 namespace eval ::readiness {
     namespace import ::tcltest::test
+    test readiness-head {HEAD metadata and keepalive across HTTP and HTTPS} \
+        -setup start -cleanup stop -body {
+            foreach tls {0 1} {
+                foreach {path length} {/ 2 /large 8388608 /chunked 12582912 /binary 4 /head-length 12345678901 /head-multi 42} {
+                    set channel [connect $tls]
+                    send $channel "HEAD $path HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n"
+                    lassign [response $channel 1] status body headers
+                    check {$status == 200} "HEAD status mismatch"
+                    check {[dict get $headers content-length] eq $length} "HEAD Content-Length mismatch"
+                    check {![dict exists $headers transfer-encoding]} "HEAD must not send chunks"
+                    check {[dict get $pending $channel] eq {}} "HEAD sent body bytes"
+                    send $channel "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+                    expect $channel ok
+                    closed $channel
+                    closeClient $channel
+                }
+            }
+        } -result {}
+    test readiness-head-gzip {HEAD preserves the compressed GET representation length} \
+        -setup start -cleanup stop -body {
+            set channel [connect]
+            send $channel "GET /large HTTP/1.1\r\nHost: localhost\r\nAccept-Encoding: gzip\r\nConnection: keep-alive\r\n\r\n"
+            lassign [response $channel] status body headers
+            set length [string length $body]
+            check {[dict get $headers content-encoding] eq "gzip"} "GET was not compressed"
+            send $channel "HEAD /large HTTP/1.1\r\nHost: localhost\r\nAccept-Encoding: gzip\r\nConnection: close\r\n\r\n"
+            lassign [response $channel 1] status body headers
+            check {[dict get $headers content-encoding] eq "gzip"} "HEAD lost encoding"
+            check {[dict get $headers content-length] eq $length} "compressed HEAD length mismatch"
+            check {[dict get $pending $channel] eq {}} "HEAD sent body bytes"
+            closed $channel
+        } -result {}
+    test readiness-framing {server emits one correct framing header} \
+        -setup start -cleanup stop -body {
+            set channel [connect]
+            send $channel "GET /framing HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            expect $channel ok
+        } -result {}
+    test readiness-repeated-headers {each multi-value header has its own field line} \
+        -setup start -cleanup stop -body {
+            set channel [connect]
+            send $channel "GET /cookies HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            lassign [response $channel] status body headers
+            check {$status == 200 && $body eq "ok"} "response mismatch"
+            check {[dict get $headers set-cookie] eq [list {a=1; Path=/} {b=2; Expires=Wed, 21 Oct 2037 07:28:00 GMT}]} \
+                "cookies must remain separate header fields"
+        } -result {}
+    test readiness-response-arguments {deferred responses accept the optional encoding argument being omitted} \
+        -setup start -cleanup stop -body {
+            for {set i 0} {$i < 30} {incr i} {
+                set channel [connect]
+                send $channel "GET /deferred HTTP/1.1\r\nHost: localhost\r\n\r\n"
+                expect $channel ok
+                closeClient $channel
+            }
+        } -result {}
+    test readiness-chunked {large responses omit Content-Length when chunked} \
+        -setup start -cleanup stop -body {
+            set channel [connect]
+            send $channel "GET /chunked HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            lassign [response $channel] status body headers
+            check {$status == 200} "chunked status mismatch"
+            check {[dict get $headers transfer-encoding] eq "chunked"} "expected chunked response"
+            check {$body eq [string repeat x 12582912]} "chunked body mismatch"
+        } -result {}
     test readiness-fragmented-http {idle and fragmented HTTP sleeps and resumes} \
         -setup start -cleanup stop -body { fragmented } -result {}
     test readiness-fragmented-tls {idle and fragmented TLS sleeps and resumes} \

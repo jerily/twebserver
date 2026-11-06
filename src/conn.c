@@ -452,6 +452,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->client = client;
     conn->compression = NO_COMPRESSION;
     conn->keepalive = 0;
+    conn->head_only = 0;
     conn->io_mask = 0;
     conn->wait_mask = 0;
     conn->event_queued = 0;
@@ -502,6 +503,13 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
 
     Tcl_Obj *dup_req_dict_ptr = conn->req_dict_ptr;
     conn->req_dict_ptr = NULL;
+
+    Tcl_Obj *method = NULL;
+    Tcl_Obj *method_key = Tcl_NewStringObj("httpMethod", -1);
+    Tcl_IncrRefCount(method_key);
+    Tcl_DictObjGet(dataPtr->interp, dup_req_dict_ptr, method_key, &method);
+    Tcl_DecrRefCount(method_key);
+    conn->head_only = method && strcmp(Tcl_GetString(method), "HEAD") == 0;
 
     if (accept_ctx->server->option_router) {
         Tcl_CmdInfo cmd_info;
