@@ -12,17 +12,10 @@
 find_path(TCL_INCLUDE_PATH
   NAMES tcl.h
   HINTS ${TCL_INCLUDE_DIR}
-  PATH_SUFFIXES tcl9.0 tcl8.6
+  PATH_SUFFIXES tcl9.1 tcl9.0 tcl8.6
 )
 
 get_filename_component(TCL_INCLUDE_PATH_PARENT "${TCL_INCLUDE_PATH}" DIRECTORY)
-
-# Tcl 9 names its stub library tclstub; Tcl 8.6 adds the version.
-find_library(TCL_STUB_LIBRARY
-  NAMES tclstub tclstub8.6 tclstub86 tclstub9.0 tclstub90
-  HINTS ${TCL_LIBRARY_DIR} "${TCL_INCLUDE_PATH_PARENT}/lib"
-  PATH_SUFFIXES tcl9.0
-)
 
 if(EXISTS "${TCL_INCLUDE_PATH}/tcl.h")
   file(STRINGS "${TCL_INCLUDE_PATH}/tcl.h" TCL_PATCH_LEVEL_LINE
@@ -31,8 +24,30 @@ if(EXISTS "${TCL_INCLUDE_PATH}/tcl.h")
 endif()
 
 if(TCL_VERSION MATCHES "^([0-9]+)\\.([0-9]+)")
+  set(TCL_ABI_VERSION "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}")
+  set(TCL_STUB_NAMES tclstub${TCL_ABI_VERSION} tclstub${CMAKE_MATCH_1}${CMAKE_MATCH_2})
   set(TCL_TCLSH_NAMES tclsh${CMAKE_MATCH_1}.${CMAKE_MATCH_2} tclsh${CMAKE_MATCH_1}${CMAKE_MATCH_2}
       tclsh${CMAKE_MATCH_1}${CMAKE_MATCH_2}t)
+  # The unversioned stub name is used by Tcl 9, not Tcl 8.6.
+  if(CMAKE_MATCH_1 GREATER_EQUAL 9)
+    list(PREPEND TCL_STUB_NAMES tclstub)
+  endif()
+endif()
+
+if(TCL_LIBRARY_DIR)
+  # An explicit installation must not fall back to a host Tcl library.
+  find_library(TCL_STUB_LIBRARY
+    NAMES ${TCL_STUB_NAMES} NAMES_PER_DIR
+    PATHS "${TCL_LIBRARY_DIR}"
+    PATH_SUFFIXES tcl${TCL_ABI_VERSION}
+    NO_DEFAULT_PATH
+  )
+else()
+  find_library(TCL_STUB_LIBRARY
+    NAMES ${TCL_STUB_NAMES} NAMES_PER_DIR
+    HINTS "${TCL_INCLUDE_PATH_PARENT}/lib"
+    PATH_SUFFIXES tcl${TCL_ABI_VERSION}
+  )
 endif()
 
 find_program(TCL_TCLSH
