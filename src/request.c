@@ -893,6 +893,24 @@ int tws_ParseRequest(tws_conn_t *conn, int *error_num) {
 
     // content-length
     Tcl_HashEntry *content_length_entry_ptr = Tcl_FindHashEntry(&headers_HT, "content-length");
+    Tcl_HashEntry *transfer_encoding_entry_ptr = Tcl_FindHashEntry(&headers_HT, "transfer-encoding");
+    if (transfer_encoding_entry_ptr) {
+        Tcl_DString *value = Tcl_GetHashValue(transfer_encoding_entry_ptr);
+        const char *start = Tcl_DStringValue(value);
+        const char *finish = start + Tcl_DStringLength(value);
+        while (start < finish && (*start == ' ' || *start == '\t')) {start++;}
+        while (finish > start && (finish[-1] == ' ' || finish[-1] == '\t')) {finish--;}
+        /* Reject ambiguous framing and transfer codings we cannot decode. */
+        if (content_length_entry_ptr || Tcl_FindHashEntry(&multi_value_headers_HT, "transfer-encoding") ||
+                finish - start != 7 || strncasecmp(start, "chunked", 7) != 0) {
+            tws_FreeParseHashTable(&headers_HT);
+            tws_FreeParseHashTable(&multi_value_headers_HT);
+            *error_num = ERROR_REQUEST_FRAMING;
+            return TCL_ERROR;
+        }
+        conn->body_state = TWS_CHUNK_SIZE;
+        conn->body_offset = curr - request;
+    }
     if (content_length_entry_ptr) {
         Tcl_DString *content_length_ds_ptr = Tcl_GetHashValue(content_length_entry_ptr);
         conn->content_length = strtol(Tcl_DStringValue(content_length_ds_ptr), NULL, 10);
@@ -1074,6 +1092,78 @@ int tws_ParseTopPart(tws_conn_t *conn, int *error_num) {
         return TCL_ERROR;
     }
 
+    return TCL_OK;
+}
+
+/* Decode only HTTP transfer framing. Content encodings such as aws-chunked
+ * remain in the body for the application. Offsets survive fragmented reads;
+ * compacting completed chunks in place keeps the wire-size limit intact. */
+int tws_ParseChunkedBody(tws_conn_t *conn) {
+    if (conn->body_state == TWS_BODY_FIXED || conn->body_state == TWS_CHUNK_DONE) {
+        return TCL_OK;
+    }
+    char *buffer = Tcl_DStringValue(&conn->inout_ds);
+    Tcl_Size length = Tcl_DStringLength(&conn->inout_ds);
+    while (conn->body_offset < length) {
+        char *start = buffer + conn->body_offset;
+        Tcl_Size available = length - conn->body_offset;
+        if (conn->body_state == TWS_CHUNK_DATA) {
+            Tcl_Size size = conn->body_chunk_size;
+            if (available < size + 2) {return TCL_OK;}
+            if (start[size] != '\r' || start[size + 1] != '\n') {return TCL_ERROR;}
+            memmove(buffer + conn->top_part_offset + conn->content_length, start, size);
+            conn->content_length += size;
+            conn->body_offset += size + 2;
+            conn->body_state = TWS_CHUNK_SIZE;
+            continue;
+        }
+
+        char *newline = memchr(start, '\n', available);
+        /* Bound chunk extensions and trailer field lines, including when a
+         * peer sends a line a byte at a time. */
+        if (!newline) {return available > 8192 ? TCL_ERROR : TCL_OK;}
+        if (newline == start || newline[-1] != '\r' || newline - start > 8192) {return TCL_ERROR;}
+        char *end = newline - 1;
+        for (char *p = start; p < end; p++) {
+            unsigned char c = (unsigned char) *p;
+            if ((c < 32 && c != '\t') || c == 127) {return TCL_ERROR;}
+        }
+        conn->body_offset = newline - buffer + 1;
+
+        if (conn->body_state == TWS_CHUNK_TRAILERS) {
+            if (start == end) {
+                conn->body_state = TWS_CHUNK_DONE;
+                /* Pipelining is not supported; do not reuse a connection
+                 * whose read also consumed bytes from another request. */
+                if (conn->body_offset != length) {conn->keepalive = 0;}
+                Tcl_DStringSetLength(&conn->inout_ds, conn->top_part_offset + conn->content_length);
+                return TCL_OK;
+            }
+            char *colon = memchr(start, ':', end - start);
+            if (!colon || colon == start) {return TCL_ERROR;}
+            for (char *p = start; p < colon; p++) {
+                unsigned char c = (unsigned char) *p;
+                if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                        (c >= '0' && c <= '9') || strchr("!#$%&'*+-.^_`|~", c))) {return TCL_ERROR;}
+            }
+            /* Consume trailers without merging them into request headers. */
+            continue;
+        }
+
+        Tcl_Size size = 0;
+        Tcl_Size limit = conn->accept_ctx->server->max_request_read_bytes;
+        char *p = start;
+        while (p < end && tws_IsCharOfType(*p, CHAR_HEX)) {
+            int digit = tws_HexCharToValue(*p++);
+            if (size > limit / 16 || (size == limit / 16 && digit > limit % 16)) {return TCL_ERROR;}
+            size = size * 16 + digit;
+        }
+        if (p == start) {return TCL_ERROR;}
+        while (p < end && (*p == ' ' || *p == '\t')) {p++;}
+        if (p < end && *p != ';') {return TCL_ERROR;}
+        conn->body_chunk_size = size;
+        conn->body_state = size == 0 ? TWS_CHUNK_TRAILERS : TWS_CHUNK_DATA;
+    }
     return TCL_OK;
 }
 
