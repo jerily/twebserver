@@ -184,6 +184,10 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     conn->write_offset = 0;
     conn->blank_line_offset = 0;
     conn->content_length = 0;
+    conn->body_state = TWS_BODY_FIXED;
+    conn->body_offset = 0;
+    conn->body_chunk_size = 0;
+    conn->content_type[0] = '\0';
     if (conn->req_dict_ptr) {
         Tcl_DecrRefCount(conn->req_dict_ptr);
     }

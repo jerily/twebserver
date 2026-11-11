@@ -13,6 +13,12 @@ append init_script {
             /large { set body [string repeat x [expr {8 * 1024 * 1024}]] }
             /chunked { set body [string repeat x [expr {12 * 1024 * 1024}]] }
             /echo { set body [dict get $req body] }
+            /echo-binary {
+                ::twebserver::return_response [dict get $ctx conn] \
+                    [dict create statusCode 200 body [dict get $req body] \
+                        isBase64Encoded [dict get $req isBase64Encoded]]
+                return
+            }
             /head-length {
                 ::twebserver::return_response [dict get $ctx conn] \
                     [dict create statusCode 200 body {} headers {content-length 12345678901}]

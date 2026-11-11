@@ -22,6 +22,10 @@ The request ```req``` dictionary includes the following:
 - **isBase64Encoded** - whether the body is base64 encoded
 - **body** - the body
 
+HTTP chunked request bodies are decoded before the handler runs. Content encodings
+such as `aws-chunked` are preserved for the application to decode. HTTP trailers
+are consumed without being merged into the request headers.
+
 #### Response Dictionary
 
 The response ```res``` dictionary should include the following:

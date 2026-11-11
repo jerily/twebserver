@@ -387,6 +387,77 @@ namespace eval ::readiness {
             check {[dict get $headers transfer-encoding] eq "chunked"} "expected chunked response"
             check {$body eq [string repeat x 12582912]} "chunked body mismatch"
         } -result {}
+    test readiness-chunked-request {HTTP and TLS decode binary chunks and reset framing on keepalive} \
+        -setup start -cleanup stop -body {
+            set values {}
+            for {set i 0} {$i < 256} {incr i} {lappend values $i}
+            set binary [string repeat [binary format c* $values] 257]
+            foreach tls {0 1} {
+                set channel [connect $tls]
+                send $channel "PUT /echo-binary HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\nContent-Type: application/octet-stream\r\nTransfer-Encoding: ChUnKeD \t\r\n\r\n"
+                send $channel "[format %x [string length $binary]];name=value\r\n$binary\r\n1\r\nx\r\n0\r\nX-Checksum: ignored\r\n\r\n"
+                expect $channel ${binary}x
+                send $channel "POST /echo HTTP/1.1\r\nConnection: keep-alive\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nfixed"
+                expect $channel fixed
+                send $channel "POST /echo HTTP/1.1\r\nConnection: keep-alive\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n"
+                expect $channel {}
+                send $channel "GET / HTTP/1.1\r\nConnection: close\r\n\r\n"
+                expect $channel ok
+                closed $channel
+            }
+        }
+    test readiness-chunked-fragments {chunk sizes, data, delimiters and trailers can span reads} \
+        -setup start -cleanup stop -body {
+            foreach tls {0 1} {
+                set channel [connect $tls]
+                send $channel "POST /echo HTTP/1.1\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n"
+                foreach part [list 3 \r \n a bc \r "\n0\r" "\nX-Checksum: value\r" \n \r \n] {
+                    send $channel $part
+                    after 10
+                }
+                expect $channel abc
+            }
+        }
+    test readiness-chunked-content-encoding {HTTP decoding preserves the inner AWS chunk framing} \
+        -setup start -cleanup stop -body {
+            set inner "3\r\n[binary format H* 00ff01]\r\n0\r\nx-amz-checksum-crc32: fake\r\n\r\n"
+            set channel [connect]
+            send $channel "PUT /echo-binary HTTP/1.1\r\nContent-Type: application/octet-stream\r\nContent-Encoding: aws-chunked\r\nTransfer-Encoding: chunked\r\n\r\n[format %x [string length $inner]]\r\n$inner\r\n0\r\n\r\n"
+            expect $channel $inner
+        }
+    test readiness-chunked-invalid {ambiguous framing and malformed chunks return 400 and close} \
+        -setup start -cleanup stop -body {
+            foreach {headers body} [list \
+                    "Transfer-Encoding: chunked\r\nContent-Length: 5" "0\r\n\r\n" \
+                    "Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked" "0\r\n\r\n" \
+                    {Transfer-Encoding: gzip, chunked} "0\r\n\r\n" \
+                    {Transfer-Encoding: chunked, gzip} "0\r\n\r\n" \
+                    {Transfer-Encoding: chunked} "z\r\n" \
+                    {Transfer-Encoding: chunked} "1garbage\r\nx\r\n0\r\n\r\n" \
+                    {Transfer-Encoding: chunked} "FFFFFFFFFFFFFFFFF\r\n" \
+                    {Transfer-Encoding: chunked} "1\nx\r\n0\r\n\r\n" \
+                    {Transfer-Encoding: chunked} "1\r\nx!!" \
+                    {Transfer-Encoding: chunked} "0\r\ninvalid trailer\r\n\r\n" \
+                    {Transfer-Encoding: chunked} "0\r\nBad Name: value\r\n\r\n" \
+                    {Transfer-Encoding: chunked} "1;[string repeat x 8192]\r\n"] {
+                set channel [connect]
+                send $channel "POST /echo HTTP/1.1\r\nConnection: keep-alive\r\n$headers\r\n\r\n$body"
+                lassign [response $channel] status
+                check {$status == 400} "invalid chunked request returned $status"
+                closed $channel
+            }
+            healthy
+        }
+    test readiness-chunked-deadline {incomplete chunk data and trailers expire without dispatch} \
+        -setup start -cleanup stop -body {
+            foreach body [list "4\r\nabc" "0\r\nX-Trailer: value\r\n"] {
+                set channel [connect]
+                send $channel "POST /echo HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n$body"
+                expect $channel {Bad Request} 400
+                closed $channel
+            }
+            healthy
+        }
     test readiness-fragmented-http {idle and fragmented HTTP sleeps and resumes} \
         -setup start -cleanup stop -body { fragmented } -result {}
     test readiness-fragmented-tls {idle and fragmented TLS sleeps and resumes} \

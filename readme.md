@@ -17,7 +17,7 @@ TCL Web Server Extension
 
 ## Modules and Extensions
 
-* [thtml](https://github.com/jerily/thtml) - HTML Templating Engine for TCL
+* [jinja2-tcl](https://github.com/jerily/jinja2-tcl) - Jinja2 template engine for Tcl.
 * [tjson](https://github.com/jerily/tjson) - parse and serialize json in TCL
 * [valkey-tcl](https://github.com/jerily/valkey-tcl) - interface to the Valkey (redis) store.
 * [tink-tcl](https://github.com/jerily/tink-tcl) - cryptographic APIs that are secure, easy to use correctly, and hard(er) to misuse.
