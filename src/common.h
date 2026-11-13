@@ -134,6 +134,7 @@ typedef struct tws_conn_t_ {
     // refactor the following into a flags field
     tws_compression_method_t compression;
     int keepalive;
+    int head_only;
     int io_mask;                 /* Readiness needed by the last I/O attempt. */
     int wait_mask;               /* Current epoll/kqueue subscription. */
     int event_queued;
@@ -159,6 +160,9 @@ typedef struct tws_conn_t_ {
     Tcl_Size top_part_offset;
     Tcl_Size write_offset;
     Tcl_Size content_length;
+    enum {TWS_BODY_FIXED, TWS_CHUNK_SIZE, TWS_CHUNK_DATA, TWS_CHUNK_TRAILERS, TWS_CHUNK_DONE} body_state;
+    Tcl_Size body_offset;
+    Tcl_Size body_chunk_size;
     Tcl_Size blank_line_offset;
     Tcl_DString *chunks_ds;
     Tcl_Size n_chunks;

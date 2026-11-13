@@ -30,7 +30,7 @@ server extension. The compatibility router also loads it on demand.
 
 ## Modules and Extensions
 
-* [thtml](https://github.com/jerily/thtml) - HTML Templating Engine for TCL
+* [jinja2-tcl](https://github.com/jerily/jinja2-tcl) - Jinja2 template engine for Tcl.
 * [tjson](https://github.com/jerily/tjson) - parse and serialize json in TCL
 * [valkey-tcl](https://github.com/jerily/valkey-tcl) - interface to the Valkey (redis) store.
 * [tink-tcl](https://github.com/jerily/tink-tcl) - cryptographic APIs that are secure, easy to use correctly, and hard(er) to misuse.
@@ -60,6 +60,12 @@ server extension. The compatibility router also loads it on demand.
 * [Benchmarking](docs/benchmark.md)
 
 ## Examples
+
+HEAD responses send headers without a body. By default, `Content-Length` is
+computed from the response body, including base64 decoding and gzip. A HEAD
+handler may instead supply a nonnegative `Content-Length` header and an empty
+body. The server owns response framing and emits each framing header once.
+Values in `multiValueHeaders` are emitted as separate header fields, including `Set-Cookie`.
 
 * [Threads, tpathexp routing, and middleware](examples/example-best-with-router.tcl)
 * [SQLite with tpathexp](examples/example-with-sqlite.tcl)

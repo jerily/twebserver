@@ -42,6 +42,9 @@ add_test(NAME AllUnitTests
 set_tests_properties(AllUnitTests
         PROPERTIES ENVIRONMENT "TCLLIBPATH={${CMAKE_CURRENT_BINARY_DIR}} {${TPATHEXP_LIBRARY_DIR}}"
 )
+add_test(NAME ReadinessTests COMMAND ${TCL_TCLSH}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/readiness_test.tcl
+    --tclsh ${TCL_TCLSH} --libdir ${CMAKE_CURRENT_BINARY_DIR})
 
 add_custom_target(shell ${CMAKE_COMMAND} -E env TCLLIBPATH=${CMAKE_CURRENT_BINARY_DIR} ${TCL_TCLSH}
         USES_TERMINAL

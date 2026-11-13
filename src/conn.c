@@ -451,6 +451,7 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->client = client;
     conn->compression = NO_COMPRESSION;
     conn->keepalive = 0;
+    conn->head_only = 0;
     conn->io_mask = 0;
     conn->wait_mask = 0;
     conn->event_queued = 0;
@@ -471,6 +472,10 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->top_part_offset = 0;
     conn->write_offset = 0;
     conn->content_length = 0;
+    conn->body_state = TWS_BODY_FIXED;
+    conn->body_offset = 0;
+    conn->body_chunk_size = 0;
+    conn->content_type[0] = '\0';
     conn->error = 0;
     conn->blank_line_offset = 0;
     conn->n_chunks = 0;
@@ -539,6 +544,13 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
 
     Tcl_Obj *dup_req_dict_ptr = conn->req_dict_ptr;
     conn->req_dict_ptr = NULL;
+
+    Tcl_Obj *method = NULL;
+    Tcl_Obj *method_key = Tcl_NewStringObj("httpMethod", -1);
+    Tcl_IncrRefCount(method_key);
+    Tcl_DictObjGet(dataPtr->interp, dup_req_dict_ptr, method_key, &method);
+    Tcl_DecrRefCount(method_key);
+    conn->head_only = method && strcmp(Tcl_GetString(method), "HEAD") == 0;
 
     Tcl_Obj *ctx_dict_ptr;
     if (TCL_OK != tws_CreateContextDict(dataPtr->interp, conn, &ctx_dict_ptr)) {
@@ -613,6 +625,9 @@ static int tws_ShouldParseBottomPart(tws_conn_t *conn) {
 }
 
 static int tws_ShouldReadMore(tws_conn_t *conn) {
+    if (conn->body_state != TWS_BODY_FIXED) {
+        return conn->body_state != TWS_CHUNK_DONE;
+    }
     if (conn->content_length > 0) {
         int content_read_but_not_processed = Tcl_DStringLength(&conn->inout_ds) - conn->top_part_offset;
         return conn->content_length - content_read_but_not_processed > 0;
@@ -645,6 +660,12 @@ static int tws_HandleRecv(tws_conn_t *conn) {
         }
     }
 
+    if (TCL_OK != tws_ParseChunkedBody(conn)) {
+        Tcl_DStringSetLength(&conn->parse_ds, 0);
+        conn->ready = 1;
+        return 1;
+    }
+
     // return 400 if we exceeded read timeout
     long long elapsed = current_time_in_millis() - conn->start_read_millis;
     if (elapsed > conn->accept_ctx->server->read_timeout_millis) {
@@ -658,7 +679,8 @@ static int tws_HandleRecv(tws_conn_t *conn) {
     int ret = TWS_DONE;
     if (tws_ShouldReadMore(conn)) {
         Tcl_Size content_read_but_not_processed = Tcl_DStringLength(&conn->inout_ds) - conn->top_part_offset;
-        Tcl_Size bytes_to_read = conn->content_length == 0 ? 0 : conn->content_length - content_read_but_not_processed;
+        Tcl_Size bytes_to_read = conn->body_state != TWS_BODY_FIXED || conn->content_length == 0 ?
+                0 : conn->content_length - content_read_but_not_processed;
         ret = conn->accept_ctx->read_fn(conn, &conn->inout_ds, bytes_to_read);
     }
 
@@ -688,6 +710,12 @@ static int tws_HandleRecv(tws_conn_t *conn) {
             conn->ready = 1;
             return 1;
         }
+    }
+
+    if (TCL_OK != tws_ParseChunkedBody(conn)) {
+        Tcl_DStringSetLength(&conn->parse_ds, 0);
+        conn->ready = 1;
+        return 1;
     }
 
     /* Consume buffered headers before deciding whether another read is needed. */
