@@ -51,10 +51,10 @@ require tpathexp.
 ### Install routing support for examples and tests
 
 Build [tpathexp](https://github.com/jerily/tpathexp) 1.2.0 or later against the
-same Tcl ABI as twebserver. Until the middleware PR is merged, use its branch:
+same Tcl ABI as twebserver:
 
 ```bash
-git clone --branch feat/router-middleware https://github.com/jerily/tpathexp.git ../tpathexp
+git clone --branch v1.2.0 https://github.com/jerily/tpathexp.git ../tpathexp
 cmake -S ../tpathexp -B ../tpathexp/build
 cmake --build ../tpathexp/build
 cmake --install ../tpathexp/build
