@@ -11,9 +11,23 @@ TCL Web Server Extension
 * It supports multiple certificates for different hosts (SNI).
 * Keepalive connections
 * Compression (gzip)
-* Routing & Middleware functionality
+* Routing via the optional [tpathexp](https://github.com/jerily/tpathexp) package
 * Client Certificate Verification
 
+
+## Version 2.0.0
+
+The bundled path matcher, router, and middleware implementation have been removed.
+The old router commands and `-with_router` option remain as deprecated
+compatibility APIs backed by tpathexp. New applications use the ordinary
+`create_server config callback init_script` interface and send responses with
+`return_response`. Routing examples use tpathexp 1.2.0 or later
+for native routing and middleware. Native C commands in twebserver adapt
+legacy handlers and send responses. Each worker loads both packages and binds
+its router with one alias to `::twebserver::process_conn`. See [Routing](docs/routing.md) for migration
+details. `ttrek.json` includes tpathexp as a runtime routing dependency; the
+server extension does not link to it and loads it only when routing is used.
+Tests warn and skip routing cases when tpathexp is unavailable.
 
 ## Modules and Extensions
 
@@ -54,4 +68,6 @@ handler may instead supply a nonnegative `Content-Length` header and an empty
 body. The server owns response framing and emits each framing header once.
 Values in `multiValueHeaders` are emitted as separate header fields, including `Set-Cookie`.
 
-* [Threads & Routing & Middleware example](examples/example-best-with-router.tcl)
+* [Threads, tpathexp routing, and middleware](examples/example-best-with-router.tcl)
+* [SQLite with tpathexp](examples/example-with-sqlite.tcl)
+* [Server without routing](examples/example-without-routing.tcl)

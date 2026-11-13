@@ -1,3 +1,5 @@
 set dir [file dirname [info script]]
 
-package ifneeded twebserver @PROJECT_VERSION@ [list load [file join $dir libtwebserver[info sharedlibextension]]]
+package ifneeded twebserver @PROJECT_VERSION@ [join [list \
+    [list load [file join $dir libtwebserver[info sharedlibextension]]] \
+    [list source [file join $dir compat.tcl]]] \n]

@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: tcltk/tcl
-          ref: core-9-0-b3-rc
+          ref: core-9-0-0
           path: tcl
       - name: Configure Tcl
         working-directory: tcl/unix
@@ -72,11 +72,25 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Checkout tpathexp
+        uses: actions/checkout@v4
+        with:
+          repository: jerily/tpathexp
+          ref: v1.2.0
+          path: tpathexp
+      - name: Build tpathexp for the routing tests
+        run: |
+          cmake -S tpathexp -B tpathexp/build -DBUILD_TESTING=OFF \
+            -DTCL_INCLUDE_PATH="$HOME/tcl_install/include" \
+            -DTCL_LIBRARY="$HOME/tcl_install/lib/libtcl9.0.so" \
+            -DTCL_STUB_LIBRARY="$HOME/tcl_install/lib/libtclstub.a"
+          cmake --build tpathexp/build -j
+
       - name: Configure
         run: |
           mkdir build
           cd build
-          cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/twebserver_install -DCMAKE_PREFIX_PATH=$HOME/twebserver_install -DTCL_INCLUDE_DIR=$HOME/tcl_install/include -DTCL_LIBRARY_DIR=$HOME/tcl_install/lib
+          cmake .. -DTPATHEXP_LIBRARY_DIR="$GITHUB_WORKSPACE/tpathexp/build" -DCMAKE_INSTALL_PREFIX=$HOME/twebserver_install -DCMAKE_PREFIX_PATH=$HOME/twebserver_install -DTCL_INCLUDE_DIR=$HOME/tcl_install/include -DTCL_LIBRARY_DIR=$HOME/tcl_install/lib
       - name: Build
         working-directory: build
         run: |

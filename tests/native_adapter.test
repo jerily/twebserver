@@ -1,0 +1,57 @@
+package require tcltest 2
+package require twebserver 2.0.0
+namespace import -force ::tcltest::test
+
+namespace eval ::native_adapter_tests {
+    proc fail {ctx req} {return -code error -errorcode {APP FAILED} failure}
+    proc echo {marker ctx req} {dict create statusCode 200 body $marker}
+}
+
+test native-adapter-error {handler argument adaptation preserves Tcl errors} -body {
+    set rc [catch {::twebserver::invoke_handler ::native_adapter_tests::fail {} {} {}} message options]
+    list $rc $message [dict get $options -errorcode]
+} -result {1 failure {APP FAILED}}
+
+test native-adapter-prefix {handler prefix arguments remain literal objects} -body {
+    set marker {a; [error injected] $variable}
+    set response [::twebserver::invoke_handler [list ::native_adapter_tests::echo $marker] {} {} {}]
+    expr {[dict get $response body] eq $marker}
+} -result 1
+
+test native-adapter-malformed {invalid lists and prefixes produce Tcl errors, not crashes} -body {
+    set bad "\{"
+    set result {}
+    foreach command [list \
+        [list ::twebserver::invoke_handler] \
+        [list ::twebserver::invoke_handler {} {} {} {}] \
+        [list ::twebserver::invoke_handler $bad {} {} {}] \
+        [list ::twebserver::process_conn]] {
+        lappend result [catch {uplevel #0 $command}]
+    }
+    set result
+} -result {1 1 1 1}
+
+test native-adapter-copy {method adaptation and HEAD suppression do not change shared caller values} -setup {
+    interp create native_child
+    native_child eval [list set auto_path $auto_path]
+} -body {
+    native_child eval {
+        package require twebserver 2.0.0
+        rename ::twebserver::return_response ::twebserver::real_return_response
+        proc ::twebserver::return_response {conn res} {set ::sent $res}
+        set shared_response {statusCode 200 body payload headers {X-Test yes}}
+        proc backend {subcommand req ctx} {
+            set ::received $req
+            return $::shared_response
+        }
+        set original {httpMethod HEAD path / headers {X-Request retained}}
+        ::twebserver::process_conn backend {conn test} $original
+        list [dict exists $original method] [dict get $received method] \
+            [dict get $received headers X-Request] [dict get $shared_response body] \
+            [dict get $sent body] [dict get $sent headers X-Test] \
+            [package provide tpathexp]
+    }
+} -cleanup {interp delete native_child} -result {0 HEAD retained payload {} yes {}}
+
+namespace delete ::native_adapter_tests
+::tcltest::cleanupTests

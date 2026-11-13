@@ -5,9 +5,9 @@
 
 * **::twebserver::create_server** *?-with_router?* *config_dict* *request_processor_proc* *thread_init_script*
     - returns a handle to a server, see [Server Configuration](config.md) for configuration parameters
-    - when ```with_router``` option is specified, it skips the execution of the ```request_processor_proc``` and directly
-  invokes the router by getting the defined interp alias
+    - `-with_router` is deprecated and accepted for compatibility; all requests use the normal callback path
     - the ```request_processor_proc``` should accept two arguments: ```context_dict``` and ```request_dict```.
+      It must send its response with `::twebserver::return_response`; returning a dictionary alone does not send it.
       See the [Dictionaries documentation](ctx_req_res_dict.md) for more information on the context and request dictionaries.
 
   ```tcl
@@ -36,43 +36,41 @@
   ```tcl
   ::twebserver::destroy_server $server_handle
   ```
-* **::twebserver::create_router** *?trace_var?*
-    - returns a handle to a router and creates a request_processor_proc
-      like the one accepted in ```create_server``` command
-  ```tcl
-  ::twebserver::create_router router
-  ```
-* **::twebserver::add_route** *?-guard_proc_list proc_list?* *?-prefix?* *?-nocase?* *?-strict?* *router* *method* *path* *handler_proc*
-    - adds a route to a router, the handler_proc should accept two arguments: ```context_dict``` and ```request_dict```.
-      See [Routing](routing.md) for more information.
-  ```tcl
-  proc example_handler {ctx req} {
-    set response_dict [dict create]
-    dict set response_dict statusCode 200
-    dict set response_dict body "hello world"
-    return $response_dict
-  }
-  ::twebserver::add_route $router GET /example example_handler
-  ```
 
-* **::twebserver::add_middleware** *?-enter_proc enter_proc_name?* *?-leave_proc leave_proc_name?* *router*
-    - adds middleware to a router, the enter_proc_name should accept two arguments: ```context_dict``` and ```request_dict```.
-      The leave_proc_name should accept three arguments: ```context_dict```, ```request_dict```, and ```response_dict```.
-      See [Middleware](middleware.md) for more information.
-      ```tcl
-      proc example_enter {ctx req} {
-        puts "entering example"
-        return $req
-      }
-      proc example_leave {ctx req res} {
-        puts "leaving example"
-        return $res
-      }
-      ::twebserver::add_middleware \
-        -enter_proc example_enter \
-        -leave_proc example_leave \
-        $router
-      ```
+Routing is supplied by [tpathexp](routing.md). The following commands are
+implemented in twebserver's C extension:
+
+* **::twebserver::process_conn** *router context request* adapts the request to
+  tpathexp, dispatches it, and sends the response. Unexpected dispatch errors
+  become logged 500 responses; all HEAD response bodies are cleared. Bind the
+  router with `interp alias {} process_conn {} ::twebserver::process_conn $router`
+  to use this as the server callback.
+* **::twebserver::invoke_handler** *handler request context params* adapts a
+  `{ctx req}` handler to tpathexp's argument order.
+  Register `[list ::twebserver::invoke_handler $handler]` as a route handler;
+  tpathexp supplies the last three arguments and runs all middleware.
+  See [Middleware](middleware.md) for router and route hooks.
+
+### Deprecated router compatibility commands
+
+These Tcl wrappers load tpathexp 1.2.0 or later on first use. They do not use a
+bundled matcher. New code should use tpathexp directly.
+
+* **::twebserver::create_router** *?-command_name command?* *?varname?* creates a
+  router callback and returns its handle. If a variable is supplied, it is
+  read-only; unsetting it destroys the router and its callback commands.
+* **::twebserver::add_route** *?-name name?* *?-guard_proc_list list?* *?-prefix?*
+  *?-nocase?* *?-strict?* *router method path handler* preserves the old
+  `{ctx req}` handler signature. `-name` populates `ctx route_name`.
+* **::twebserver::add_middleware** *?-enter_proc prefix?* *?-leave_proc prefix?*
+  *router* forwards the hooks to `$router add_middleware` in tpathexp. Middleware registered
+  after routes still applies to those routes.
+* **::twebserver::info_routes** *router* returns the registered route metadata.
+  Regex patterns now use tpathexp's POSIX syntax.
+
+The shim translates bare `*`, boolean flags, and guard lists. See
+[Migration notes](routing.md#migrating-from-1x) for matching differences.
+
 ### Medium-level Commands
 
 * **::twebserver::get_form** *request_dict*

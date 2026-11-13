@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
-project(twebserver VERSION 1.47.57 LANGUAGES CXX C)
+project(twebserver VERSION 2.0.0 LANGUAGES CXX C)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(TARGET twebserver)
@@ -35,11 +35,12 @@ endif ()
 set(CMAKE_CTEST_ARGUMENTS "--verbose")
 set(CMAKE_CTEST_ARGUMENTS "--output-on-failure")
 enable_testing()
+set(TPATHEXP_LIBRARY_DIR "" CACHE PATH "Directory containing the tpathexp package index for tests")
 add_test(NAME AllUnitTests
         COMMAND ${TCL_TCLSH} ${CMAKE_CURRENT_SOURCE_DIR}/tests/all.tcl
 )
 set_tests_properties(AllUnitTests
-        PROPERTIES ENVIRONMENT TCLLIBPATH=${CMAKE_CURRENT_BINARY_DIR}
+        PROPERTIES ENVIRONMENT "TCLLIBPATH={${CMAKE_CURRENT_BINARY_DIR}} {${TPATHEXP_LIBRARY_DIR}}"
 )
 add_test(NAME ReadinessTests COMMAND ${TCL_TCLSH}
     ${CMAKE_CURRENT_SOURCE_DIR}/tests/readiness_test.tcl
@@ -52,16 +53,15 @@ add_custom_target(shell ${CMAKE_COMMAND} -E env TCLLIBPATH=${CMAKE_CURRENT_BINAR
 
 
 add_library(twebserver SHARED src/library.c src/base64.c src/base64/cencode.c src/base64/cdecode.c
-        src/router.c
         src/conn.c
         src/common.c
         src/request.c
         src/crypto.c
-        src/path_regexp/path_regexp.c
         src/form.c
         src/https.c
         src/http.c
         src/return.c
+        src/router_adapter.c
 )
 set_target_properties(twebserver PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
@@ -75,7 +75,9 @@ install(TARGETS ${TARGET}
 )
 
 configure_file(pkgIndex.tcl.in pkgIndex.tcl @ONLY)
+configure_file(library/compat.tcl compat.tcl COPYONLY)
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/pkgIndex.tcl
+        ${CMAKE_CURRENT_BINARY_DIR}/compat.tcl
         DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/${TARGET}${PROJECT_VERSION}
 )

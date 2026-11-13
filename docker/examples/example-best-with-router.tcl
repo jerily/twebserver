@@ -2,10 +2,11 @@
 # SPDX-FileCopyrightText: 2024 Neofytos Dimitriou (neo@jerily.cy)
 # SPDX-License-Identifier: MIT.
 
-package require twebserver
+package require twebserver 2.0.0
 
 set init_script {
-    package require twebserver
+    package require twebserver 2.0.0
+    package require tpathexp 1.2.0
 
     namespace eval simple_session_manager {
         proc enter {ctx req} {
@@ -18,36 +19,23 @@ set init_script {
         }
     }
 
-    # create a router
-    ::twebserver::create_router router
+    set router [::tpathexp::router]
+    $router add_middleware -enter_proc ::simple_session_manager::enter \
+        -leave_proc ::simple_session_manager::leave
+    foreach {method path handler} {
+        GET  /                    ::get_index_page_handler
+        GET  /blog/:user_id/sayhi  ::get_blog_entry_handler
+        GET  /addr                ::get_addr_handler
+        POST /example             ::post_example_handler
+        GET  /logo                ::get_logo_handler
+    } {
+        $router add $method $path \
+            [list ::twebserver::invoke_handler $handler] -strict true
+    }
+    $router add GET {/:path(.*)} \
+        [list ::twebserver::invoke_handler ::get_catchall_handler]
 
-    # add middleware to the router
-    ::twebserver::add_middleware \
-        -enter_proc simple_session_manager::enter \
-        -leave_proc simple_session_manager::leave \
-        $router
-
-    # add a route that will be called if the request method is GET and the path is "/"
-    ::twebserver::add_route -strict $router GET / get_index_page_handler
-
-    # add a route that has a path parameter called "user_id"
-    # when the route path expression matches, it will call "get_blog_entry_handler" proc
-    ::twebserver::add_route -strict $router GET /blog/:user_id/sayhi get_blog_entry_handler
-
-    # add a route that will be called if the request method is GET and the path is "/addr"
-    ::twebserver::add_route -strict $router GET /addr get_addr_handler
-
-    # add a route that will be called if the request method is POST and the path is "/example"
-    ::twebserver::add_route -strict $router POST /example post_example_handler
-
-    # add a route that will be called if the request method is GET and the path is "/logo"
-    ::twebserver::add_route -strict $router GET /logo get_logo_handler
-
-    # add a catchall route that will be called if no other route matches a GET request
-    ::twebserver::add_route $router GET "*" get_catchall_handler
-
-    # make sure that the router will be called when the server receives a connection
-    interp alias {} process_conn {} $router
+    interp alias {} process_conn {} ::twebserver::process_conn $router
 
     proc get_index_page_handler {ctx req} {
         set html {
@@ -125,7 +113,7 @@ set config_dict [dict create \
     gzip_min_length 8192]
 
 # create the server
-set server_handle [::twebserver::create_server -with_router $config_dict process_conn $init_script]
+set server_handle [::twebserver::create_server $config_dict process_conn $init_script]
 
 # add SSL context to the server
 set dir [file dirname [info script]]

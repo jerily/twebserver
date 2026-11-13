@@ -1,21 +1,29 @@
-package require twebserver
+package require twebserver 2.0.0
 
 set server_port 12345
 set http_server_port 1122
 
 set init_script {
-    package require twebserver
+    package require twebserver 2.0.0
+    package require tpathexp 1.2.0
 
-    ::twebserver::create_router -command_name process_conn router
+    set router [::tpathexp::router]
+    foreach {method path handler} {
+        GET  /someerror              ::get_someerror_handler
+        GET  /qwerty/:user_id/sayhi  ::get_qwerty_handler
+        GET  /addr                   ::get_addr_handler
+        POST /example                ::post_example_handler
+        POST /form-example           ::post_form_handler
+    } {
+        $router add $method $path \
+            [list ::twebserver::invoke_handler $handler] -strict true
+    }
+    $router add GET /asdf \
+        [list ::twebserver::invoke_handler ::get_asdf_handler] -end false
+    $router add {GET POST} {/:path(.*)} \
+        [list ::twebserver::invoke_handler ::catchall_handler]
 
-    ::twebserver::add_route -strict $router GET /someerror get_someerror_handler
-    ::twebserver::add_route -prefix $router GET /asdf get_asdf_handler
-    ::twebserver::add_route -strict $router GET /qwerty/:user_id/sayhi get_qwerty_handler
-    ::twebserver::add_route -strict $router GET /addr get_addr_handler
-    ::twebserver::add_route -strict $router POST /example post_example_handler
-    ::twebserver::add_route -strict $router POST /form-example post_form_handler
-    ::twebserver::add_route $router GET "*" catchall_handler
-    ::twebserver::add_route $router POST "*" catchall_handler
+    interp alias {} process_conn {} ::twebserver::process_conn $router
 
     proc get_someerror_handler {ctx req} {
         someerror
@@ -81,7 +89,7 @@ set config_dict [dict create \
     gzip_min_length 20 \
     connect_timeout_millis 5000]
 
-set server_handle [::twebserver::create_server -with_router $config_dict process_conn $init_script]
+set server_handle [::twebserver::create_server $config_dict process_conn $init_script]
 
 set dir [file dirname [info script]]
 set localhost_key [file join $dir "../certs/host1/key.pem"]

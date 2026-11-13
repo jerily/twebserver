@@ -53,7 +53,6 @@ typedef int Tcl_Size;
 
 #define CMD_SERVER_NAME(s, internal) sprintf((s), "_TWS_SERVER_%p", (void *) (internal))
 #define CMD_CONN_NAME(s, internal) sprintf((s), "_TWS_CONN_%p", (void *) (internal))
-#define CMD_ROUTER_NAME(s, internal) sprintf((s), "_TWS_ROUTER_%p", (void *) (internal))
 
 #define CHARTYPE(what, c) (is ## what ((int)((unsigned char)(c))))
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
@@ -71,7 +70,6 @@ typedef struct tws_listener_t_ {
 } tws_listener_t;
 
 typedef struct {
-    int option_router;
     Tcl_DString cmd_ds;
     Tcl_DString script_ds;
     Tcl_DString config_dict_ds;
@@ -207,47 +205,6 @@ typedef struct {
     int option_http;
 } tws_thread_ctrl_t;
 
-typedef struct tws_route_s {
-    int type;
-    int fast_star;
-    int fast_slash;
-    int option_prefix;
-    int option_nocase;
-    int option_strict;
-    Tcl_Size http_method_len;
-    char http_method[10];
-    Tcl_Size path_len;
-    char path[1024];
-    Tcl_Size proc_name_len;
-    char proc_name[128];
-    Tcl_Obj *keys;
-    char *pattern;
-    Tcl_Obj *guard_list_ptr;
-    Tcl_Obj *name_ptr;
-    struct tws_route_s *nextPtr;
-} tws_route_t;
-
-typedef struct tws_middleware_s {
-    Tcl_Obj *enter_proc_ptr;
-    Tcl_Obj *leave_proc_ptr;
-    struct tws_middleware_s *nextPtr;
-    struct tws_middleware_s *prevPtr;
-} tws_middleware_t;
-
-typedef struct {
-    tws_route_t *firstRoutePtr;
-    tws_route_t *lastRoutePtr;
-    tws_middleware_t *firstMiddlewarePtr;
-    tws_middleware_t *lastMiddlewarePtr;
-    char handle[40];
-} tws_router_t;
-
-typedef struct {
-    Tcl_Interp *interp;
-    char *varname;
-    tws_router_t *item;
-} tws_trace_t;
-
 enum {
     TWS_DONE,
     TWS_ERROR,
@@ -260,8 +217,6 @@ void tws_InitConnNameHT();
 void tws_DeleteConnNameHT();
 void tws_InitHostNameHT();
 void tws_DeleteHostNameHT();
-void tws_InitRouterNameHT();
-void tws_DeleteRouterNameHT();
 
 int tws_RegisterServerName(const char *name, tws_server_t *internal);
 int tws_UnregisterServerName(const char *name);
@@ -272,9 +227,6 @@ tws_conn_t *tws_GetInternalFromConnName(const char *name);
 int tws_RegisterHostName(const char *name, SSL_CTX *internal);
 int tws_UnregisterHostName(const char *name);
 SSL_CTX *tws_GetInternalFromHostName(const char *name);
-int tws_RegisterRouterName(const char *name, tws_router_t *internal);
-int tws_UnregisterRouterName(const char *name);
-tws_router_t *tws_GetInternalFromRouterName(const char *name);
 char *tws_strndup(const char *s, size_t n);
 int tws_IsBinaryType(const char *content_type, size_t content_type_length);
 long long current_time_in_millis();

@@ -22,6 +22,10 @@ The request ```req``` dictionary includes the following:
 - **isBase64Encoded** - whether the body is base64 encoded
 - **body** - the body
 
+After tpathexp dispatch, handlers also receive `method` (copied from
+`httpMethod` by the adapter) and `pathParameters` (the matched named captures).
+`::twebserver::get_path_param` reads this dictionary as before.
+
 HTTP chunked request bodies are decoded before the handler runs. Content encodings
 such as `aws-chunked` are preserved for the application to decode. HTTP trailers
 are consumed without being merged into the request headers.

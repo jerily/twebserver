@@ -1,116 +1,108 @@
-# Routing
+# Routing with tpathexp
 
-Routing refers to determining how an application responds
-to a client request to a particular endpoint,
-which is a path and a specific HTTP request method (GET, POST, and so on).
+Starting with twebserver 2.0.0, routing is supplied by the separate
+[tpathexp](https://github.com/jerily/tpathexp) package (1.2.0 or later).
+The server handles connections, HTTP parsing, TLS, and response writes.
+Create one router per worker interpreter during initialization and reuse it
+across requests.
 
-Each route can have one or more handler functions,
-which are executed when the route is matched.
+twebserver supplies two native C integration commands:
+`::twebserver::process_conn` translates `httpMethod` to `method`, dispatches the
+request, and sends the response with `::twebserver::return_response`. It logs
+unexpected errors and sends a 500 response. `::twebserver::invoke_handler`
+adapts existing `{ctx req}` handlers to tpathexp. Middleware execution is
+implemented in tpathexp's native `$router dispatch` command.
 
-Route definition takes the following structure:
-
-```tcl
-::twebserver::add_route ROUTER METHOD PATH HANDLER
-```
-
-Where:
-
-* ```ROUTER``` is an instance of a router created with ```::twebserver::create_router```
-* ```METHOD``` is an HTTP request method, e.g. GET, POST, PUT, DELETE, PATCH, and OPTIONS.
-* ```PATH``` is a path on the server e.g. ```/example/:user_id/view```
-* ```HANDLER``` is the handler function executed when the route is matched e.g. ```get_example_handler```
-
-The following examples illustrate defining simple routes.
-See the [Dictionaries documentation](ctx_req_res_dict.md) for more information on the context, request, and response dictionaries.
-
-Respond with "hello world" for requests to the URL ```/example```
-```tcl
-proc example_handler {ctx req} {
-    set text "hello world"
-    return [::twebserver::build_response 200 text/plain $text]
-}
-
-::twebserver::add_route $router GET /example example_handler
-```
-
-Respond to POST request on the URL ```/example```
-```tcl
-proc example_handler {ctx req} {
-    set text "Got a POST request"
-    return [::twebserver::build_response 200 text/plain $text]
-}
-
-::twebserver::add_route $router POST /example example_handler
-```
-
-### Route Methods
-
-A route method is derived from one of the HTTP methods,
-i.e. GET, POST, PUT, DELETE, PATCH, and OPTIONS,
-
-### Route Paths
-
-Route paths, in combination with a request method,
-define the endpoints at which requests can be made.
-Route paths can be strings, string patterns, or regular expressions.
-
-### Route Parameters
-
-Route parameters are named URL segments that are used to capture
-the values specified at their position in the URL. The captured values
-are populated in the pathParameters section of the request object ```req```,
-with the name of the route parameter specified in the path as their
-respective keys.
-
-To define routes with route parameters,
-simply specify the route parameters in the path of the route as
-shown below.
+Load both packages in each worker and call the native commands directly. A
+single alias binds the worker's router to the server callback:
 
 ```tcl
-proc example_handler {ctx req} {
-    set user_id [::twebserver::get_path_param $req user_id]
-    set text "hello user $user_id"
-    return [::twebserver::build_response 200 text/plain $text]
-}
+package require twebserver 2.0.0
+set init_script {
+    package require twebserver 2.0.0
+    package require tpathexp 1.2.0
 
-::twebserver::add_route $router GET /example/:user_id/view example_handler
-```
-
-### Route Handlers
-
-Route handlers can be in the form of a proc that accepts
-the context ```ctx``` and the request ```req``` dictionaries
-and returns a response ```res``` dictionary.
-
-```tcl
-proc example_handler {ctx req} {
-    set user_id [::twebserver::get_path_param $req user_id]
-    set text "hello user $user_id"
-    return [::twebserver::build_response 200 text/plain $text]
-}
-```
-
-### Guard Proc List
-
-A guard proc list is a list of procs that are executed before the route handler.
-The guard procs should accept the context ```ctx``` and the request ```req``` dictionaries
-and return a request dictionary or an error with -options holding a response dictionary.
-
-```tcl
-proc is_logged_in {ctx req} {
-    if { [dict exists $req session is_logged_in] } {
-        return $req
+    proc get_user {ctx req} {
+        set id [::twebserver::get_path_param $req id]
+        return [::twebserver::build_response 200 text/plain "User $id"]
     }
-    return -code error -options [::twebserver::build_response 401 text/plain "unauthorized"]
-}
 
-proc example_handler {ctx req} {
-    set user_id [::twebserver::get_path_param $req user_id]
-    set text "hello user $user_id"
-    return [::twebserver::build_response 200 text/plain $text]
+    set router [::tpathexp::router]
+    $router add GET /users/:id \
+        [list ::twebserver::invoke_handler ::get_user] -strict true
+    interp alias {} process_conn {} ::twebserver::process_conn $router
 }
-
-::twebserver::add_route \
-    -guard_proc_list [list is_logged_in] \
-    $router GET /example/:user_id/view example_handler
+set server [::twebserver::create_server {} process_conn $init_script]
+::twebserver::listen_server -http $server 8080
+::twebserver::wait_signal
+::twebserver::destroy_server $server
 ```
+
+`invoke_handler` takes a handler command prefix before the `request context params`
+arguments supplied by tpathexp. Existing handlers can retain their `{ctx req}`
+signature and use `get_path_param`, `get_form`, `build_response`, and
+`build_response -return_file` normally. Register router hooks with
+`$router add_middleware` and route hooks with `$router add ... -enter_proc ...
+-leave_proc ...`. See [Middleware](middleware.md) for examples.
+
+Handlers written directly for tpathexp accept `{req ctx params}` and can be
+registered without `invoke_handler`. They return response dictionaries with
+`statusCode` and `body`; optional headers and other fields are preserved.
+
+## Routes and matching
+
+```tcl
+$router add GET /users/:id ::get_user -strict true
+$router add {POST PUT} /users/:id ::save_user
+$router add GET {/users/:id([0-9]+)} ::get_numeric_user
+$router add GET {/:path(.*)} ::not_found
+```
+
+The handlers in this snippet use tpathexp's `{req ctx params}` signature.
+Register specific routes before a catch-all. Bare `*` is unsupported; use
+`/:path(.*)` for a catch-all, including the root path. Options take explicit
+boolean values: `-strict true` rejects an extra trailing slash, and
+`-nocase true` enables case-insensitive matching. Custom patterns use POSIX
+extended regular expressions. Use Tcl braces around patterns containing brackets.
+
+GET routes also accept HEAD; dispatch clears response bodies for HEAD requests.
+No matching path produces 404. A matching path with no matching method produces
+405 with an `Allow` header. A GET catch-all matches every path for method checking,
+so other methods can receive 405 even for an otherwise unknown URL. Matching
+GET catch-alls still return the application's custom 404 response. OPTIONS has
+no automatic handling.
+
+Paths and captures are used as supplied; tpathexp does not URL-decode or normalize
+them. The `path` field from twebserver already separates the query string.
+
+## Migrating from 1.x
+
+The old bundled router implementation has been removed, but
+`::twebserver::create_router`, `add_route`, `info_routes`, `add_middleware`, and `create_server -with_router`
+remain as **deprecated compatibility APIs**. The Tcl shim forwards routing and
+middleware to tpathexp and uses the twebserver connection helper. It preserves
+`{ctx req}` handlers, hook signatures, traced-variable lifetime, and registration
+order. Named routes set `ctx route_name` for their guards and handler. The `-with_router` flag is accepted but no longer
+selects a special C dispatch path. There is no `-router` option.
+
+```tcl
+# Existing initialization scripts can still use this form:
+::twebserver::create_router -command_name process_conn router
+::twebserver::add_route -strict $router GET /users/:id get_user
+# ...then create_server -with_router $config process_conn $init_script
+```
+
+The shim translates bare `*` to a named catch-all internally and hides that
+synthetic capture from legacy handlers. Literal routes retain 1.x exact-path
+matching. Parameterized/custom patterns now use tpathexp's POSIX regex engine;
+Tcl-specific regex constructs need migration. Dispatch uses the tpathexp
+HEAD/405 behavior described above, so API compatibility does not imply identical
+HTTP method behavior to 1.x. Use `package require twebserver 2.0.0` when updating
+an application that explicitly required the 1.x package series.
+
+For new code, use `tpathexp::router`, `$router add`, and the normal server callback
+interface. An old `-prefix` route can be expressed with `-end false`. This performs
+raw prefix matching: `/api` also matches `/apix`. For a segment boundary, register
+`/api` and `/api/:path(.*)` separately. Routers belong to their creating interpreter;
+do not share a router command between worker threads. Their tables are released
+when the worker interpreter is deleted.

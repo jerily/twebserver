@@ -2,10 +2,11 @@
 # SPDX-FileCopyrightText: 2024 Neofytos Dimitriou (neo@jerily.cy)
 # SPDX-License-Identifier: MIT.
 
-package require twebserver
+package require twebserver 2.0.0
 
 set init_script {
-    package require twebserver
+    package require twebserver 2.0.0
+    package require tpathexp 1.2.0
     package require sqlite3
 
     sqlite3 db1 /tmp/test.db -create true -fullmutex true
@@ -18,12 +19,18 @@ set init_script {
         );
     }
 
-    # create a router
-    ::twebserver::create_router -command_name process_conn router
+    set router [::tpathexp::router]
+    foreach {method path handler} {
+        GET  /        ::get_index_page_handler
+        POST /add-row ::add_row_handler
+    } {
+        $router add $method $path \
+            [list ::twebserver::invoke_handler $handler] -strict true
+    }
+    $router add GET {/:path(.*)} \
+        [list ::twebserver::invoke_handler ::get_catchall_handler]
 
-    ::twebserver::add_route -strict $router GET / get_index_page_handler
-    ::twebserver::add_route -strict $router POST /add-row add_row_handler
-    ::twebserver::add_route $router GET "*" get_catchall_handler
+    interp alias {} process_conn {} ::twebserver::process_conn $router
 
     proc get_index_page_handler {ctx req} {
         set rows_html ""
@@ -73,7 +80,7 @@ set config_dict [dict create \
     gzip_min_length 8192]
 
 # create the server
-set server_handle [::twebserver::create_server -with_router $config_dict process_conn $init_script]
+set server_handle [::twebserver::create_server $config_dict process_conn $init_script]
 
 # add SSL context to the server
 set dir [file dirname [info script]]

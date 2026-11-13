@@ -1,0 +1,22 @@
+{
+  "name": "twebserver",
+  "version": "2.0.0",
+  "dependencies": {
+    "openssl": "^3.0.13",
+    "tcl": ">=8.6.14 <10.0.0",
+    "tpathexp": "^1.2.0"
+  },
+  "build": {
+    "default": [
+      {
+        "cmd": "cmake_config",
+        "options": [
+          {"name": "TCL_LIBRARY_DIR", "value": "$INSTALL_DIR/lib"},
+          {"name": "TCL_INCLUDE_PATH", "value": "$INSTALL_DIR/include"}
+        ]
+      },
+      {"cmd": "make", "parallel": true},
+      {"cmd": "make_install"}
+    ]
+  }
+}

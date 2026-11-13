@@ -17,7 +17,6 @@
 #include "conn.h"
 #include "request.h"
 #include "https.h"
-#include "router.h"
 #include "return.h"
 #include <netdb.h>
 
@@ -496,10 +495,48 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     return conn;
 }
 
+static int tws_CreateContextDict(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj **result_ptr) {
+
+    Tcl_Obj *ctx_dict_ptr = Tcl_NewDictObj();
+    Tcl_IncrRefCount(ctx_dict_ptr);
+
+    if (TCL_OK != Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("server", -1),
+                                 Tcl_NewStringObj(conn->accept_ctx->server->handle, -1))) {
+        Tcl_DecrRefCount(ctx_dict_ptr);
+        SetResult("create_context: dict put failed");
+        return TCL_ERROR;
+    }
+    if (TCL_OK !=
+        Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("conn", -1), Tcl_NewStringObj(conn->handle, -1))) {
+        Tcl_DecrRefCount(ctx_dict_ptr);
+        SetResult("create_context: dict put failed");
+        return TCL_ERROR;
+    }
+    if (TCL_OK !=
+        Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("addr", -1), Tcl_NewStringObj(conn->client_ip, -1))) {
+        Tcl_DecrRefCount(ctx_dict_ptr);
+        SetResult("create_context: dict put failed");
+        return TCL_ERROR;
+    }
+    if (TCL_OK !=
+        Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("port", -1), Tcl_NewIntObj(conn->accept_ctx->port))) {
+        Tcl_DecrRefCount(ctx_dict_ptr);
+        SetResult("create_context: dict put failed");
+        return TCL_ERROR;
+    }
+    if (TCL_OK != Tcl_DictObjPut(interp, ctx_dict_ptr, Tcl_NewStringObj("isSecureProto", -1),
+                                 Tcl_NewBooleanObj(!conn->accept_ctx->option_http))) {
+        Tcl_DecrRefCount(ctx_dict_ptr);
+        SetResult("create_context: dict put failed");
+        return TCL_ERROR;
+    }
+
+    *result_ptr = ctx_dict_ptr;
+    return TCL_OK;
+}
+
 static int tws_HandleProcessing(tws_conn_t *conn) {
     DBG2(printf(">>>>>>>>>>>>>>>>> HandleProcessing: %s\n", conn->handle));
-
-    tws_accept_ctx_t *accept_ctx = conn->accept_ctx;
 
     // Get a pointer to the thread data for the current thread
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(tws_thread_data_t));
@@ -514,20 +551,6 @@ static int tws_HandleProcessing(tws_conn_t *conn) {
     Tcl_DictObjGet(dataPtr->interp, dup_req_dict_ptr, method_key, &method);
     Tcl_DecrRefCount(method_key);
     conn->head_only = method && strcmp(Tcl_GetString(method), "HEAD") == 0;
-
-    if (accept_ctx->server->option_router) {
-        Tcl_CmdInfo cmd_info;
-        int found = Tcl_GetCommandInfo(dataPtr->interp, Tcl_GetString(dataPtr->cmd_ptr), &cmd_info);
-        if (found) {
-            const char *handle = (const char *) cmd_info.objClientData;
-            tws_router_t *router = tws_GetInternalFromRouterName(handle);
-            if (router != NULL) {
-                DBG2(printf("found command info while using router\n"));
-                tws_HandleRouteEventInThread(router, conn, dup_req_dict_ptr);
-                return 1;
-            }
-        }
-    }
 
     Tcl_Obj *ctx_dict_ptr;
     if (TCL_OK != tws_CreateContextDict(dataPtr->interp, conn, &ctx_dict_ptr)) {
