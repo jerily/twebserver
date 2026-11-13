@@ -5,7 +5,7 @@ set http_server_port 1122
 
 set init_script {
     package require twebserver 2.0.0
-    package require tpathexp 1.1.0
+    package require tpathexp 1.2.0
 
     set router [::tpathexp::router]
     foreach {method path handler} {
@@ -16,12 +16,12 @@ set init_script {
         POST /form-example           ::post_form_handler
     } {
         $router add $method $path \
-            [list ::twebserver::invoke_handler $handler {} {}] -strict true
+            [list ::twebserver::invoke_handler $handler] -strict true
     }
     $router add GET /asdf \
-        [list ::twebserver::invoke_handler ::get_asdf_handler {} {}] -end false
+        [list ::twebserver::invoke_handler ::get_asdf_handler] -end false
     $router add {GET POST} {/:path(.*)} \
-        [list ::twebserver::invoke_handler ::catchall_handler {} {}]
+        [list ::twebserver::invoke_handler ::catchall_handler]
 
     interp alias {} process_conn {} ::twebserver::process_conn $router
 

@@ -1,7 +1,7 @@
 package require tcltest 2
 package require twebserver 2.0.0
-package require tpathexp 1.1.0
 namespace import -force ::tcltest::test
+source [file join [file dirname [info script]] constraints.tcl]
 
 namespace eval ::adapter_tests {
     variable root [file normalize [file join [file dirname [info script]] ..]]
@@ -89,37 +89,45 @@ namespace eval ::adapter_tests {
     proc cookie {response} {string match {*session_id=1234567890*} $response}
 }
 
-test adapter-order {middleware/guard mutations and path parameters reach the old handler} -setup {
+test adapter-order {middleware/guard mutations and path parameters reach the old handler} -constraints tpathexp -setup {
     set r [::tpathexp::router]
     set ::adapter_tests::events {}
-    $r add GET /users/:id [list ::twebserver::invoke_handler \
-        ::adapter_tests::handler [::adapter_tests::middleware] {::adapter_tests::guard}]
+    foreach layer [::adapter_tests::middleware] {
+        $r add_middleware -enter_proc [lindex $layer 0] -leave_proc [lindex $layer 1]
+    }
+    $r add GET /users/:id [list ::twebserver::invoke_handler ::adapter_tests::handler] \
+        -enter_proc ::adapter_tests::guard
 } -body {
     set res [$r dispatch {method GET httpMethod GET path /users/42} {addr client}]
     list [dict get $res body] $::adapter_tests::events
 } -cleanup {$r destroy} -result {{client GET {one two three} yes 42} {enter-one enter-two enter-three guard handler leave-three leave-two leave-one}}
 
-test adapter-enter-abort {only reached middleware leaves run after a 429} -setup {
+test adapter-enter-abort {only reached middleware leaves run after a 429} -constraints tpathexp -setup {
     set r [::tpathexp::router]
     set ::adapter_tests::events {}
-    $r add GET / [list ::twebserver::invoke_handler \
-        ::adapter_tests::handler [::adapter_tests::middleware {::adapter_tests::abort 429}] {}]
+    foreach layer [::adapter_tests::middleware {::adapter_tests::abort 429}] {
+        $r add_middleware -enter_proc [lindex $layer 0] -leave_proc [lindex $layer 1]
+    }
+    $r add GET / [list ::twebserver::invoke_handler ::adapter_tests::handler]
 } -body {
     set res [$r dispatch {method GET path /}]
     list [dict get $res statusCode] $::adapter_tests::events
 } -cleanup {$r destroy} -result {429 {enter-one leave-two leave-one}}
 
-test adapter-guard-abort {a 401 skips the handler and runs all reached leave hooks} -setup {
+test adapter-guard-abort {a 401 skips the handler and runs all reached leave hooks} -constraints tpathexp -setup {
     set r [::tpathexp::router]
     set ::adapter_tests::events {}
-    $r add GET / [list ::twebserver::invoke_handler \
-        ::adapter_tests::handler [::adapter_tests::middleware] {{::adapter_tests::abort 401}}]
+    foreach layer [::adapter_tests::middleware] {
+        $r add_middleware -enter_proc [lindex $layer 0] -leave_proc [lindex $layer 1]
+    }
+    $r add GET / [list ::twebserver::invoke_handler ::adapter_tests::handler] \
+        -enter_proc {::adapter_tests::abort 401}
 } -body {
     set res [$r dispatch {method HEAD path /}]
     list [dict get $res statusCode] [dict get $res body] $::adapter_tests::events
 } -cleanup {$r destroy} -result {401 {} {enter-one enter-two enter-three leave-three leave-two leave-one}}
 
-test adapter-example-session {main example: sessions, parameters, guards, rate limit, and strict routes} -setup {
+test adapter-example-session {main example: sessions, parameters, guards, rate limit, and strict routes} -constraints tpathexp -setup {
     set child [::adapter_tests::example examples/example-best-with-router.tcl]
 } -body {
     set result {}
@@ -142,7 +150,7 @@ test adapter-example-session {main example: sessions, parameters, guards, rate l
     set result
 } -cleanup {interp delete $child} -result {200 1 1 401 1 429 1 200 1 1 404 1}
 
-test adapter-example-errors {handler errors and malformed responses become 500; HEAD errors have no body} -setup {
+test adapter-example-errors {handler errors and malformed responses become 500; HEAD errors have no body} -constraints tpathexp -setup {
     set child [::adapter_tests::example examples/example-best-with-router.tcl]
 } -body {
     set result {}
@@ -154,7 +162,7 @@ test adapter-example-errors {handler errors and malformed responses become 500; 
 } -cleanup {interp delete $child} -result {500 {Internal Server Error} 500 {Internal Server Error} 500 {} 500 {}}
 
 foreach example {examples/example-best-with-router.tcl docker/examples/example-best-with-router.tcl} {
-    test adapter-file-$example {file response and HEAD work in both router examples} -setup {
+    test adapter-file-$example {file response and HEAD work in both router examples} -constraints tpathexp -setup {
         set child [::adapter_tests::example $example]
     } -body {
         set res [::adapter_tests::request $child GET /logo]
@@ -167,7 +175,7 @@ foreach example {examples/example-best-with-router.tcl docker/examples/example-b
     } -cleanup {interp delete $child} -result {200 1 1 1 200 {}}
 }
 
-test adapter-methods {adapter maps method, sends automatic 405 and preserves its Allow header} -setup {
+test adapter-methods {adapter maps method, sends automatic 405 and preserves its Allow header} -constraints tpathexp -setup {
     set child [::adapter_tests::example docker/examples/example-best-with-router.tcl]
 } -body {
     set res [::adapter_tests::request $child DELETE /addr]
@@ -177,7 +185,7 @@ test adapter-methods {adapter maps method, sends automatic 405 and preserves its
 } -cleanup {interp delete $child} -result {405 {GET, HEAD} 404 {}}
 
 ::tcltest::testConstraint adapter_sqlite [expr {![catch {package require sqlite3}]}]
-test adapter-sqlite {SQLite example inserts form data and redirects, then renders the row} -constraints adapter_sqlite -setup {
+test adapter-sqlite {SQLite example inserts form data and redirects, then renders the row} -constraints {tpathexp adapter_sqlite} -setup {
     set child [::adapter_tests::example examples/example-with-sqlite.tcl]
 } -body {
     set res [::adapter_tests::request $child POST /add-row first_name=Ada&last_name=Lovelace]

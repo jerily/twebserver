@@ -6,7 +6,7 @@ package require twebserver 2.0.0
 
 set init_script {
     package require twebserver 2.0.0
-    package require tpathexp 1.1.0
+    package require tpathexp 1.2.0
     package require sqlite3
 
     sqlite3 db1 /tmp/test.db -create true -fullmutex true
@@ -25,10 +25,10 @@ set init_script {
         POST /add-row ::add_row_handler
     } {
         $router add $method $path \
-            [list ::twebserver::invoke_handler $handler {} {}] -strict true
+            [list ::twebserver::invoke_handler $handler] -strict true
     }
     $router add GET {/:path(.*)} \
-        [list ::twebserver::invoke_handler ::get_catchall_handler {} {}]
+        [list ::twebserver::invoke_handler ::get_catchall_handler]
 
     interp alias {} process_conn {} ::twebserver::process_conn $router
 

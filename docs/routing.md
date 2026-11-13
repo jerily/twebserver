@@ -1,7 +1,7 @@
 # Routing with tpathexp
 
 Starting with twebserver 2.0.0, routing is supplied by the separate
-[tpathexp](https://github.com/jerily/tpathexp) package (1.1.0 or later).
+[tpathexp](https://github.com/jerily/tpathexp) package (1.2.0 or later).
 The server handles connections, HTTP parsing, TLS, and response writes.
 Create one router per worker interpreter during initialization and reuse it
 across requests.
@@ -10,7 +10,8 @@ twebserver supplies two native C integration commands:
 `::twebserver::process_conn` translates `httpMethod` to `method`, dispatches the
 request, and sends the response with `::twebserver::return_response`. It logs
 unexpected errors and sends a 500 response. `::twebserver::invoke_handler`
-composes middleware and guards around existing `{ctx req}` handlers.
+adapts existing `{ctx req}` handlers to tpathexp. Middleware execution is
+implemented in tpathexp's native `$router dispatch` command.
 
 Load both packages in each worker and call the native commands directly. A
 single alias binds the worker's router to the server callback:
@@ -19,7 +20,7 @@ single alias binds the worker's router to the server callback:
 package require twebserver 2.0.0
 set init_script {
     package require twebserver 2.0.0
-    package require tpathexp 1.1.0
+    package require tpathexp 1.2.0
 
     proc get_user {ctx req} {
         set id [::twebserver::get_path_param $req id]
@@ -28,7 +29,7 @@ set init_script {
 
     set router [::tpathexp::router]
     $router add GET /users/:id \
-        [list ::twebserver::invoke_handler ::get_user {} {}] -strict true
+        [list ::twebserver::invoke_handler ::get_user] -strict true
     interp alias {} process_conn {} ::twebserver::process_conn $router
 }
 set server [::twebserver::create_server {} process_conn $init_script]
@@ -37,12 +38,12 @@ set server [::twebserver::create_server {} process_conn $init_script]
 ::twebserver::destroy_server $server
 ```
 
-`invoke_handler` takes a handler command prefix, a middleware list, and a guard
-list before the `request context params` arguments supplied by tpathexp. Empty
-lists disable middleware and guards. Existing application handlers can retain
-their `{ctx req}` signature and use `get_path_param`, `get_form`, `build_response`,
-and `build_response -return_file` normally. See [Middleware](middleware.md) for
-composition examples.
+`invoke_handler` takes a handler command prefix before the `request context params`
+arguments supplied by tpathexp. Existing handlers can retain their `{ctx req}`
+signature and use `get_path_param`, `get_form`, `build_response`, and
+`build_response -return_file` normally. Register router hooks with
+`$router add_middleware` and route hooks with `$router add ... -enter_proc ...
+-leave_proc ...`. See [Middleware](middleware.md) for examples.
 
 Handlers written directly for tpathexp accept `{req ctx params}` and can be
 registered without `invoke_handler`. They return response dictionaries with
@@ -78,10 +79,10 @@ them. The `path` field from twebserver already separates the query string.
 
 The old bundled router implementation has been removed, but
 `::twebserver::create_router`, `add_route`, `info_routes`, `add_middleware`, and `create_server -with_router`
-remain as **deprecated compatibility APIs**. The Tcl shim uses tpathexp and the
-same native middleware and connection helpers as the examples. It preserves
-`{ctx req}` handlers, middleware and guard signatures, route names (`ctx route_name`), traced-variable lifetime,
-and registration order. The `-with_router` flag is accepted but no longer
+remain as **deprecated compatibility APIs**. The Tcl shim forwards routing and
+middleware to tpathexp and uses the twebserver connection helper. It preserves
+`{ctx req}` handlers, hook signatures, traced-variable lifetime, and registration
+order. Named routes set `ctx route_name` for their guards and handler. The `-with_router` flag is accepted but no longer
 selects a special C dispatch path. There is no `-router` option.
 
 ```tcl

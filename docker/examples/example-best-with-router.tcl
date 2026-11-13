@@ -6,7 +6,7 @@ package require twebserver 2.0.0
 
 set init_script {
     package require twebserver 2.0.0
-    package require tpathexp 1.1.0
+    package require tpathexp 1.2.0
 
     namespace eval simple_session_manager {
         proc enter {ctx req} {
@@ -20,7 +20,8 @@ set init_script {
     }
 
     set router [::tpathexp::router]
-    set middleware {{::simple_session_manager::enter ::simple_session_manager::leave}}
+    $router add_middleware -enter_proc ::simple_session_manager::enter \
+        -leave_proc ::simple_session_manager::leave
     foreach {method path handler} {
         GET  /                    ::get_index_page_handler
         GET  /blog/:user_id/sayhi  ::get_blog_entry_handler
@@ -29,10 +30,10 @@ set init_script {
         GET  /logo                ::get_logo_handler
     } {
         $router add $method $path \
-            [list ::twebserver::invoke_handler $handler $middleware {}] -strict true
+            [list ::twebserver::invoke_handler $handler] -strict true
     }
     $router add GET {/:path(.*)} \
-        [list ::twebserver::invoke_handler ::get_catchall_handler $middleware {}]
+        [list ::twebserver::invoke_handler ::get_catchall_handler]
 
     interp alias {} process_conn {} ::twebserver::process_conn $router
 

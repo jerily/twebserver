@@ -33,7 +33,7 @@ make install > $BUILD_LOG_DIR/tcl-install.log 2>&1
 fi
 
 # tpathexp supplies routing for the examples; build against the same Tcl ABI.
-git clone --depth 1 --branch v1.1.0 https://github.com/jerily/tpathexp.git "$BUILD_DIR/tpathexp"
+git clone --depth 1 --branch feat/router-middleware https://github.com/jerily/tpathexp.git "$BUILD_DIR/tpathexp"
 cmake -S "$BUILD_DIR/tpathexp" -B "$BUILD_DIR/tpathexp-build" \
   -DBUILD_TESTING=OFF \
   -DTCL_INCLUDE_PATH="$INSTALL_DIR/include" \

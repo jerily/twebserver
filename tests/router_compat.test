@@ -1,6 +1,7 @@
 package require tcltest 2
 package require twebserver 2.0.0
 namespace import -force ::tcltest::test
+source [file join [file dirname [info script]] constraints.tcl]
 
 namespace eval ::compat_tests {
     proc handler {ctx req} {
@@ -28,7 +29,7 @@ test compat-lazy {requiring the server alone does not load tpathexp} -setup {
     }
 } -cleanup {interp delete compat_child} -result {{} 1}
 
-test compat-route {old API preserves names, captures, and middleware added after routes} -setup {
+test compat-route {old API preserves names, captures, and middleware added after routes} -constraints tpathexp -setup {
     ::twebserver::create_router -command_name ::compat_tests::process_conn compat_router
     ::twebserver::add_route -name user -strict $compat_router GET /users/:id ::compat_tests::handler
     ::twebserver::add_middleware -enter_proc ::compat_tests::enter -leave_proc ::compat_tests::leave $compat_router
@@ -39,7 +40,7 @@ test compat-route {old API preserves names, captures, and middleware added after
         [dict get $info http_method] [dict get $info path] [dict get $info option_strict]
 } -cleanup {unset compat_router} -result {{user {id 42} active} active GET /users/:id 1}
 
-test compat-guard {legacy guard response still runs session leave hooks} -setup {
+test compat-guard {legacy guard response still runs session leave hooks} -constraints tpathexp -setup {
     ::twebserver::create_router compat_router
     ::twebserver::add_middleware -enter_proc ::compat_tests::enter -leave_proc ::compat_tests::leave $compat_router
     ::twebserver::add_route -strict -guard_proc_list {::compat_tests::denied} \
@@ -49,7 +50,7 @@ test compat-guard {legacy guard response still runs session leave hooks} -setup 
     list [dict get $res statusCode] [dict get $res body] [dict get $res headers X-Session]
 } -cleanup {unset compat_router} -result {401 denied active}
 
-test compat-patterns {literal strictness, prefix, nocase and bare star translate to tpathexp} -setup {
+test compat-patterns {literal strictness, prefix, nocase and bare star translate to tpathexp} -constraints tpathexp -setup {
     ::twebserver::create_router compat_router
     ::twebserver::add_middleware -enter_proc ::compat_tests::enter $compat_router
     ::twebserver::add_route -name exact $compat_router GET /literal ::compat_tests::handler
@@ -63,7 +64,7 @@ test compat-patterns {literal strictness, prefix, nocase and bare star translate
     set result
 } -cleanup {unset compat_router} -result {{exact {} active} {fallback {} active} {prefix {} active} {prefix {} active} {fallback {} active} {fallback {} active}}
 
-test compat-lifetime {traced variables are read-only and unset releases both commands and native table} -body {
+test compat-lifetime {traced variables are read-only and unset releases both commands and native table} -constraints tpathexp -body {
     set before [info commands ::tpathexp::router*]
     ::twebserver::create_router -command_name ::compat_tests::callback compat_router
     set handle $compat_router
@@ -75,7 +76,7 @@ test compat-lifetime {traced variables are read-only and unset releases both com
         [expr {$before eq [info commands ::tpathexp::router*]}]
 } -result {1 1 1 {} {} 1}
 
-test compat-command-delete {deleting a renamed callback releases its route table} -body {
+test compat-command-delete {deleting a renamed callback releases its route table} -constraints tpathexp -body {
     set handle [::twebserver::create_router -command_name ::compat_tests::callback]
     set native [::twebserver::compat::require_router $handle]
     rename ::compat_tests::callback ::compat_tests::renamed
@@ -84,7 +85,7 @@ test compat-command-delete {deleting a renamed callback releases its route table
         [catch {::twebserver::info_routes $handle}]
 } -result {{} {} 1}
 
-test compat-errors {invalid options and paths do not damage existing routes} -setup {
+test compat-errors {invalid options and paths do not damage existing routes} -constraints tpathexp -setup {
     ::twebserver::create_router compat_router
     ::twebserver::add_route -strict $compat_router GET /ok ::compat_tests::handler
 } -body {

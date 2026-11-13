@@ -2,6 +2,7 @@ package require tcltest
 package require twebserver
 
 namespace import -force ::tcltest::test
+source [file join [file dirname [info script]] constraints.tcl]
 
 ::tcltest::configure {*}$argv
 
@@ -38,7 +39,7 @@ proc escape {str} {
     return [string map {\r {\r} \n {\n}} $str]
 }
 
-test not-found-1 {not found} -setup setup -cleanup cleanup -body {
+test not-found-1 {not found} -constraints tpathexp -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /hello HTTP/1.1\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -47,7 +48,7 @@ test not-found-1 {not found} -setup setup -cleanup cleanup -body {
 } -result {HTTP/1.1 404\nContent-Type: text/plain\nContent-Length: 9\n\nnot found}
 
 sleep 200
-test bad-request-invalid-http-method {} -setup setup -cleanup cleanup -body {
+test bad-request-invalid-http-method {} -constraints tpathexp -setup setup -cleanup cleanup -body {
     global cmd
     set request "ABC /hello HTTP/1.1\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -56,7 +57,7 @@ test bad-request-invalid-http-method {} -setup setup -cleanup cleanup -body {
 } -result {HTTP/1.1 400\nContent-Length: 11\n\nBad Request}
 
 sleep 200
-test bad-request-invalid-http-version-1 {} -setup setup -cleanup cleanup -body {
+test bad-request-invalid-http-version-1 {} -constraints tpathexp -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /hello HTTP/A.B.C\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -65,7 +66,7 @@ test bad-request-invalid-http-version-1 {} -setup setup -cleanup cleanup -body {
 } -result {HTTP/1.1 400\nContent-Length: 11\n\nBad Request}
 
 sleep 200
-test bad-request-invalid-http-version-2 {} -setup setup -cleanup cleanup -body {
+test bad-request-invalid-http-version-2 {} -constraints tpathexp -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /hello HTTP/1.B\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -74,7 +75,7 @@ test bad-request-invalid-http-version-2 {} -setup setup -cleanup cleanup -body {
 } -result {HTTP/1.1 400\nContent-Length: 11\n\nBad Request}
 
 sleep 200
-test internal-server-error-1 {} -setup setup -cleanup cleanup -body {
+test internal-server-error-1 {} -constraints tpathexp -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /someerror HTTP/1.\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -83,7 +84,7 @@ test internal-server-error-1 {} -setup setup -cleanup cleanup -body {
 } -result {HTTP/1.1 500\nContent-Type: text/plain\nContent-Length: 21\n\nInternal Server Error}
 
 sleep 200
-test match-prefix-1 {} -setup setup -cleanup cleanup -body {
+test match-prefix-1 {} -constraints tpathexp -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /asdf HTTP/1.\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -91,7 +92,7 @@ test match-prefix-1 {} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 27\n\ntest message GET path=/asdf}
 
-test match-prefix-2 {} -setup setup -cleanup cleanup -body {
+test match-prefix-2 {} -constraints tpathexp -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /asdf/asdf HTTP/1.\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -99,7 +100,7 @@ test match-prefix-2 {} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 32\n\ntest message GET path=/asdf/asdf}
 
-test match-path-parameters-1 {} -setup setup -cleanup cleanup -body {
+test match-path-parameters-1 {} -constraints tpathexp -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /qwerty/12345/sayhi HTTP/1.\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -108,7 +109,7 @@ test match-path-parameters-1 {} -setup setup -cleanup cleanup -body {
 } -result {HTTP/1.1 200\ncontent-type: text/plain\nContent-Length: 70\n\ntest message GET path=/qwerty/12345/sayhi pathParameters=user_id 12345}
 
 
-test match-path-parameters-2 {} -setup setup -cleanup cleanup -body {
+test match-path-parameters-2 {} -constraints tpathexp -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /qwerty/54321/sayhi HTTP/1.\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -116,7 +117,7 @@ test match-path-parameters-2 {} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 200\ncontent-type: text/plain\nContent-Length: 70\n\ntest message GET path=/qwerty/54321/sayhi pathParameters=user_id 54321}
 
-test strict-do-not-match-trailing-backslash {} -setup setup -cleanup cleanup -body {
+test strict-do-not-match-trailing-backslash {} -constraints tpathexp -setup setup -cleanup cleanup -body {
     global cmd
     set request "GET /qwerty/54321/sayhi/ HTTP/1.\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -124,7 +125,7 @@ test strict-do-not-match-trailing-backslash {} -setup setup -cleanup cleanup -bo
     escape $response
 } -result {HTTP/1.1 404\nContent-Type: text/plain\nContent-Length: 9\n\nnot found}
 
-test match-post-request {} -setup setup -cleanup cleanup -body {
+test match-post-request {} -constraints tpathexp -setup setup -cleanup cleanup -body {
     global cmd
     set request "POST /example HTTP/1.\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"
@@ -132,7 +133,7 @@ test match-post-request {} -setup setup -cleanup cleanup -body {
     escape $response
 } -result {HTTP/1.1 200\nContent-Type: text/plain\nContent-Length: 26\n\ntest message POST headers=}
 
-test strict-do-not-match-post-request-with-trailing-backslash {} -setup setup -cleanup cleanup -body {
+test strict-do-not-match-post-request-with-trailing-backslash {} -constraints tpathexp -setup setup -cleanup cleanup -body {
     global cmd
     set request "POST /example/ HTTP/1.\n\n"
     set cmd "openssl s_client -connect localhost:${server_port} -servername localhost -quiet"

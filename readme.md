@@ -17,16 +17,17 @@ TCL Web Server Extension
 
 ## Version 2.0.0
 
-The bundled path matcher and native router implementation have been removed.
+The bundled path matcher, router, and middleware implementation have been removed.
 The old router commands and `-with_router` option remain as deprecated
 compatibility APIs backed by tpathexp. New applications use the ordinary
 `create_server config callback init_script` interface and send responses with
-`return_response`. Routing examples use tpathexp 1.1.0 or later
-and native C commands in twebserver for middleware, guards, and connection
-adaptation. Each worker loads both packages and binds its router with one alias
-to `::twebserver::process_conn`. See [Routing](docs/routing.md) for migration
-details. tpathexp is an example/test dependency, not a linked dependency of the
-server extension. The compatibility router also loads it on demand.
+`return_response`. Routing examples use tpathexp 1.2.0 or later
+for native routing and middleware. Native C commands in twebserver adapt
+legacy handlers and send responses. Each worker loads both packages and binds
+its router with one alias to `::twebserver::process_conn`. See [Routing](docs/routing.md) for migration
+details. `ttrek.json` includes tpathexp as a runtime routing dependency; the
+server extension does not link to it and loads it only when routing is used.
+Tests warn and skip routing cases when tpathexp is unavailable.
 
 ## Modules and Extensions
 

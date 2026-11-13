@@ -43,12 +43,17 @@ namespace eval ::twebserver::compat {
         }
     }
 
-    proc invoke {id handler guards name named wildcard req ctx params} {
-        variable routers
+    proc enter {guards name named wildcard ctx req} {
         if {$named} {dict set ctx route_name $name}
         if {$wildcard} {dict set req pathParameters {}}
-        return [::twebserver::invoke_handler $handler \
-            [dict get $routers $id middleware] $guards $req $ctx $params]
+        foreach guard $guards {set req [{*}$guard $ctx $req]}
+        return $req
+    }
+
+    proc invoke {handler name named wildcard req ctx params} {
+        if {$named} {dict set ctx route_name $name}
+        if {$wildcard} {dict set req pathParameters {}}
+        return [::twebserver::invoke_handler $handler $req $ctx $params]
     }
 
     proc dispatch {id ctx req} {
@@ -65,7 +70,7 @@ proc ::twebserver::create_router {args} {
     if {[llength $args] > 1 || ([llength $args] && [string match -* [lindex $args 0]])} {
         error {wrong # args: should be "twebserver::create_router ?-command_name command? ?varname?"}
     }
-    package require tpathexp 1.1.0
+    package require tpathexp 1.2.0
     set native [namespace which -command [::tpathexp::router]]
     set id _TWS_ROUTER_COMPAT_[incr ::twebserver::compat::next_id]
     set commands [list ::$id]
@@ -76,7 +81,7 @@ proc ::twebserver::create_router {args} {
         lappend commands $command
     }
     dict set ::twebserver::compat::routers $id \
-        [dict create native $native middleware {} routes {} commands $commands]
+        [dict create native $native routes {} commands $commands]
     foreach name $commands {
         interp alias {} $name {} ::twebserver::compat::dispatch $id
         trace add command $name {rename delete} [list ::twebserver::compat::command_trace $id]
@@ -131,7 +136,8 @@ proc ::twebserver::add_route {args} {
     set matcher [::tpathexp::compile {*}$flags -- $expression]
     try {set pattern [$matcher pattern]} finally {$matcher destroy}
     $native add $method $expression \
-        [list ::twebserver::compat::invoke $id $handler $guards $name $named $wildcard] {*}$flags
+        [list ::twebserver::compat::invoke $handler $name $named $wildcard] {*}$flags \
+        -enter_proc [list ::twebserver::compat::enter $guards $name $named $wildcard]
     set routes [dict get $::twebserver::compat::routers $id routes]
     lappend routes [dict create http_method $method path $path proc_name $handler type $type \
         option_prefix $prefix option_nocase $nocase option_strict $strict \
@@ -155,10 +161,8 @@ proc ::twebserver::add_middleware {args} {
     }
     if {$enter eq {} && $leave eq {}} {error "add_middleware: at least one enter or leave proc is required"}
     set id [lindex $args 0]
-    ::twebserver::compat::require_router $id
-    set middleware [dict get $::twebserver::compat::routers $id middleware]
-    lappend middleware [list $enter $leave]
-    dict set ::twebserver::compat::routers $id middleware $middleware
+    set native [::twebserver::compat::require_router $id]
+    $native add_middleware -enter_proc $enter -leave_proc $leave
     return
 }
 

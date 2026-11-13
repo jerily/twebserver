@@ -49,115 +49,13 @@ static int invoke_prefix(Tcl_Interp *interp, Tcl_Obj *prefix, int extra_count,
     return rc;
 }
 
-/* All state is per invocation: callbacks may recursively dispatch, change
- * application configuration, or delete the router that selected this handler. */
+/* Adapt legacy handler arguments. Routing and middleware belong to tpathexp. */
 int tws_InvokeHandlerCmd(ClientData clientData, Tcl_Interp *interp, int objc,
                          Tcl_Obj *const objv[]) {
     UNUSED(clientData);
-    CheckArgs(7, 7, 1, "handler middleware guards request context params");
-
-    Tcl_Obj *middleware = Tcl_DuplicateObj(objv[2]);
-    Tcl_Obj *guards = Tcl_DuplicateObj(objv[3]);
-    Tcl_Obj *req = objv[4];
-    Tcl_Obj *ctx = objv[5];
-    Tcl_Obj *leaves = Tcl_NewListObj(0, NULL);
-    Tcl_Obj *res = NULL;
-    Tcl_IncrRefCount(middleware);
-    Tcl_IncrRefCount(guards);
-    Tcl_IncrRefCount(req);
-    Tcl_IncrRefCount(leaves);
-
-    Tcl_Size count;
-    int rc = Tcl_ListObjLength(interp, middleware, &count);
-    if (rc != TCL_OK) goto failed;
-    for (Tcl_Size i = 0; i < count; ++i) {
-        Tcl_Obj *layer, *enter, *leave;
-        if (Tcl_ListObjIndex(interp, middleware, i, &layer) != TCL_OK ||
-            Tcl_ListObjIndex(interp, layer, 0, &enter) != TCL_OK ||
-            Tcl_ListObjIndex(interp, layer, 1, &leave) != TCL_OK) {
-            rc = TCL_ERROR;
-            goto failed;
-        }
-        /* Include this layer when its enter hook returns an HTTP response. */
-        if (leave != NULL && Tcl_GetCharLength(leave) != 0) {
-            rc = Tcl_ListObjAppendElement(interp, leaves, leave);
-            if (rc != TCL_OK) goto failed;
-        }
-        if (enter != NULL && Tcl_GetCharLength(enter) != 0) {
-            Tcl_Obj *args[] = {ctx, req};
-            rc = invoke_prefix(interp, enter, 2, args);
-            if (rc != TCL_OK) goto failed;
-            Tcl_Obj *next = Tcl_GetObjResult(interp);
-            Tcl_IncrRefCount(next);
-            Tcl_DecrRefCount(req);
-            req = next;
-        }
-    }
-
-    rc = Tcl_ListObjLength(interp, guards, &count);
-    if (rc != TCL_OK) goto failed;
-    for (Tcl_Size i = 0; i < count; ++i) {
-        Tcl_Obj *guard;
-        rc = Tcl_ListObjIndex(interp, guards, i, &guard);
-        if (rc != TCL_OK) goto failed;
-        Tcl_Obj *args[] = {ctx, req};
-        rc = invoke_prefix(interp, guard, 2, args);
-        if (rc != TCL_OK) goto failed;
-        Tcl_Obj *next = Tcl_GetObjResult(interp);
-        Tcl_IncrRefCount(next);
-        Tcl_DecrRefCount(req);
-        req = next;
-    }
-
-    /* tpathexp already populated req.pathParameters; objv[6] supplies the same
-     * captures separately for its standard request/context/params convention. */
-    Tcl_Obj *args[] = {ctx, req};
-    rc = invoke_prefix(interp, objv[1], 2, args);
-    if (rc != TCL_OK) goto failed;
-    res = Tcl_GetObjResult(interp);
-    Tcl_IncrRefCount(res);
-    goto leave;
-
-failed:
-    if (rc == TCL_ERROR) {
-        Tcl_Obj *options = Tcl_GetReturnOptions(interp, rc);
-        Tcl_Obj *status, *body;
-        Tcl_IncrRefCount(options);
-        if (dict_get(interp, options, "statusCode", 0, &status) == TCL_OK &&
-            dict_get(interp, options, "body", 0, &body) == TCL_OK &&
-            status != NULL && body != NULL) {
-            res = options;
-            Tcl_ResetResult(interp);
-            rc = TCL_OK;
-            goto leave;
-        }
-        Tcl_DecrRefCount(options);
-    }
-    /* Preserve the error and its return options. Ordinary errors skip leaves. */
-    goto done;
-
-leave:
-    Tcl_ListObjLength(interp, leaves, &count);
-    for (Tcl_Size i = count; i > 0; --i) {
-        Tcl_Obj *hook;
-        Tcl_ListObjIndex(interp, leaves, i - 1, &hook);
-        Tcl_Obj *leave_args[] = {ctx, req, res};
-        rc = invoke_prefix(interp, hook, 3, leave_args);
-        if (rc != TCL_OK) goto done;
-        Tcl_Obj *next = Tcl_GetObjResult(interp);
-        Tcl_IncrRefCount(next);
-        Tcl_DecrRefCount(res);
-        res = next;
-    }
-    Tcl_SetObjResult(interp, res);
-
-done:
-    if (res != NULL) Tcl_DecrRefCount(res);
-    Tcl_DecrRefCount(leaves);
-    Tcl_DecrRefCount(req);
-    Tcl_DecrRefCount(guards);
-    Tcl_DecrRefCount(middleware);
-    return rc;
+    CheckArgs(5, 5, 1, "handler request context params");
+    Tcl_Obj *args[] = {objv[3], objv[2]};
+    return invoke_prefix(interp, objv[1], 2, args);
 }
 
 static void log_dispatch_error(Tcl_Interp *interp, int code) {

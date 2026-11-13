@@ -45,15 +45,15 @@ implemented in twebserver's C extension:
   become logged 500 responses; all HEAD response bodies are cleared. Bind the
   router with `interp alias {} process_conn {} ::twebserver::process_conn $router`
   to use this as the server callback.
-* **::twebserver::invoke_handler** *handler middleware guards request context params*
-  runs enter hooks, guards, a `{ctx req}` handler, and reverse-order leave hooks.
-  Register `[list ::twebserver::invoke_handler $handler $middleware $guards]`
-  as a tpathexp route handler; tpathexp supplies the last three arguments.
-  See [Middleware](middleware.md) for the hook and early-response contracts.
+* **::twebserver::invoke_handler** *handler request context params* adapts a
+  `{ctx req}` handler to tpathexp's argument order.
+  Register `[list ::twebserver::invoke_handler $handler]` as a route handler;
+  tpathexp supplies the last three arguments and runs all middleware.
+  See [Middleware](middleware.md) for router and route hooks.
 
 ### Deprecated router compatibility commands
 
-These Tcl wrappers load tpathexp 1.1.0 or later on first use. They do not use a
+These Tcl wrappers load tpathexp 1.2.0 or later on first use. They do not use a
 bundled matcher. New code should use tpathexp directly.
 
 * **::twebserver::create_router** *?-command_name command?* *?varname?* creates a
@@ -63,7 +63,7 @@ bundled matcher. New code should use tpathexp directly.
   *?-nocase?* *?-strict?* *router method path handler* preserves the old
   `{ctx req}` handler signature. `-name` populates `ctx route_name`.
 * **::twebserver::add_middleware** *?-enter_proc prefix?* *?-leave_proc prefix?*
-  *router* composes the existing enter/leave signatures. Middleware registered
+  *router* forwards the hooks to `$router add_middleware` in tpathexp. Middleware registered
   after routes still applies to those routes.
 * **::twebserver::info_routes** *router* returns the registered route metadata.
   Regex patterns now use tpathexp's POSIX syntax.

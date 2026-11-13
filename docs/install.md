@@ -50,11 +50,11 @@ require tpathexp.
 
 ### Install routing support for examples and tests
 
-Build [tpathexp](https://github.com/jerily/tpathexp) 1.1.0 or later against the
-same Tcl ABI as twebserver:
+Build [tpathexp](https://github.com/jerily/tpathexp) 1.2.0 or later against the
+same Tcl ABI as twebserver. Until the middleware PR is merged, use its branch:
 
 ```bash
-git clone --branch v1.1.0 https://github.com/jerily/tpathexp.git ../tpathexp
+git clone --branch feat/router-middleware https://github.com/jerily/tpathexp.git ../tpathexp
 cmake -S ../tpathexp -B ../tpathexp/build
 cmake --build ../tpathexp/build
 cmake --install ../tpathexp/build
@@ -78,6 +78,9 @@ For examples using uninstalled builds, put both package directories on
 ```bash
 TCLLIBPATH="{$PWD/build} {$PWD/../tpathexp/build}" tclsh9.0 examples/example-best-with-router.tcl
 ```
+
+Routing tests print a warning and skip when tpathexp 1.2.0 cannot be loaded.
+Other server tests still run. `ttrek.json` declares the routing dependency.
 
 ### Or you can try your luck with docker
 

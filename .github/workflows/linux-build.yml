@@ -62,7 +62,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: jerily/tpathexp
-          ref: v1.1.0
+          ref: feat/router-middleware
           path: tpathexp
       - name: Build tpathexp for the routing tests
         run: |
