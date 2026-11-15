@@ -196,6 +196,7 @@ typedef struct {
     int server_fd;
     int epoll_fd;
     Tcl_TimerToken cleanup_timer;
+    long long cleanup_deadline_millis;
 } tws_thread_data_t;
 
 typedef struct {
