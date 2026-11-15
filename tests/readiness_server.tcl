@@ -1,6 +1,6 @@
 # Server fixture for readiness_test.tcl.
 # Ports and package location come from the runner.
-lassign $argv libdir http_port tls_port
+lassign $argv libdir http_port tls_port config_overrides
 lappend auto_path $libdir
 package require twebserver
 
@@ -51,6 +51,11 @@ append init_script {
                     [dict create statusCode 200 body ok]]
                 return
             }
+            /delayed {
+                after 1000 [list ::twebserver::return_response [dict get $ctx conn] \
+                    [dict create statusCode 200 body ok]]
+                return
+            }
             /nested {
                 after 2500 { set ::handler_done 1 }
                 vwait ::handler_done
@@ -65,6 +70,7 @@ append init_script {
 
 set config [dict create read_timeout_millis 1500 conn_timeout_millis 2000 \
     num_threads 1 garbage_collection_cleanup_threshold 3 gzip on gzip_types {text/plain} gzip_min_length 8192]
+set config [dict merge $config $config_overrides]
 set server [::twebserver::create_server $config process_conn $init_script]
 set certdir [file normalize [file join [file dirname [info script]] ../certs/host1]]
 ::twebserver::add_context $server localhost \

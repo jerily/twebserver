@@ -55,6 +55,13 @@ typedef struct {
     Tcl_EventProc *callback;
 } tws_conn_event_t;
 
+static int tws_TimerDelay(long long remaining) {
+    /* Tcl 9.1.0 multiplies milliseconds by 1000 as a signed int. Keep each
+     * timer within that range and recheck its deadline when it fires. This
+     * also works with binaries built against older Tcl stub tables. */
+    return (int) MIN(remaining, INT_MAX / 1000);
+}
+
 static void tws_DisarmConn(tws_conn_t *conn) {
     if (!conn->wait_mask) {
         return;
@@ -151,13 +158,14 @@ static void tws_ConnTimeout(ClientData clientData) {
     if (conn->shutdown) {
         return;
     }
-    if (!conn->read_timer) {
-        long long remaining = conn->accept_ctx->server->conn_timeout_millis -
-                              (current_time_in_millis() - conn->latest_millis);
-        if (remaining > 0) {
-            conn->timeout = Tcl_CreateTimerHandler((int) remaining, tws_ConnTimeout, conn);
-            return;
-        }
+    long long remaining = conn->read_timer ?
+            conn->accept_ctx->server->read_timeout_millis -
+                (current_time_in_millis() - conn->start_read_millis) :
+            conn->accept_ctx->server->conn_timeout_millis -
+                (current_time_in_millis() - conn->latest_millis);
+    if (remaining > 0) {
+        conn->timeout = Tcl_CreateTimerHandler(tws_TimerDelay(remaining), tws_ConnTimeout, conn);
+        return;
     }
     int reading = conn->read_timer;
     tws_CancelConnIO(conn);
@@ -188,7 +196,7 @@ void tws_StartConnTimer(tws_conn_t *conn, int reading) {
     }
     int delay = reading ? conn->accept_ctx->server->read_timeout_millis :
                           conn->accept_ctx->server->conn_timeout_millis;
-    conn->timeout = Tcl_CreateTimerHandler(delay, tws_ConnTimeout, conn);
+    conn->timeout = Tcl_CreateTimerHandler(tws_TimerDelay(delay), tws_ConnTimeout, conn);
 }
 
 void tws_KeepaliveConn(tws_conn_t *conn) {
@@ -204,9 +212,14 @@ void tws_KeepaliveConn(tws_conn_t *conn) {
 
 static void tws_CleanupTimer(ClientData clientData) {
     tws_thread_data_t *dataPtr = (tws_thread_data_t *) clientData;
-    tws_CleanupConnections();
+    long long remaining = dataPtr->cleanup_deadline_millis - current_time_in_millis();
+    if (remaining <= 0) {
+        tws_CleanupConnections();
+        remaining = dataPtr->server->garbage_collection_interval_millis;
+        dataPtr->cleanup_deadline_millis = current_time_in_millis() + remaining;
+    }
     dataPtr->cleanup_timer = Tcl_CreateTimerHandler(
-            dataPtr->server->garbage_collection_interval_millis, tws_CleanupTimer, dataPtr);
+            tws_TimerDelay(remaining), tws_CleanupTimer, dataPtr);
 }
 
 tws_server_t *tws_GetCurrentServer() {
@@ -1169,8 +1182,10 @@ Tcl_ThreadCreateType tws_HandleConnThread(ClientData clientData) {
     }
     Tcl_DecrRefCount(script_ptr);
 
+    dataPtr->cleanup_deadline_millis = current_time_in_millis() +
+            ctrl->server->garbage_collection_interval_millis;
     dataPtr->cleanup_timer = Tcl_CreateTimerHandler(
-            ctrl->server->garbage_collection_interval_millis, tws_CleanupTimer, dataPtr);
+            tws_TimerDelay(ctrl->server->garbage_collection_interval_millis), tws_CleanupTimer, dataPtr);
 
     // notify the main thread that we are done initializing
     Tcl_ConditionNotify(ctrl->cond_wait_ptr);

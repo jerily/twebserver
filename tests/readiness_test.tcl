@@ -99,7 +99,7 @@ proc ::readiness::log {} {
     try { return [string range [read $ch] end-7999 end] } finally { close $ch }
 }
 
-proc ::readiness::start {} {
+proc ::readiness::start {{config {}}} {
     variable clients {}
     variable childPids {}
     variable pending {}
@@ -114,7 +114,7 @@ proc ::readiness::start {} {
     lassign [reservePorts] httpPort tlsPort
     set logChannel [file tempfile logPath]
     close $logChannel
-    set command [list $tclsh [file join $here readiness_server.tcl] $libdir $httpPort $tlsPort]
+    set command [list $tclsh [file join $here readiness_server.tcl] $libdir $httpPort $tlsPort $config]
     set server [open [concat | $command [list 2> $logPath]] r+]
     set serverPid [lindex [pid $server] 0]
     binaryChannel $server
@@ -526,6 +526,40 @@ namespace eval ::readiness {
                 closeClient $channel
                 healthy $tls
             }
+        } -result {}
+    test readiness-long-connection-timeout {one-hour async and keepalive timers sleep without overflowing} \
+        -setup {start {conn_timeout_millis 3600000}} -cleanup stop -body {
+            foreach tls {0 1} {
+                set channel [connect $tls]
+                send $channel "GET /delayed HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n"
+                sleeping
+                expect $channel ok
+                sleeping
+                send $channel "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+                expect $channel ok
+                closeClient $channel
+            }
+        } -result {}
+    test readiness-long-read-timeout {one-hour request and handshake timers do not expire immediately} \
+        -setup {start {read_timeout_millis 3600000}} -cleanup stop -body {
+            foreach tls {0 1} {
+                set channel [connect $tls]
+                send $channel "GET / HTTP/1.1\r\nHost: local"
+                sleeping
+                send $channel "host\r\nConnection: close\r\n\r\n"
+                expect $channel ok
+                closed $channel
+            }
+            set channel [connect 1 1]
+            sleeping
+            check {[read $channel] eq {} && ![eof $channel]} "long TLS handshake timer expired early"
+            closeClient $channel
+        } -result {}
+    test readiness-long-cleanup-interval {one-hour cleanup timer sleeps without overflowing} \
+        -setup {start {garbage_collection_interval_millis 3600000}} -cleanup stop -body {
+            sleeping
+            healthy
+            healthy 1
         } -result {}
     test readiness-slow-http {blocked HTTP response resumes when client reads} \
         -setup start -cleanup stop -body { slowReader } -result {}
