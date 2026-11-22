@@ -46,6 +46,16 @@ append init_script {
                         [dict create Set-Cookie [list {a=1; Path=/} {b=2; Expires=Wed, 21 Oct 2037 07:28:00 GMT}]]]
                 return
             }
+            /events {
+                set ::eventStream [::twebserver::open_stream [dict get $ctx conn]]
+                $::eventStream write "data: first\n\n"
+                return
+            }
+            /finish-events {
+                $::eventStream write "data: last\n\n"
+                $::eventStream finish
+                set body ok
+            }
             /deferred {
                 after 0 [list ::twebserver::return_response [dict get $ctx conn] \
                     [dict create statusCode 200 body ok]]

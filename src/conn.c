@@ -475,6 +475,8 @@ tws_conn_t *tws_NewConn(tws_accept_ctx_t *accept_ctx, int client, char client_ip
     conn->ready = 0;
     conn->handshaked = 0;
     conn->inprogress = 0;
+    conn->response_started = 0;
+    conn->stream = NULL;
     conn->shutdown = 0;
     conn->prevPtr = NULL;
     conn->nextPtr = NULL;
@@ -795,6 +797,10 @@ int tws_HandleTermEventInThread(Tcl_Event *evPtr, int flags) {
     close(dataPtr->server_fd);
 #endif
     dataPtr->terminate = 1;
+    /* Long-lived subscribers reconnect after a rolling shutdown. */
+    for (tws_conn_t *conn = dataPtr->firstConnPtr; conn; conn = conn->nextPtr) {
+        if (conn->stream) tws_CloseConn(conn, 1);
+    }
     return 1;
 }
 

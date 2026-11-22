@@ -140,6 +140,8 @@
   ::twebserver::return_response $handle $response_dict
   ```
   
+* **::twebserver::open_stream** *connection* opens a 200 `text/event-stream` response in a low-level request handler. It returns a command belonging to that response and listener thread. Use `$stream write [encoding convertto utf-8 $frame]` for each SSE frame, `$stream finish` to drain pending writes, or `$stream abort` to close immediately. Slow clients exceeding the 1 MiB write queue are disconnected. The command expires on disconnect or timeout.
+
 ### Utility Commands
 
 #### Encode/Decode URIs

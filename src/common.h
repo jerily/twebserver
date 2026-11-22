@@ -146,6 +146,8 @@ typedef struct tws_conn_t_ {
     int ready;
     int handshaked;
     int inprogress;
+    int response_started;
+    struct tws_stream *stream;
     int shutdown;
     struct tws_conn_t_ *prevPtr;
     struct tws_conn_t_ *nextPtr;
@@ -192,6 +194,7 @@ typedef struct {
     int num_conns;
     int num_requests;
     int thread_pivot;
+    Tcl_WideInt stream_serial;
     int terminate;
     int server_fd;
     int epoll_fd;

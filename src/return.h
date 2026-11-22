@@ -8,6 +8,7 @@
 
 #include "common.h"
 
+ObjCmdProc(tws_OpenStreamCmd);
 int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *responseDictPtr);
 int tws_CloseConn(tws_conn_t *conn, int force);
 int tws_CleanupConnections();
