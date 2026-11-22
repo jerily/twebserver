@@ -11,6 +11,27 @@
 #include "conn.h"
 
 #define MAX_CHUNK_SIZE 10485760
+#define MAX_STREAM_QUEUE (1024 * 1024)
+
+typedef struct tws_stream {
+    Tcl_Interp *interp;
+    Tcl_Command command;
+    Tcl_DString pending;
+    int ending;
+} tws_stream_t;
+
+static void tws_StreamDeleted(ClientData data) {
+    ((tws_conn_t *)data)->stream->command = NULL;
+}
+
+static void tws_FreeStream(tws_conn_t *conn) {
+    tws_stream_t *stream = conn->stream;
+    if (!stream) return;
+    if (stream->command) Tcl_DeleteCommandFromToken(stream->interp, stream->command);
+    Tcl_DStringFree(&stream->pending);
+    ckfree(stream);
+    conn->stream = NULL;
+}
 
 void tws_QueueCleanupEvent();
 static void tws_ShutdownConn(tws_conn_t *conn);
@@ -195,11 +216,14 @@ int tws_CloseConn(tws_conn_t *conn, int force) {
     conn->ready = 0;
     conn->head_only = 0;
     conn->inprogress = 0;
+    conn->response_started = 0;
+    tws_FreeStream(conn);
 //    conn->handshaked = 0;
     for (Tcl_Size i = 0; i < conn->n_chunks; i++) {
         Tcl_DStringFree(&conn->chunks_ds[i]);
     }
     ckfree(conn->chunks_ds);
+    conn->chunks_ds = NULL;
     conn->n_chunks = 0;
     conn->chunk_offset = 0;
 
@@ -264,6 +288,18 @@ static int tws_HandleWrite(tws_conn_t *conn) {
         }
     }
 
+    if (conn->stream) {
+        /* Keep the active buffer immutable across an SSL_write retry. */
+        tws_stream_t *stream = conn->stream;
+        Tcl_DStringSetLength(ds_ptr, 0);
+        conn->write_offset = 0;
+        if (Tcl_DStringLength(&stream->pending)) {
+            Tcl_DStringAppend(ds_ptr, Tcl_DStringValue(&stream->pending), Tcl_DStringLength(&stream->pending));
+            Tcl_DStringSetLength(&stream->pending, 0);
+            return 0;
+        }
+        if (!stream->ending) return 1;
+    }
     // TWS_DONE
     tws_CloseConn(conn, 0);
 
@@ -298,6 +334,7 @@ static void tws_QueueWriteEvent(tws_conn_t *conn) {
     assert(valid_conn_handle(conn));
 
     DBG2(printf("QueueWriteEvent - threadId: %p conn: %s\n", conn->threadId, conn->handle));
+    conn->response_started = 1;
     conn->write_offset = 0;
     tws_StartConnTimer(conn, 0);
     tws_QueueConnEvent(conn, tws_HandleWriteEventInThread);
@@ -305,7 +342,82 @@ static void tws_QueueWriteEvent(tws_conn_t *conn) {
 
 }
 
+/* The handle is unique to this response and expires when its connection closes. */
+static int tws_StreamCmd(ClientData data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    tws_conn_t *conn = data;
+    tws_stream_t *stream = conn->stream;
+    static const char *const operations[] = {"write", "finish", "abort", NULL};
+    int operation;
+    CheckArgs(2, 3, 1, "write bytes | finish | abort");
+    if (Tcl_GetIndexFromObj(interp, objv[1], operations, "operation", TCL_EXACT, &operation) != TCL_OK) return TCL_ERROR;
+    if (objc != (operation == 0 ? 3 : 2)) {
+        Tcl_WrongNumArgs(interp, 1, objv, "write bytes | finish | abort");
+        return TCL_ERROR;
+    }
+    if (operation == 2) return tws_CloseConn(conn, 1);
+    if (stream->ending) {
+        SetResult("stream already finished");
+        return TCL_ERROR;
+    }
+    int idle = Tcl_DStringLength(&conn->inout_ds) == 0;
+    Tcl_DString *queue = idle ? &conn->inout_ds : &stream->pending;
+    if (operation == 0) {
+        Tcl_Size length;
+        unsigned char *bytes = Tcl_GetByteArrayFromObj(objv[2], &length);
+        if (!length) return TCL_OK;
+        if (length > MAX_STREAM_QUEUE - Tcl_DStringLength(&stream->pending) -
+                     Tcl_DStringLength(&conn->inout_ds) - 32) {
+            tws_CloseConn(conn, 1);
+            SetResult("stream exceeded its pending write limit");
+            return TCL_ERROR;
+        }
+        char size[32];
+        snprintf(size, sizeof(size), "%zx\r\n", (size_t)length);
+        Tcl_DStringAppend(queue, size, -1);
+        Tcl_DStringAppend(queue, (const char *)bytes, length);
+        Tcl_DStringAppend(queue, "\r\n", 2);
+    } else {
+        stream->ending = 1;
+        Tcl_DStringAppend(queue, "0\r\n\r\n", 5);
+    }
+    if (idle) tws_QueueWriteEvent(conn);
+    return TCL_OK;
+}
+
+int tws_OpenStreamCmd(ClientData data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    UNUSED(data);
+    CheckArgs(2, 2, 1, "connection");
+    tws_thread_data_t *thread = Tcl_GetThreadData(tws_GetThreadDataKey(), sizeof(*thread));
+    const char *name = Tcl_GetString(objv[1]);
+    tws_conn_t *conn = thread->firstConnPtr;
+    while (conn && strcmp(conn->handle, name)) conn = conn->nextPtr;
+    if (!conn || thread->terminate || conn->shutdown || !conn->inprogress || conn->head_only || conn->response_started) {
+        SetResult("connection is unavailable for streaming");
+        return TCL_ERROR;
+    }
+    tws_stream_t *stream = ckalloc(sizeof(*stream));
+    conn->stream = stream;
+    stream->interp = interp;
+    stream->ending = 0;
+    Tcl_DStringInit(&stream->pending);
+    char handle[80];
+    snprintf(handle, sizeof(handle), "::twebserver::stream%lld", (long long)++thread->stream_serial);
+    stream->command = Tcl_CreateObjCommand(interp, handle, tws_StreamCmd, conn, tws_StreamDeleted);
+    conn->keepalive = 0;
+    Tcl_DStringSetLength(&conn->inout_ds, 0);
+    Tcl_DStringAppend(&conn->inout_ds, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\n"
+            "Cache-Control: no-store, no-transform\r\nX-Content-Type-Options: nosniff\r\n"
+            "Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n", -1);
+    tws_QueueWriteEvent(conn);
+    Tcl_SetObjResult(interp, Tcl_NewStringObj(handle, -1));
+    return TCL_OK;
+}
+
 int tws_ReturnConn(Tcl_Interp *interp, tws_conn_t *conn, Tcl_Obj *const responseDictPtr) {
+    if (conn->response_started) {
+        SetResult("response already started");
+        return TCL_ERROR;
+    }
     assert(valid_conn_handle(conn));
 
     if (!conn->accept_ctx || conn->shutdown) {

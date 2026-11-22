@@ -378,6 +378,29 @@ namespace eval ::readiness {
                 closeClient $channel
             }
         } -result {}
+    test readiness-sse {HTTP and TLS deliver the first SSE frame while the producer is paused} \
+        -setup start -cleanup stop -body {
+            foreach tls {0 1} {
+                set channel [connect $tls]
+                send $channel "GET /events HTTP/1.1\r\nHost: localhost\r\nAccept-Encoding: gzip\r\n\r\n"
+                set partial {}
+                set deadline [expr {[clock clicks -milliseconds] + 4000}]
+                while {[string first "data: first\n\n" $partial] < 0} {
+                    set bytes [chunk $channel $deadline]
+                    check {$bytes ne {}} "stream closed before the first event"
+                    append partial $bytes
+                }
+                dict set ::readiness::pending $channel $partial
+                set trigger [connect $tls]
+                send $trigger "GET /finish-events HTTP/1.1\r\nHost: localhost\r\n\r\n"
+                expect $trigger ok
+                lassign [response $channel] status body headers
+                check {$status == 200 && $body eq "data: first\n\ndata: last\n\n"} "stream body mismatch"
+                check {[lindex [dict get $headers content-type] 0] eq "text/event-stream; charset=utf-8"} "wrong content type"
+                check {![dict exists $headers content-encoding]} "unexpected buffered encoding"
+                closed $channel
+            }
+        }
     test readiness-chunked {large responses omit Content-Length when chunked} \
         -setup start -cleanup stop -body {
             set channel [connect]

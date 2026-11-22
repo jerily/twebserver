@@ -2131,6 +2131,7 @@ int Twebserver_Init(Tcl_Interp *interp) {
 
     Tcl_CreateObjCommand(interp, "::twebserver::ipv6_to_ipv4", tws_IpV6ToIpV4Cmd, NULL, NULL);
 
+    Tcl_CreateObjCommand(interp, "::twebserver::open_stream", tws_OpenStreamCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "::twebserver::return_response", tws_ReturnResponseCmd, NULL, NULL);
 
     return Tcl_PkgProvide(interp, "twebserver", XSTR(VERSION));
