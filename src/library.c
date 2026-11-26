@@ -718,13 +718,8 @@ static int tws_EncodeURIComponentCmd(ClientData clientData, Tcl_Interp *interp, 
     DBG2(printf("EncodeURIComponentCmd\n"));
     CheckArgs(2, 2, 1, "text");
 
-    int enc_flags = CHAR_COMPONENT;
-
-    Tcl_Size length;
-    const char *text = Tcl_GetStringFromObj(objv[1], &length);
-
     Tcl_Obj *valuePtr;
-    if (TCL_OK != tws_UrlEncode(enc_flags, text, length, &valuePtr)) {
+    if (TCL_OK != tws_UrlEncode(interp, CHAR_COMPONENT, objv[1], &valuePtr)) {
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
@@ -737,13 +732,8 @@ static int tws_EncodeQueryCmd(ClientData clientData, Tcl_Interp *interp, int obj
     DBG2(printf("EncodeQueryCmd\n"));
     CheckArgs(2, 2, 1, "text");
 
-    int enc_flags = CHAR_QUERY;
-
-    Tcl_Size length;
-    const char *text = Tcl_GetStringFromObj(objv[1], &length);
-
     Tcl_Obj *valuePtr;
-    if (TCL_OK != tws_UrlEncode(enc_flags, text, length, &valuePtr)) {
+    if (TCL_OK != tws_UrlEncode(interp, CHAR_QUERY, objv[1], &valuePtr)) {
         return TCL_ERROR;
     }
     Tcl_SetObjResult(interp, valuePtr);
@@ -1193,11 +1183,8 @@ static int tws_AddCookieCmd(ClientData clientData, Tcl_Interp *interp, int incom
     Tcl_DStringAppend(&header_value_ds, "=", 1);
 
     // encode the cookie value
-    int enc_flags = CHAR_COMPONENT;
     Tcl_Obj *cookieValuePtr;
-    Tcl_Size cookie_value_length;
-    const char *cookie_value = Tcl_GetStringFromObj(remObjv[3], &cookie_value_length);
-    if (TCL_OK != tws_UrlEncode(enc_flags, cookie_value, cookie_value_length, &cookieValuePtr)) {
+    if (TCL_OK != tws_UrlEncode(interp, CHAR_COMPONENT, remObjv[3], &cookieValuePtr)) {
         ckfree(remObjv);
         Tcl_DStringFree(&header_value_ds);
         return TCL_ERROR;
