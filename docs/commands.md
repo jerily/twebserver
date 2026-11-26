@@ -146,8 +146,8 @@
 
 #### Encode/Decode URIs
 
-* **:twebserver::encode_uri_component** *string*
-    - encodes a string for use in a URI
+* **::twebserver::encode_uri_component** *string*
+    - percent-encodes UTF-8 bytes, preserving ASCII letters, digits, and `-._~`
 * **::twebserver::decode_uri_component** *string* *encoding_name*
     - decodes a string from a URI
 * **::twebserver::encode_query** *query_string*

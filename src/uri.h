@@ -17,7 +17,7 @@ enum shared_char_types {
     CHAR_DEC = 16,
     // Valid in an ASCII-representation of an octal digit.
     CHAR_OCT = 32,
-    // Characters that do not require escaping in encodeURIComponent.
+    // RFC 3986 unreserved characters in a URI component.
     CHAR_COMPONENT = 64,
 };
 
@@ -29,16 +29,16 @@ static const unsigned char shared_char_type_table[0x100] = {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x00 - 0x0f
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  // 0x10 - 0x1f
         0,                           // 0x20  ' ' (escape spaces in queries)
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x21  !
+        CHAR_QUERY | CHAR_USERINFO,  // 0x21  !
         0,                           // 0x22  "
         0,                           // 0x23  #  (invalid in query since it marks the ref)
         CHAR_QUERY | CHAR_USERINFO,  // 0x24  $
         CHAR_QUERY | CHAR_USERINFO,  // 0x25  %
         CHAR_QUERY | CHAR_USERINFO,  // 0x26  &
         0,                           // 0x27  '  (Try to prevent XSS.)
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x28  (
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x29  )
-        CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x2a  *
+        CHAR_QUERY | CHAR_USERINFO,  // 0x28  (
+        CHAR_QUERY | CHAR_USERINFO,  // 0x29  )
+        CHAR_QUERY | CHAR_USERINFO,  // 0x2a  *
         CHAR_QUERY | CHAR_USERINFO,  // 0x2b  +
         CHAR_QUERY | CHAR_USERINFO,  // 0x2c  ,
         CHAR_QUERY | CHAR_USERINFO | CHAR_COMPONENT,  // 0x2d  -

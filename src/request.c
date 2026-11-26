@@ -92,9 +92,20 @@ int tws_UrlDecode(Tcl_Encoding encoding, const char *value, Tcl_Size value_lengt
     return TCL_OK;
 }
 
-int tws_UrlEncode(int enc_flags, const char *value, Tcl_Size value_length, Tcl_Obj **valuePtrPtr) {
-    // use "enc" to encode "value" into "valuePtr"
-    // allocate memory for "valuePtr"
+int tws_UrlEncode(Tcl_Interp *interp, int enc_flags, Tcl_Obj *text, Tcl_Obj **valuePtrPtr) {
+    Tcl_Encoding utf8 = Tcl_GetEncoding(interp, "utf-8");
+    if (utf8 == NULL) return TCL_ERROR;
+    Tcl_Size length;
+    const char *internal = Tcl_GetStringFromObj(text, &length);
+    Tcl_DString bytes;
+    const char *value = Tcl_UtfToExternalDString(utf8, internal, length, &bytes);
+    Tcl_FreeEncoding(utf8);
+    Tcl_Size value_length = Tcl_DStringLength(&bytes);
+    if (value_length > (TCL_SIZE_MAX - 1) / 3) {
+        Tcl_DStringFree(&bytes);
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("URI value is too large", -1));
+        return TCL_ERROR;
+    }
     char *valuePtr = (char *) ckalloc(3 * value_length + 1);
     char *q = valuePtr;
     const char *p = value;
@@ -122,6 +133,7 @@ int tws_UrlEncode(int enc_flags, const char *value, Tcl_Size value_length, Tcl_O
         }
         p++;
     }
+    Tcl_DStringFree(&bytes);
     *valuePtrPtr = Tcl_NewStringObj(valuePtr, q - valuePtr);
     ckfree(valuePtr);
     return TCL_OK;

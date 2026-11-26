@@ -11,3 +11,6 @@ namespace import -force ::tcltest::test
 
 test encode_query_ok {} {::twebserver::encode_query "abc 123"} {abc+123}
 
+test encode_query_utf8 {preserve separators while encoding NUL} -body {
+    ::twebserver::encode_query "a=b\x00&c=x y"
+} -result {a=b%00&c=x+y}
